@@ -1,11 +1,18 @@
 import argparse
 import logging
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 
+def _make_module(sub_dir: Path):
+    sub_dir.mkdir(parents=True, exist_ok=True)
+    (sub_dir / "__init__.py").touch(exist_ok=True)
+
+
 class AddModalityTool:
     """Generates a directory or set of directories in the checked-in repository for ease of development."""
+    sub_dirs_to_make: list[str] = ["config", "data", "model", "scripts", "scripts/train", "scripts/eval"]
 
     def __init__(self, name: str) -> None:
         """Instantiates a simple ModalityGenerator CLI object with the configured name to generate a modality for."""
@@ -13,7 +20,9 @@ class AddModalityTool:
 
     def generate_modality_dirs(self) -> None:
         """Performs the actual generation of a modality directory or set of directories."""
-        pass
+        root = Path("src") / "larry" / self.name
+        _make_module(root)
+        [_make_module(root / sub) for sub in self.sub_dirs_to_make]
 
 
 def main() -> None:
@@ -36,6 +45,6 @@ def main() -> None:
     args = argparser.parse_args()
 
     generator = AddModalityTool(args.name)
-    log.info(f"Creating modality modules for {args.name}...")
+    log.warning(f"Creating modality modules for {args.name}...")
     generator.generate_modality_dirs()
-    log.info(f"Finished creating modality modules for {args.name}.")
+    log.warning(f"Finished creating modality modules for {args.name}.")
