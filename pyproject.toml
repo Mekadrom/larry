@@ -5,3 +5,35 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy"
+]
+
+[tool.ruff]
+line-length = 122
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle
+    "F", # Pyflakes
+    "UP", # pyupgrade
+    "B", # flake-bugbear
+    "SIM", # flake8-simplify
+    "I", # isort
+    "D", # docs
+    "ANN", # flake8 type annotations
+]
+ignore = [
+    "D401", # `non-imperative-mood`
+    "D404", # `docstring-starts-with-this`
+    "D400", # end with period
+    "D415", # end with punctuation
+    "D203", # `incorrect-blank-line-before-class - incomptaible with (D203) `no-blank-line-before-class`
+    "D213", # `multi-line-summary-second-line` - incompatible with (D212) `multi-line-summary-first-line`
+]
+
+[project.scripts]
+add-modality = "buildscripts:add_modality"
