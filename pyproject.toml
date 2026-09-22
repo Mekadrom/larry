@@ -1,10 +1,12 @@
 [project]
-name = "larry-v2"
-version = "0.1.0"
+name = "larry"
+version = "2.0.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "argparse>=1.4.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -27,6 +29,8 @@ select = [
     "ANN", # flake8 type annotations
 ]
 ignore = [
+    "D100", # docs for modules
+    "D104", # docs for packages
     "D401", # `non-imperative-mood`
     "D404", # `docstring-starts-with-this`
     "D400", # end with period
@@ -35,5 +39,9 @@ ignore = [
     "D213", # `multi-line-summary-second-line` - incompatible with (D212) `multi-line-summary-first-line`
 ]
 
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13"]
+build-backend = "uv_build"
+
 [project.scripts]
-add-modality = "buildscripts:add_modality"
+add-modality = "buildscripts.add_modality:main"
