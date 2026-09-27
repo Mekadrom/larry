@@ -1,0 +1,91 @@
+dataset:
+  config: TestImageDatasetConfig
+  overrides:
+    - name: cache_dir
+      value: /home/zadar/dev/projects/larry/.cache/intermediates/image/gen/test_dataset
+
+preprocessor:
+  provenanceColumns:
+    - key
+    - shard_id
+
+pipeline:
+  mappers:
+    - name: ColumnValuesPruningPreprocessingMapper
+      config: ColumnValuesPruningPreprocessingMapperConfig
+      inputs:
+        - name: values
+          value:
+            - "success"
+        - name: op
+          value: "nin"
+        - name: input_column
+          value: "status"
+        - name: op_config
+          value:
+            containing: true
+            case_sensitive: false
+        - name: remove_column
+          value: true
+        - name: remove_columns
+          value:
+            - "width"
+            - "height"
+            - "original_width"
+            - "original_height"
+            - "error_message"
+    - name: NestedExtractionPreprocessingMapper
+      config: NestedExtractionPreprocessingMapperConfig
+      inputs:
+        - name: input_column
+          value: "exif"
+        - name: output_column
+          value:
+            - "exif_copyright"
+            - "text_original"
+        - name: json_path_to_output_column_mappings
+          value:
+            - jsonPath: "$.'Image Copyright'"
+              outputColumn: "exif_copyright"
+            - jsonPath: "$.'Image XPComment'"
+              outputColumn: "text_original"
+        - name: drop_missing_type
+          value: any
+    - name: ColumnValuesPruningPreprocessingMapper
+      config: ColumnValuesPruningPreprocessingMapperConfig
+      inputs:
+        - name: values
+          value:
+            - "SA"
+            - "NC"
+            - "ND"
+        - name: op
+          value: "in"
+        - name: input_column
+          value: "exif_copyright"
+        - name: op_config
+          value:
+            containing: true
+            case_sensitive: false
+    - name: ColumnValuesPruningPreprocessingMapper
+      config: ColumnValuesPruningPreprocessingMapperConfig
+      inputs:
+        - name: values
+          value:
+            - ~
+            - ""
+        - name: op
+          value: "eq"
+        - name: input_column
+          value: "text_original"
+    - name: TextNormalizingPreprocessingMapper
+      config: TextPreprocessingMapperConfig
+      inputs:
+        - name: input_column
+          value: "text_original"
+    - name: TextTokenizingPreprocessingMapper
+      config: SmolLM2TextTokenizationPreprocessingMapperConfig
+    - name: URLDownloadingImagePreprocessingMapper
+      config: URLDownloadingImagePreprocessingMapperConfig
+    - name: ImageResizingPreprocessingMapper
+      config: ImageResizingPreprocessingMapperConfig

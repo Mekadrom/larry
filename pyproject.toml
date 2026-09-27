@@ -1,18 +1,31 @@
 [project]
 name = "larry"
-version = "2.0.0"
+version = "1.0.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
-    "argparse>=1.4.0",
+    "datasets>=5.0.1",
+    "pillow>=12.3.0",
+    "pyyaml>=6.0.3",
+    "requests>=2.34.2",
+    "torch>=2.9",
+    "torchaudio>=2.9",
+    "torchvision>=0.21.0",
+    "torchcodec>=0.16.0",
+    "transformers>=5.17.0",
+    "jsonpath-ng[extras]>=1.8.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "ruff",
-    "mypy"
-]
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
 
 [tool.ruff]
 line-length = 122
@@ -37,11 +50,27 @@ ignore = [
     "D415", # end with punctuation
     "D203", # `incorrect-blank-line-before-class - incomptaible with (D203) `no-blank-line-before-class`
     "D213", # `multi-line-summary-second-line` - incompatible with (D212) `multi-line-summary-first-line`
+    "ANN401", # disallows typing.Any
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
 
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13"]
 build-backend = "uv_build"
 
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff",
+    "mypy",
+]
+
 [project.scripts]
+# uv run add-modality --help
 add-modality = "buildscripts.add_modality:main"
+# uv run preprocessing <task> --help
+preprocess = "larry.common.data.preprocessing:main"

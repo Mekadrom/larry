@@ -5,13 +5,14 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 
-def _make_module(sub_dir: Path):
+def _make_module(sub_dir: Path) -> None:
     sub_dir.mkdir(parents=True, exist_ok=True)
     (sub_dir / "__init__.py").touch(exist_ok=True)
 
 
 class AddModalityTool:
     """Generates a directory or set of directories in the checked-in repository for ease of development."""
+
     sub_dirs_to_make: list[str] = ["config", "data", "model", "scripts", "scripts/train", "scripts/eval"]
 
     def __init__(self, name: str) -> None:

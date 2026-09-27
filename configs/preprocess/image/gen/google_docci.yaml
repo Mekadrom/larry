@@ -1,0 +1,28 @@
+dataset:
+  config: GoogleDOCCIMediaCachedDatasetConfig
+  overrides:
+    - name: download_extract_cache_dir
+      value: /home/zadar/dev/projects/larry/.cache/download_extract/image/gen/google_docci/
+    - name: cache_dir
+      value: /home/zadar/dev/projects/larry/.cache/intermediates/image/gen/google_docci/
+
+preprocessor:
+  provenanceColumns:
+    -
+
+pipeline:
+  mappers:
+    - name: TextNormalizingPreprocessingMapper
+      config: TextPreprocessingMapperConfig
+      inputs:
+        - name: input_column
+          value: "answer"
+        - name: remove_columns
+          value:
+            - "question"
+        - name: batch_size
+          value: 64
+    - name: TextTokenizingPreprocessingMapper
+      config: SmolLM2TextTokenizationPreprocessingMapperConfig
+    - name: ImageResizingPreprocessingMapper
+      config: ImageResizingPreprocessingMapperConfig

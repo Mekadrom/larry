@@ -1,0 +1,38 @@
+dataset:
+  config: CommonVoiceMediaCachedDatasetConfig
+  overrides:
+    - name: download_extract_cache_dir
+      value: /home/zadar/dev/projects/larry/.cache/download_extract/voice/tts/common_voice/
+    - name: cache_dir
+      value: /home/zadar/dev/projects/larry/.cache/intermediates/voice/tts/common_voice/
+
+preprocessor:
+  provenanceColumns:
+    - librivox_book_id
+    - speaker_id
+
+pipeline:
+  mappers:
+    - name: AudioDurationColumnPruningPreprocessingMapper
+      config: AudioDurationColumnPruningPreprocessingMapperConfig
+      inputs:
+        - name: input_column
+          value: "audio_duration"
+        - name: remove_column
+          value: true
+        - name: remove_columns
+          value:
+            - "text_transcription"
+    - name: AudioColumnCastPreprocessingMapper
+      config: AudioColumnCastPreprocessingMapperConfig
+    - name: AudioQualityPruningPreprocessingMapper
+      config: AudioQualityPruningPreprocessingMapperConfigForTTS
+    - name: MelExtractingPreprocessingMapper
+      config: MelExtractingPreprocessingMapperConfig
+    - name: TextNormalizingPreprocessingMapper
+      config: TextPreprocessingMapperConfig
+      inputs:
+        - name: input_column
+          value: "text_original"
+    - name: TextTokenizingPreprocessingMapper
+      config: SmolLM2TextTokenizationPreprocessingMapperConfig
