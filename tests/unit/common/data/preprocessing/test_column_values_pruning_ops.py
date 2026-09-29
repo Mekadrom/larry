@@ -4,8 +4,8 @@ from typing import Any
 import pytest
 from datasets import Dataset
 
-from larry.common.config.preprocessing_mapper_configs import ColumnValuesPruningPreprocessingMapperConfig
-from larry.common.data.preprocessing.preprocessing_mappers import ColumnValuesPruningPreprocessingMapper
+from larry.common.config.pruner_configs import ColumnValuesPrunerConfig
+from larry.common.data.preprocessing.pruners import ColumnValuesPruner
 
 
 @pytest.mark.parametrize(
@@ -25,7 +25,7 @@ from larry.common.data.preprocessing.preprocessing_mappers import ColumnValuesPr
     ]
 )
 def test_op_in_returns_true(op_config: dict[str, Any], values: list[Any | None], example: str) -> None:
-    assert ColumnValuesPruningPreprocessingMapper.op_in(op_config, values, example)
+    assert ColumnValuesPruner.op_matches(op_config, values, example)
 
 
 @pytest.mark.parametrize(
@@ -41,11 +41,11 @@ def test_op_in_returns_true(op_config: dict[str, Any], values: list[Any | None],
     ]
 )
 def test_op_in_returns_false(op_config: dict[str, Any], values: list[Any | None], example: str) -> None:
-    assert not ColumnValuesPruningPreprocessingMapper.op_in(op_config, values, example)
+    assert not ColumnValuesPruner.op_matches(op_config, values, example)
 
 
 def test_column_values_pruning_status() -> None:
-    config = ColumnValuesPruningPreprocessingMapperConfig(
+    config = ColumnValuesPrunerConfig(
         values=["success"],
         op="nin",
         input_column="status",
@@ -55,7 +55,7 @@ def test_column_values_pruning_status() -> None:
         }
     )
 
-    sut = ColumnValuesPruningPreprocessingMapper(config)
+    sut = ColumnValuesPruner(config)
 
     dataset = Dataset.from_dict(
         {
@@ -80,7 +80,7 @@ def test_column_values_pruning_status() -> None:
 
 
 def test_column_values_pruning() -> None:
-    config = ColumnValuesPruningPreprocessingMapperConfig(
+    config = ColumnValuesPrunerConfig(
         values=["SA", "NC", "ND"],
         op="in",
         input_column="exif_copyright",
@@ -90,7 +90,7 @@ def test_column_values_pruning() -> None:
         }
     )
 
-    sut = ColumnValuesPruningPreprocessingMapper(config)
+    sut = ColumnValuesPruner(config)
 
     dataset = Dataset.from_dict(
         {

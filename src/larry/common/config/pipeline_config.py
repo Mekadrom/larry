@@ -3,7 +3,7 @@ from typing import Any, Self
 
 
 @dataclasses.dataclass(kw_only=True)
-class PreprocessConfig:
+class PipelineConfig:
     """Config for an entire run of preprocessing."""
 
     parquet_size_mb: int = 500

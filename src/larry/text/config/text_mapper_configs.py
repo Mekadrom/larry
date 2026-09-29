@@ -1,27 +1,26 @@
 import dataclasses
 
-from larry.common.config.preprocessing_mapper_configs import PreprocessingMapperConfig
+from larry.common.config.mapper_configs import MapperConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class TextPreprocessingMapperConfig(PreprocessingMapperConfig):
+class TextMapperConfig(MapperConfig):
     """Super class for all DTOs related to voice dataset preprocessing."""
 
     input_column: str = "text"
-    output_column: str | list[dict[str, str]] | None = "text"
+    output_column: str | None = "text"
 
 
 @dataclasses.dataclass(kw_only=True)
-class TextTokenizationMapperConfig(TextPreprocessingMapperConfig):
+class TextTokenizingMapperConfig(TextMapperConfig):
     """Config for tokenization of text."""
 
     tokenizer: str
-
-    output_column: str | list[dict[str, str]] | None = "input_ids"
+    output_column: str | None = "input_ids"
 
 
 @dataclasses.dataclass(kw_only=True)
-class SmolLM2TextTokenizationPreprocessingMapperConfig(TextTokenizationMapperConfig):
+class SmolLM2TextTokenizingMapperConfig(TextTokenizingMapperConfig):
     """Config for tokenizing using the SmolLM2 model family's tokenizer."""
 
     tokenizer: str = "HuggingFaceTB/SmolLM2-135M"

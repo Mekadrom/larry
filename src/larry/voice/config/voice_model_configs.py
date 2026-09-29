@@ -1,6 +1,6 @@
 import dataclasses
 
-from larry.common.config.model_config import ModelConfig
+from larry.common.config.model_configs import ModelConfig
 
 
 @dataclasses.dataclass

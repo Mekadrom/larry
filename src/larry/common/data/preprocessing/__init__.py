@@ -4,8 +4,8 @@ import shutil
 import typing
 from pathlib import Path
 
-from larry.common.data.preprocessing.preprocessing_mappers import PreprocessingMapper
-from larry.common.data.preprocessing.preprocessor import Preprocessor
+from larry.common.data.preprocessing.mappers import Mapper
+from larry.common.data.preprocessing.pipeline import Pipeline
 from larry.utils.types import Modality
 
 log = logging.getLogger(__name__)
@@ -54,5 +54,5 @@ def main() -> None:
         log.info(f"cleaning up {output_dir}")
         shutil.rmtree(output_dir, ignore_errors=True)
 
-    p = Preprocessor(output_dir, args.command, pipeline_file, clean=args.clean)
+    p = Pipeline(output_dir, args.command, pipeline_file, clean=args.clean)
     p.run()

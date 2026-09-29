@@ -4,8 +4,8 @@ from collections import Counter
 import pytest
 from datasets import Dataset
 
-from larry.common.config.preprocessing_mapper_configs import NestedExtractionPreprocessingMapperConfig
-from larry.common.data.preprocessing.preprocessing_mappers import NestedExtractionPreprocessingMapper
+from larry.common.config.mapper_configs import NestedExtractionPreprocessorConfig
+from larry.common.data.preprocessing.preprocessors import NestedExtractionPreprocessor
 
 
 def dataset_both() -> Dataset:
@@ -36,64 +36,30 @@ def dataset_neither() -> Dataset:
     return Dataset.from_dict({"exif": [json.dumps(e) for e in exifs]})
 
 
-_config_drop_any = NestedExtractionPreprocessingMapperConfig(
+_config = NestedExtractionPreprocessorConfig(
     input_column="exif",
     json_path_to_output_column_mappings=[
         {"jsonPath": "$.'Image Copyright'", "outputColumn": "exif_copyright"},
         {"jsonPath": "$.'Image XPComment'", "outputColumn": "text_original"},
     ],
-    drop_missing_type="any",
-)
-_config_drop_all = NestedExtractionPreprocessingMapperConfig(
-    input_column="exif",
-    json_path_to_output_column_mappings=[
-        {"jsonPath": "$.'Image Copyright'", "outputColumn": "exif_copyright"},
-        {"jsonPath": "$.'Image XPComment'", "outputColumn": "text_original"},
-    ],
-    drop_missing_type="all",
-)
-_config_drop_never = NestedExtractionPreprocessingMapperConfig(
-    input_column="exif",
-    json_path_to_output_column_mappings=[
-        {"jsonPath": "$.'Image Copyright'", "outputColumn": "exif_copyright"},
-        {"jsonPath": "$.'Image XPComment'", "outputColumn": "text_original"},
-    ],
-    drop_missing_type="never",
 )
 
-
-@pytest.mark.parametrize(
-    ("dataset", "config"),
-    [
-        (dataset_neither(), _config_drop_all),
-        (dataset_neither(), _config_drop_any),
-        (dataset_one(), _config_drop_any),
-    ]
-)
-def test_nested_extraction_drops(dataset: Dataset, config: NestedExtractionPreprocessingMapperConfig) -> None:
-    sut = NestedExtractionPreprocessingMapper(config)
-
-    dataset = sut.preprocess_dataset(dataset)
-
-    assert Counter(dataset["text_original"]) == Counter([])
-    assert Counter(dataset["exif_copyright"]) == Counter([])
 
 @pytest.mark.parametrize(
     ("expected_text_original", "expected_copyright", "dataset", "config"),
     [
-        ("Photo depicts bruh", "CC-BY-4.0", dataset_both(), _config_drop_all),
-        ("Photo depicts bruh", "CC-BY-4.0", dataset_both(), _config_drop_any),
-        ("Photo depicts hurb", None, dataset_one(), _config_drop_all),
-        (None, None, dataset_neither(), _config_drop_never),
+        ("Photo depicts bruh", "CC-BY-4.0", dataset_both(), _config),
+        ("Photo depicts hurb", None, dataset_one(), _config),
+        (None, None, dataset_neither(), _config),
     ]
 )
 def test_nested_extraction_extracts(
         expected_text_original: str | None,
         expected_copyright: str | None,
         dataset: Dataset,
-        config: NestedExtractionPreprocessingMapperConfig
+        config: NestedExtractionPreprocessorConfig
 ) -> None:
-    sut = NestedExtractionPreprocessingMapper(config)
+    sut = NestedExtractionPreprocessor(config)
 
     dataset = sut.preprocess_dataset(dataset)
 

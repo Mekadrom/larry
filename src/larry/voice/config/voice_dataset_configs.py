@@ -4,9 +4,8 @@ from typing import Any, ClassVar
 
 from datasets import Audio, Image
 
-from larry.common.config.dataset_config import DatasetConfig, DownloadExtractConfig, NotSupported, \
-    MediaCachedDatasetConfig
-from larry.utils.types import StringRegistry
+from larry.common.config.dataset_config import DatasetConfig, \
+    MediaCachedDatasetConfig, ExtractorConfig
 
 
 @dataclasses.dataclass
@@ -27,25 +26,24 @@ class MythicInfinityLibriHeavyDatasetConfig(VoiceDatasetConfig):
 class CommonVoiceMediaCachedDatasetConfig(VoiceDatasetConfig, MediaCachedDatasetConfig):
     """https://mozilladatacollective.com/datasets/cmu5jplf300nwmh07iqvk9leo"""
 
-    AUDIO_FILE: ClassVar[str] = "download.tar.gz"
+    AUDIO_FILE: ClassVar[str] = "downloaded.tar.gz"
+    ARCHIVE_ROOT: ClassVar[str] = "cv-corpus-27.0-2026-09-11/en"
 
     provider_name: str = "CommonVoiceMediaCachedDatasetProvider"
 
-    download_extract_configs: StringRegistry[DownloadExtractConfig] = dataclasses.field(
-        default_factory=lambda: DownloadExtractConfig.create_registry([
-            DownloadExtractConfig(
-                CommonVoiceMediaCachedDatasetConfig.AUDIO_FILE,
-                download_path=NotSupported.NOT_SUPPORTED,
-                archive_root="cv-corpus-27.0-2026-09-11/en"
-            )
-        ])
-    )
-    download_extract_file_type: str = "csv"
-    download_extract_transform_kwargs: dict[str, Any] = dataclasses.field(default_factory=lambda: {
-        "delimiter": "\t",
-        "quoting": csv.QUOTE_NONE,
-    })
+    extractor_configs: list[ExtractorConfig] = dataclasses.field(default_factory=lambda: [
+        ExtractorConfig(
+            input_file_name=CommonVoiceMediaCachedDatasetConfig.AUDIO_FILE,
+            archive_root=CommonVoiceMediaCachedDatasetConfig.ARCHIVE_ROOT,
+        ),
+    ])
 
-    media_type: Audio | Image | None = dataclasses.field(default_factory=Audio)
-    media_file_name: str | None = AUDIO_FILE
+    download_extract_file_type: str = "csv"
+    download_extract_transform_kwargs: dict[str, Any] = dataclasses.field(default_factory=lambda: dict(
+        delimiter="\t",
+        quoting=csv.QUOTE_NONE
+    ))
+
+    media_dir: str = ARCHIVE_ROOT
+    media_type: Audio | Image | None = dataclasses.field(default_factory=lambda: Audio(decode=False))
     media_column: str | None = "audio"

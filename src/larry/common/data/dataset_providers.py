@@ -9,14 +9,13 @@ import datasets
 from datasets import DatasetDict, Dataset, IterableDatasetDict, IterableDataset
 from datasets import Split
 
-from larry.common.config.dataset_config import DatasetConfig
-
 
 @dataclasses.dataclass(kw_only=True)
-class DatasetProvider(abc.ABC):
+class DatasetProvider[C](abc.ABC):
     """Wrapper interface that to provide ``DatasetDict | Dataset | IterableDatasetDict | IterableDataset``."""
+    config: C
 
-    def __init__(self, config: DatasetConfig) -> None:
+    def __init__(self, config: C) -> None:
         self.config = config
         self.log = logging.getLogger(type(self).__name__)
 
@@ -26,12 +25,8 @@ class DatasetProvider(abc.ABC):
         ...
 
 
-class HuggingFaceDatasetProvider(DatasetProvider):
+class HuggingFaceDatasetProvider[C](DatasetProvider[C]):
     """Default implementation of ``DatasetProvider`` which loads using huggingface's datasets library."""
-
-    def __init__(self, config: DatasetConfig) -> None:
-        super().__init__(config=config)
-
     @property
     def path(self) -> str | None:
         return self.config.path
@@ -87,7 +82,7 @@ class HuggingFaceDatasetProvider(DatasetProvider):
         Has to switch on ``self.config.streaming`` because the overloads of ``datasets.load_dataset()`` mess with the
         type hinting when passing a ``bool`` typed field instead of a literal ``True`` or ``False``.
         """
-        kwargs = self.load_dataset_kwargs
+        kwargs = dict(self.load_dataset_kwargs)
         kwargs.pop("streaming", None)
         self.log.info(f"saving dataset using kwargs={kwargs} from config={self.config}")
         if self.streaming:

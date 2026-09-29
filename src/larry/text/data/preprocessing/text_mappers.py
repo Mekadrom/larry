@@ -1,29 +1,25 @@
-import logging
 import re
-from abc import ABC
+from typing import Any
 
 import torch
+from datasets import List, Value
+from datasets.features.features import FeatureType
 from transformers import AutoTokenizer
 
-from larry.common.data.preprocessing import PreprocessingMapper
-from larry.text.config.text_preprocessing_mapper_configs import TextTokenizationMapperConfig, \
-    TextPreprocessingMapperConfig
-
-log = logging.getLogger(__name__)
+from larry.common.data.preprocessing import Mapper
+from larry.text.config.text_mapper_configs import TextTokenizingMapperConfig, \
+    TextMapperConfig
 
 
-class TextPreprocessingMapper[I = None, O = None](PreprocessingMapper[I, O], ABC):
-    config: TextPreprocessingMapperConfig
-
-    def __init__(self, config: TextPreprocessingMapperConfig) -> None:
-        super().__init__(config)
+class TextMapper[I, O, C=TextMapperConfig](Mapper[I, O, C]):
+    ...
 
 
-class TextNormalizingPreprocessingMapper(TextPreprocessingMapper[str, str]):
+class TextNormalizingMapper(TextMapper[str, str, TextMapperConfig]):
     def preprocess_example(self, example: str) -> str:
         text = example.strip()
         if not text:
-            return text
+            return None
 
         text = self._remove_symbols(text)
         text = self._collapse_whitespace(text)
@@ -68,14 +64,15 @@ class TextNormalizingPreprocessingMapper(TextPreprocessingMapper[str, str]):
 
 
 # noinspection PyTypeChecker
-class TextTokenizingPreprocessingMapper(TextPreprocessingMapper[list[str], dict[str, torch.Tensor]]):
-    config: TextTokenizationMapperConfig
-
-    def __init__(self, config: TextTokenizationMapperConfig) -> None:
+class TextTokenizingMapper(TextMapper[list[str], torch.Tensor | None, TextTokenizingMapperConfig]):
+    def __init__(self, config: TextTokenizingMapperConfig) -> None:
         super().__init__(config)
         # noinspection PyNoneFunctionAssignment
         self.tokenizer = AutoTokenizer.from_pretrained(self.config.tokenizer)
         self.log.info(f"Using tokenizer with vocab_size={len(self.tokenizer)}")
 
-    def preprocess_example(self, example: list[str]) -> dict[str, torch.Tensor]:
-        return self.tokenizer(example)
+    def output_feature(self) -> FeatureType | None:
+        return List(Value("uint16"))
+
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[list[int]]]:
+        return {self.config.output_column: self.tokenizer(batch[self.config.input_column])["input_ids"]}

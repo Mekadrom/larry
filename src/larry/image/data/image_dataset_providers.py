@@ -1,19 +1,10 @@
-import logging
-from pathlib import Path
+from typing import Sequence, Mapping
 
-from larry.common.data.dataset_providers import MediaCachedDatasetProvider
+from larry.common.data.cached_dataset_providers import MediaCachedDatasetProvider
 from larry.image.config.image_dataset_configs import GoogleDOCCIMediaCachedDatasetConfig
 
-log = logging.getLogger(__name__)
 
-
-class GoogleDOCCIMediaCachedDatasetProvider(MediaCachedDatasetProvider):
-    config: GoogleDOCCIMediaCachedDatasetConfig
-
-    def __init__(self, config: GoogleDOCCIMediaCachedDatasetConfig) -> None:
-        super().__init__(config=config)
-        self.config = config  # type override
-
+class GoogleDOCCIMediaCachedDatasetProvider(MediaCachedDatasetProvider[GoogleDOCCIMediaCachedDatasetConfig]):
     @property
-    def split_file(self) -> Path:
-        return (self.dir / GoogleDOCCIMediaCachedDatasetConfig.DESCRIPTIONS_FILE).expanduser().resolve()
+    def load_input_data_files(self) -> str | Sequence[str] | Mapping[str, str | Sequence[str]] | None:
+        return [str((self.dir / GoogleDOCCIMediaCachedDatasetConfig.DESCRIPTIONS_FILE).expanduser().resolve())]
