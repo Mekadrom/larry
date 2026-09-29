@@ -19,7 +19,7 @@ the above criteria. As such, libriheavy is entirely included in the larry initia
 
 As another example, libritts is a mostly speaker-disjoint from libriheavy librivox derivative. However, it was aligned 
 by a proprietary, unreleased aligner by a Google research team. Additionally, the clips included in libritts are only 
-those where the aligned produced a 0-edit error transcription to the ground truth on. As such, neither the procured set 
+those where the aligner produced a 0-edit error transcription to the ground truth on. As such, neither the procured set 
 of voice audio clips nor the aligned transcriptions paired with such clips are allowable under this criteria. libritts-r
  also falls under this, but doubly-so because the 24khz audio samples are upsampled using an unreleased speech upsampler
  model.

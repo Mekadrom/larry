@@ -14,8 +14,10 @@ dependencies = [
     "torchvision>=0.21.0",
     "torchcodec>=0.16.0",
     "transformers>=5.17.0",
-    "jsonpath-ng[extras]>=1.8.0",
+    "jsonpath-ng>=1.8.0",
     "duckdb>=1.5.6",
+    "matplotlib>=3.11.2",
+    "librosa>=1.0.0",
 ]
 
 [[tool.uv.index]]
