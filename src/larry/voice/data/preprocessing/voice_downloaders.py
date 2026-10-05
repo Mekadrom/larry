@@ -90,11 +90,11 @@ class SCOTUSCaseDetailSingleFileBackupDownloader(SingleFileBackupDownloader):
 
         super().__init__(config, download_cache_abs_dir)
 
-    def make_backup_download_urls(self, default_url: str) -> list[str]:
+    def make_backup_download_paths(self, default_url: str) -> list[str]:
         out = []
 
         docket_upper_url = re.sub(self.docket, self.docket.upper(), default_url, flags=re.I)
-        docker_suffix_url = re.sub(r"orig", "Orig", self.docket, flags=re.I)
+        docker_suffix_url = re.sub(r"orig", "Orig", default_url, flags=re.I)
 
         for v in (docket_upper_url, docker_suffix_url):
             if v not in out:

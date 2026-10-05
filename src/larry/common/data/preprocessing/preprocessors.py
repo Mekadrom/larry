@@ -70,6 +70,7 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
             self.preprocess_batch,
             batched=True,
             batch_size=self.config.batch_size,
+            writer_batch_size=self.config.writer_batch_size,
             num_proc=self.config.num_proc,
             remove_columns=self.remove_columns,
             keep_in_memory=not self.config.cache_results,

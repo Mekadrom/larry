@@ -1,12 +1,19 @@
+import hashlib
+import os.path
+import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
+import requests
 from datasets import Dataset, Features, DatasetDict
-from datasets.features.features import FeatureType
+from datasets.features.features import FeatureType, Value
 
 from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, ValueOverrideMapperConfig, \
-    MapperConfig
+    MapperConfig, UrlMapperConfig, UrlBytesMapperConfig
 from larry.common.data.preprocessing.preprocessors import Preprocessor
+from larry.common.data.utils import features_of
 
 
 class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
@@ -74,6 +81,19 @@ class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperC
     def preprocess_example(self, example: I) -> O:
         ...
 
+    def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        output_feature = self.output_feature()
+        if output_feature is None:
+            return None
+
+        features = super().preprocessing_features(dataset)
+        if features is None:
+            features = features_of(dataset).copy()
+        for column in self.remove_columns:
+            features.pop(column, None)
+        features.update({self.config.output_column: output_feature})
+        return features
+
     def filter_nulls(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         return dataset.filter(
             lambda batch: [x is not None for x in batch],
@@ -105,3 +125,123 @@ class ValueOverrideMapper(Mapper[ValueOverrideMapperConfig]):
                 if value == rule.input_column_value:
                     target[i] = rule.output_column_value
         return output_batch
+
+
+class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str, O | None, C], ABC):
+    def __init__(self, config: C) -> None:
+        super().__init__(config)
+        if self.config.download_cache_dir is not None:
+            self.download_cache_dir = Path(self.config.download_cache_dir).expanduser().resolve()
+            os.makedirs(self.download_cache_dir, exist_ok=True)
+        else:
+            self.download_cache_dir = None
+        self.session = requests.Session()
+        self.session.headers["User-Agent"] = self.user_agent()
+
+    def preprocess_example(self, example: str) -> O | None:
+        if self.download_cache_dir is not None:
+            cache_file_path = self.download_cache_dir / f"{hashlib.sha256(example.encode('utf-8')).hexdigest()}"
+        else:
+            cache_file_path = None
+
+        content = None
+        if cache_file_path is not None and cache_file_path.exists() and os.path.getsize(cache_file_path) > 0:
+            self.log.info(f"cache hit for url: {example} at {str(cache_file_path)}")
+            content = cache_file_path.read_bytes()
+            try:
+                self.validate_content(example, content)
+            except Exception:
+                self.log.error(
+                    f"Cached content at {cache_file_path} did not pass validation; redownloading from: {example}"
+                )
+                content = None
+
+        if content is None:
+            for attempt in range(self.config.max_retries + 1):
+                sleep = self.config.busy_wait + (self.config.retry_backoff * 2 ** (attempt - 1) if attempt else 0)
+                time.sleep(sleep)
+                try:
+                    response = self.session.get(example, timeout=self.config.timeout)
+                except (requests.ConnectionError, requests.Timeout):
+                    self.log.warning(f"network error (attempt {attempt + 1}) for {example}", exc_info=True)
+                    continue
+
+                if response.status_code == 403:
+                    # we have been kicked off the website in the worst way possible: ip ban. abort the mission
+                    raise ValueError(
+                        f"You have been IP banned from {urlparse(example).hostname} - preprocessing has been cancelled."
+                    )
+                if response.status_code == 404:
+                    # not found - typical, can actually be retried because sometimes this is transient in my experience
+                    continue
+                if response.status_code == 429:
+                    time.sleep(float(response.headers.get("Retry-After", 60)))
+                    continue
+                if 500 <= response.status_code < 600:
+                    continue
+
+                if response.ok:
+                    try:
+                        self._validate_response(example, response)
+                    except Exception:
+                        self.log.warning(f"validation error (attempt {attempt + 1}) for {example}", exc_info=True)
+                        continue
+
+                    content = response.content
+
+                    if cache_file_path is not None:
+                        tmp = cache_file_path.with_suffix(".part")
+                        tmp.write_bytes(content)
+                        os.replace(tmp, cache_file_path)
+
+                    break
+                else:
+                    self.log.error(f"{response.status_code} for {example}: {response.text[:200]!r}")
+
+        if content is not None:
+            return self.extract_content(example, content)
+
+        self.log.warning(
+            f"Failed to obtain content for url={example} - "
+            f"this row will contain a null for {self.config.output_column}, "
+            f"and nulls {'are' if self.config.filter_null_outputs else 'are not'} filtered out after mapping"
+        )
+        return None
+
+    @abstractmethod
+    def user_agent(self) -> str:
+        ...
+
+    def _validate_response(self, example: str, response: requests.Response) -> None:
+        if "Content-Length" in response.headers:
+            expected = int(response.headers["Content-Length"])
+            actual = response.raw.tell()
+            if expected != actual:
+                raise ValueError(
+                    f"Content-Length header value ({expected}) does not match real content length {actual}"
+                )
+        self.validate_content(example, response.content)
+
+    @abstractmethod
+    def validate_content(self, example: str, content: bytes) -> None:
+        ...
+
+    @abstractmethod
+    def extract_content(self, example: str, content: bytes) -> O:
+        ...
+
+
+class UrlBytesMapper(UrlMapper[bytes, UrlBytesMapperConfig]):
+    def user_agent(self) -> str:
+        return "larry-bytes-downloader/1.0 (dataset research; contact via github.com/Mekadrom)"
+
+    def validate_content(self, example: str, content: bytes) -> None:
+        if self.config.validate_starts_with is not None:
+            if not content.startswith(self.config.validate_starts_with.encode()):
+                raise ValueError(f"not a pdf: {example} - {str(content)[:200]!r}")
+
+    def extract_content(self, example: str, content: bytes) -> bytes:
+        return content
+
+    def output_feature(self) -> FeatureType | None:
+        return Value("binary")

@@ -9,7 +9,8 @@ from larry.common.utils.types import TypeRegistry
 class PreprocessorConfig(Registrable, root=True):
     REGISTRY: ClassVar[TypeRegistry[PreprocessorConfig]]
 
-    batch_size: int = 2000
+    batch_size: int = 1000
+    writer_batch_size: int = 1000
     num_proc: int = 8
     cache_results: bool = True
 

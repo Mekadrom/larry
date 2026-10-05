@@ -67,7 +67,10 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
         if self.download_base_url is not None and not self.download_base_url.endswith("/"):
             self.download_base_url = self.download_base_url + "/"
 
-        self.url = encode_url(urljoin(self.download_base_url, quote(self.download_path)))
+        self.url = self.build_url(self.download_base_url, self.download_path)
+
+    def build_url(self, base_url: str, path: str) -> str:
+        return encode_url(urljoin(base_url, quote(path)))
 
     def ensure_downloaded(self) -> bool:
         if os.path.exists(self.output_file_path):
@@ -81,6 +84,7 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
         last: Exception | None = None
         while attempt <= self.config.max_retries:
             attempt += 1
+            temp_file_path = self.output_file_path.with_name(f"{self.output_file_path.name}.part")
             try:
                 content = self._download_file(self.url, self.output_file_path, return_contents=True)
             except Exception as e:
@@ -88,9 +92,10 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
                 last = e
                 content = None
 
-            if self.config.validate_content_contains is not None:
-                if content is not None and self.config.validate_content_contains in content:
-                    break
+            if content is not None and self._validate(content):
+                temp_file_path.move(self.output_file_path)
+                break
+
             time.sleep(self.config.busy_wait)
 
         if content is None:
@@ -99,30 +104,38 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
             raise ValueError(f"Could not download file after {self.config.max_retries + 1} tries: {self.url}") from last
         return True
 
-    def _download_file(self, url: str, file_path: Path, return_contents: bool = False) -> str | None:
-        temp_file_path = file_path.with_name(f"{file_path.name}.part")
+    def _download_file(self, url: str, file_path: Path, return_contents: bool = False) -> bytes | None:
         with requests.get(url, stream=True, timeout=self.download_timeout, headers={"User-Agent": UA}) as response:
             response.raise_for_status()
             total = int(response.headers.get("Content-Length", 0)) or None
-            with open(temp_file_path, 'wb') as stream:
-                with tqdm(total=total, unit="B", unit_scale=True, unit_divisor=1024, desc=str(file_path)) as pbar:
+            with open(file_path, 'wb') as stream:
+                with tqdm(total=total, unit="B", unit_scale=True, unit_divisor=1024, desc=str(file_path.name)) as pbar:
                     for chunk in response.iter_content(chunk_size=1024 * 1024):
                         stream.write(chunk)
                         pbar.update(len(chunk))
-        temp_file_path.move(file_path)
         if return_contents:
-            return file_path.read_text()
+            return file_path.read_bytes()
         return None
+
+    def _validate(self, content: bytes) -> bool:
+        if self.config.validate_content_contains is not None:
+            if self.config.validate_content_contains in content:
+                # downloaded and validated
+                return True
+        else:
+            # downloaded and no validation
+            return True
+        return False
 
 
 class SingleFileBackupDownloader(SingleFileDownloader[SingleFileBackupDownloaderConfig], ABC):
     def __init__(self, config: SingleFileBackupDownloaderConfig, download_cache_abs_dir: Path) -> None:
         super().__init__(config, download_cache_abs_dir)
         self.base_output_file_path = self.output_file_path
-        self.backup_download_urls = self.make_backup_download_urls(self.url)
+        self.backup_download_paths = self.make_backup_download_paths(self.download_path)
 
     def ensure_downloaded(self) -> bool:
-        if any([os.path.exists(p) for p in self.backup_download_urls + [self.base_output_file_path]]):
+        if os.path.exists(self.base_output_file_path):
             return False
 
         success = False
@@ -136,8 +149,8 @@ class SingleFileBackupDownloader(SingleFileDownloader[SingleFileBackupDownloader
                 last = e
                 self.log.info(f"Failed to download {self.url}, retrying...")
                 time.sleep(self.config.busy_wait)
-                if len(self.backup_download_urls) > 0:
-                    self.url = self.backup_download_urls.pop()
+                if len(self.backup_download_paths) > 0:
+                    self.url = self.build_url(self.download_base_url, self.backup_download_paths.pop())
                 else:
                     exhausted = True
 
@@ -145,16 +158,16 @@ class SingleFileBackupDownloader(SingleFileDownloader[SingleFileBackupDownloader
             if last is None:
                 raise ValueError(
                     f"Could not download file after {self.config.max_retries} retries: {self.url}; "
-                    f"exhausted backups: {self.backup_download_urls}"
+                    f"exhausted backups: {self.backup_download_paths}"
                 )
             raise ValueError(
                 f"Could not download file after {self.config.max_retries} retries: {self.url}; "
-                f"exhausted backups: {self.backup_download_urls}"
+                f"exhausted backups: {self.backup_download_paths}"
             ) from last
         return True
 
     @abstractmethod
-    def make_backup_download_urls(self, default_url: str) -> list[str]:
+    def make_backup_download_paths(self, default_url: str) -> list[str]:
         ...
 
 

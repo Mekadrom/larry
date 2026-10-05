@@ -2,25 +2,25 @@ import dataclasses
 
 from torchvision.transforms import InterpolationMode
 
-from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class ImageSingleColumnMapperConfig(SingleColumnMapperConfig):
+class ImageMapperConfig(SingleColumnMapperConfig):
     input_column: str = "image"
     output_column: str = "image"
 
 
 @dataclasses.dataclass(kw_only=True)
-class UrlImageMapperConfig(ImageSingleColumnMapperConfig):
+class UrlImageMapperConfig(UrlMapperConfig, ImageMapperConfig):
     input_column: str = "url"
+    output_column: str = "image"
 
-    timeout: float = 1.0
-    max_retries: int = 2
+    download_cache_dir: str = "/tmp/larry/image_url_mapper"
 
 
 @dataclasses.dataclass(kw_only=True)
-class ImageResizingMapperConfig(ImageSingleColumnMapperConfig):
+class ImageResizingMapperConfig(ImageMapperConfig):
     width: int = 224
     height: int = 224
     pad_to_equal: bool = True

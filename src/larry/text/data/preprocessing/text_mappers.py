@@ -1,21 +1,40 @@
+import functools
 import re
 from typing import Any
 
+import requests
 import torch
 from datasets import List, Value
 from datasets.features.features import FeatureType
 from transformers import AutoTokenizer
 
-from larry.common.data.preprocessing.mappers import SingleColumnMapper
+from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
+from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
 from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
-    TextSingleColumnMapperConfig
+    TextSingleColumnMapperConfig, UrlTextMapperConfig
 
 
-class TextSingleColumnMapper[I, O, C: TextSingleColumnMapperConfig = TextSingleColumnMapperConfig](SingleColumnMapper[I, O, C]):
+class TextMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperConfig](SingleColumnMapper[I, O, C]):
     ...
 
 
-class TextNormalizingMapper(TextSingleColumnMapper[str | None, str | None, TextSingleColumnMapperConfig]):
+class UrlTextMapper(UrlMapper[str, UrlTextMapperConfig], TextMapper[str, str | None, UrlTextMapperConfig]):
+    def user_agent(self) -> str:
+        return "larry-text-downloader/1.0 (dataset research; contact via github.com/Mekadrom)"
+
+    def validate_content(self, example: str, content: bytes) -> None:
+        pass
+
+    def extract_content(self, example: str, content: bytes) -> str:
+        try:
+            content = str(content, "utf-8", errors="replace")
+        except (LookupError, TypeError):
+            self.log.error(f"content encoding error, content was not utf-8 for content of size {len(content)}")
+            content = str(content, errors="replace")
+        return content
+
+
+class TextNormalizingMapper(TextMapper[str | None, str | None, TextSingleColumnMapperConfig]):
     def preprocess_example(self, example: str | None) -> str | None:
         if not example:
             return None
@@ -66,7 +85,7 @@ class TextNormalizingMapper(TextSingleColumnMapper[str | None, str | None, TextS
 
 
 # noinspection PyTypeChecker
-class TextTokenizingMapper(TextSingleColumnMapper[list[str], torch.Tensor | None, TextTokenizingMapperConfig]):
+class TextTokenizingMapper(TextMapper[list[str], torch.Tensor | None, TextTokenizingMapperConfig]):
     def __init__(self, config: TextTokenizingMapperConfig) -> None:
         super().__init__(config)
         # noinspection PyNoneFunctionAssignment

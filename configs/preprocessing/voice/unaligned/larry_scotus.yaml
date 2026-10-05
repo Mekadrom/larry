@@ -1,0 +1,48 @@
+dataset:
+  config: LarrySCOTUSManifestDatasetConfig
+  overrides:
+    - name: cache_dir
+      value: /home/zadar/.cache/larry/intermediates/voice/unaligned/larry_scotus/
+
+preprocessor:
+  inputs:
+    - name: provenance_columns
+      value:
+        - term
+        - docket
+
+pipeline:
+  - name: UrlBytesMapper
+    config: UrlBytesMapperConfig
+    inputs:
+      - name: busy_wait
+        value: 1.0
+      - name: num_proc
+        value: 1
+      - name: batch_size
+        value: 8
+      - name: writer_batch_size
+        value: 8
+      - name: input_column
+        value: pdf_url
+      - name: output_column
+        value: pdf_bytes
+      - name: filter_null_outputs
+        value: true
+      - name: validate_starts_with
+        value: "%PDF-"
+  - name: UrlAudioMapper
+    config: UrlAudioMapperConfig
+    inputs:
+      - name: busy_wait
+        value: 1.0
+      - name: num_proc
+        value: 1
+      - name: batch_size
+        value: 8
+      - name: writer_batch_size
+        value: 8
+      - name: input_column
+        value: mp3_url
+      - name: filter_null_outputs
+        value: true

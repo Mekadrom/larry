@@ -34,3 +34,23 @@ class ValueOverrideMapperConfig(MapperConfig):
             ValueOverride(m["input_column"], m["input_column_value"], m["output_column"], m["output_column_value"])
             for m in self.mappings_in
         ]
+
+
+@dataclasses.dataclass(kw_only=True)
+class UrlMapperConfig(SingleColumnMapperConfig):
+    input_column: str = "url"
+
+    timeout: float = 10.0
+    busy_wait: float = 0.0
+    retry_backoff: float = 1.0
+    max_retries: int = 2
+
+    download_cache_dir: str = "/tmp/larry/url_mapper"
+
+
+@dataclasses.dataclass(kw_only=True)
+class UrlBytesMapperConfig(UrlMapperConfig):
+    output_column: str = "bytes"
+    validate_starts_with: str | None = None
+
+    download_cache_dir: str = "/tmp/larry/bytes_url_mapper"

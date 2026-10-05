@@ -26,6 +26,7 @@ dependencies = [
     "tensorboard>=2.21.0",
     "pandas>=3.0.6",
     "gitpython>=3.2.0",
+    "pypdf>=6.19.0",
 ]
 
 [[tool.uv.index]]

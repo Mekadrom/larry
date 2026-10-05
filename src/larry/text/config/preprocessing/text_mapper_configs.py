@@ -1,12 +1,20 @@
 import dataclasses
 
-from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig
 
 
 @dataclasses.dataclass(kw_only=True)
 class TextSingleColumnMapperConfig(SingleColumnMapperConfig):
     input_column: str = "text"
     output_column: str = "text"
+
+
+@dataclasses.dataclass(kw_only=True)
+class UrlTextMapperConfig(UrlMapperConfig, TextSingleColumnMapperConfig):
+    input_column: str = "url"
+    output_column: str = "text"
+
+    download_cache_dir: str = "/tmp/larry/text_url_mapper"
 
 
 @dataclasses.dataclass(kw_only=True)
