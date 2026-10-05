@@ -27,6 +27,10 @@ of voice audio clips nor the aligned transcriptions paired with such clips are a
 Web-crawled data, proprietary data, data retrieved from social media or forum posts, data from blogs or public writing 
 sites, and data otherwise collected without the human-generator's knowledge is prohibited within this initiative.
 
+"Scraping" in the form of treating web pages as a stand-in for a non-existent API is acceptable where that website and 
+its data provably falls under the above criteria. Typically, this is only done for government data, as that is always 
+Public Domain.
+
 The intent is to:
 1. Produce data and classifier, alignment, metric/rating, and generative models entirely from data that 
 abides by the above criteria.

@@ -1,0 +1,7 @@
+dataset:
+  config: SCOTUSManifestCachedDatasetConfig
+  overrides:
+    - name: download_extract_cache_dir
+      value: /home/zadar/.cache/larry/download_extract/voice/manifest/larry_scotus/
+    - name: cache_dir
+      value: /home/zadar/.cache/larry/intermediates/voice/manifest/larry_scotus/

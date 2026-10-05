@@ -1,13 +1,14 @@
 import torch
-from torchcodec.decoders import AudioDecoder
 
 from larry.common.data.preprocessing.pruners import Pruner
-from larry.utils.types import EncodedAudio
-from larry.voice.config.voice_pruner_configs import AudioDurationColumnPrunerConfig, AudioQualityPrunerConfig, \
+from larry.common.utils.types import EncodedAudio
+from larry.voice.config.preprocessing.voice_pruner_configs import AudioDurationColumnPrunerConfig, \
+    AudioQualityPrunerConfig, \
     VoicePrunerConfig
+from larry.voice.utils import bytes_to_waveforms
 
 
-class VoicePruner[I, C=VoicePrunerConfig](Pruner[I, C]):
+class VoicePruner[I, C: VoicePrunerConfig = VoicePrunerConfig](Pruner[I, C]):
     ...
 
 
@@ -18,16 +19,7 @@ class AudioDurationColumnPruner(VoicePruner[int | float, AudioDurationColumnPrun
 
 class AudioQualityPruner(VoicePruner[EncodedAudio, AudioQualityPrunerConfig]):
     def prune_example(self, example: EncodedAudio) -> bool:
-        samples = AudioDecoder(example["bytes"], sample_rate=self.config.sample_rate).get_all_samples()
-        waveform = samples.data
-
-        if waveform.ndim > 1 and waveform.shape[0] == 2:
-            # downmix to mono
-            waveform = waveform.mean(dim=0, keepdim=True)
-
-        if waveform.ndim > 1 and waveform.shape[0] == 1:
-            # remove single channel
-            waveform = waveform.squeeze(0)
+        waveform = bytes_to_waveforms(example["bytes"], self.config.sample_rate)
 
         frame, hop = int(0.025 * self.config.sample_rate), int(0.010 * self.config.sample_rate)
 

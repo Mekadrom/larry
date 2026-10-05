@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from datasets import Dataset
 
-from larry.common.config.pruner_configs import ColumnValuesPrunerConfig
+from larry.common.config.data.preprocessing.pruner_configs import ColumnValuesPrunerConfig
 from larry.common.data.preprocessing.pruners import ColumnValuesPruner
 
 
@@ -47,7 +47,7 @@ def test_op_in_returns_false(op_config: dict[str, Any], values: list[Any | None]
 def test_column_values_pruning_status() -> None:
     config = ColumnValuesPrunerConfig(
         values=["success"],
-        op="nin",
+        op="nmatches",
         input_column="status",
         op_config={
             "containing": True,
@@ -82,7 +82,7 @@ def test_column_values_pruning_status() -> None:
 def test_column_values_pruning() -> None:
     config = ColumnValuesPrunerConfig(
         values=["SA", "NC", "ND"],
-        op="in",
+        op="matches",
         input_column="exif_copyright",
         op_config={
             "containing": True,

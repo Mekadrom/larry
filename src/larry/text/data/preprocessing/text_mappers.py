@@ -6,17 +6,19 @@ from datasets import List, Value
 from datasets.features.features import FeatureType
 from transformers import AutoTokenizer
 
-from larry.common.data.preprocessing import Mapper
-from larry.text.config.text_mapper_configs import TextTokenizingMapperConfig, \
+from larry.common.data.preprocessing.mappers import Mapper
+from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
     TextMapperConfig
 
 
-class TextMapper[I, O, C=TextMapperConfig](Mapper[I, O, C]):
+class TextMapper[I, O, C: TextMapperConfig = TextMapperConfig](Mapper[I, O, C]):
     ...
 
 
-class TextNormalizingMapper(TextMapper[str, str, TextMapperConfig]):
-    def preprocess_example(self, example: str) -> str:
+class TextNormalizingMapper(TextMapper[str | None, str | None, TextMapperConfig]):
+    def preprocess_example(self, example: str | None) -> str | None:
+        if not example:
+            return None
         text = example.strip()
         if not text:
             return None
@@ -75,4 +77,5 @@ class TextTokenizingMapper(TextMapper[list[str], torch.Tensor | None, TextTokeni
         return List(Value("uint16"))
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[list[int]]]:
-        return {self.config.output_column: self.tokenizer(batch[self.config.input_column])["input_ids"]}
+        encoded = self.tokenizer(batch[self.config.input_column], add_special_tokens=False)
+        return {self.config.output_column: encoded["input_ids"]}

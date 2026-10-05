@@ -2,9 +2,9 @@ import json
 from collections import Counter
 
 import pytest
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 
-from larry.common.config.mapper_configs import NestedExtractionPreprocessorConfig
+from larry.common.config.data.preprocessing.preprocessor_configs import NestedExtractionPreprocessorConfig
 from larry.common.data.preprocessing.preprocessors import NestedExtractionPreprocessor
 
 
@@ -56,7 +56,7 @@ _config = NestedExtractionPreprocessorConfig(
 def test_nested_extraction_extracts(
         expected_text_original: str | None,
         expected_copyright: str | None,
-        dataset: Dataset,
+        dataset: Dataset | DatasetDict,
         config: NestedExtractionPreprocessorConfig
 ) -> None:
     sut = NestedExtractionPreprocessor(config)

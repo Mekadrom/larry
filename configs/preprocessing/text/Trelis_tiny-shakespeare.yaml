@@ -1,0 +1,24 @@
+dataset:
+  config: DatasetConfig
+  overrides:
+    # https://huggingface.co/datasets/Trelis/tiny-shakespeare
+    - name: path
+      value: "Trelis/tiny-shakespeare"
+    - name: cache_dir
+      value: /home/zadar/.cache/larry/intermediates/text/Trelis_tiny-shakespeare/
+  splits:
+    - name: validation
+      part: 0.05
+    - name: train
+      part: 0.95
+
+pipeline:
+  - name: TextNormalizingMapper
+    config: TextMapperConfig
+    inputs:
+      - name: input_column
+        value: "Text"
+      - name: filter_null_outputs
+        value: true
+  - name: TextTokenizingMapper
+    config: TinyShakespeareTextTokenizingMapperConfig

@@ -1,30 +1,40 @@
-import abc
 import json
 import logging
+from abc import ABC
 from abc import abstractmethod
-from typing import Any, Sequence
+from typing import Any, ClassVar
 
 import jsonpath_ng
-from datasets import Dataset, Features, Value
+from datasets import Dataset, Features, Value, DatasetDict
 from jsonpath_ng import JSONPath
 
-from larry.common.config.preprocessor_configs import RemoveColumnsPreprocessorConfig, NestedExtractionPreprocessorConfig
+from larry.common.config.data.preprocessing.preprocessor_configs import RemoveColumnsPreprocessorConfig, \
+    NestedExtractionPreprocessorConfig, PreprocessorConfig, ValidationSetSplittingMapperConfig
+from larry.common.data.utils import features_of
+from larry.common.utils.registrable import Registrable
+from larry.common.utils.types import TypeRegistry
 
 
-class Preprocessor[C](abc.ABC):
-    config: C
+class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
+    REGISTRY: ClassVar[TypeRegistry[Preprocessor]]
+
+    _config: C
 
     def __init__(self, config: C) -> None:
-        self.config = config
+        self._config = config
         self.validate()
         self.log = logging.getLogger(type(self).__name__)
+
+    @property
+    def config(self) -> C:
+        return self._config
 
     @abstractmethod
     def validate(self) -> None:
         ...
 
     @abstractmethod
-    def preprocess_dataset(self, dataset: Dataset) -> Dataset:
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         ...
 
     def __call__(self, batch: dict) -> dict:
@@ -37,7 +47,7 @@ class RemoveColumnsPreprocessor(Preprocessor[RemoveColumnsPreprocessorConfig]):
         """Prevents a lack of ``config.input_column`` and ``config.output_column`` from raising in the supermethod."""
         pass
 
-    def preprocess_dataset(self, dataset: Dataset) -> Dataset:
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         return dataset.remove_columns(self.config.remove_columns)
 
 
@@ -55,7 +65,7 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
         if self.config.input_column is None:
             raise ValueError(f"input_column must be specified for {self.__class__.__name__}")
 
-    def preprocess_dataset(self, dataset: Dataset) -> Dataset:
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         return dataset.map(
             self.preprocess_batch,
             batched=True,
@@ -69,19 +79,19 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
                  f"(input_column={self.config.input_column} -> output_columns={self.output_columns})",
         )
 
-    def preprocessing_features(self, dataset: Dataset) -> Features | None:
-        features = dataset.features.copy()
+    def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        features = features_of(dataset).copy()
         for mapping in self.config.json_path_to_output_column_mappings:
             features[mapping["outputColumn"]] = Value("string")
         return features
 
-    def preprocess_batch(self, batch: dict[str, Sequence[Any]]) -> dict[str, Sequence[Any]]:
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         collected = {
             mapping["outputColumn"]: []
             for mapping in self.config.json_path_to_output_column_mappings
         }
 
-        for i, example in enumerate(batch[self.config.input_column]):
+        for example in batch[self.config.input_column]:
             if isinstance(example, str):
                 example = json.loads(example)
 

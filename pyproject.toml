@@ -19,6 +19,11 @@ dependencies = [
     "matplotlib>=3.11.2",
     "librosa>=1.0.0",
     "wandb>=0.30.0",
+    "trl>=1.14.1",
+    "rotary-embedding-torch>=0.9.1",
+    "dacite>=1.9.2",
+    "tensorboard>=2.21.0",
+    "pandas>=3.0.6",
 ]
 
 [[tool.uv.index]]
@@ -71,10 +76,17 @@ dev = [
     "pytest>=9.1.1",
     "ruff",
     "mypy",
+    "basedpyright>=1.40.1",
 ]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+reportPrivateImportUsage = false
 
 [project.scripts]
 # uv run add-modality --help
 add-modality = "buildscripts.add_modality:main"
-# uv run preprocessing <task> --help
-preprocess = "larry.common.data.preprocessing:main"
+# uv run preprocessing --help
+preprocessing = "larry.common.data.preprocessing:main"
+# uv run training --help
+training = "larry.common.training:main"

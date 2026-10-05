@@ -1,0 +1,56 @@
+preprocessor:
+  inputs:
+    - name: provenance_columns
+      value:
+        - "path"
+        - "client_id"
+        - "sentence_id"
+
+dataset:
+  config: CommonVoiceDatasetConfig
+  overrides:
+    - name: download_extract_cache_dir
+      value: /home/zadar/.cache/larry/download_extract/voice/mels/mozilla-foundation_cv27/
+    - name: cache_dir
+      value: /home/zadar/.cache/larry/intermediates/voice/mels/mozilla-foundation_cv27/
+
+pipeline:
+  - name: ColumnValuesPruner
+    config: ColumnValuesPrunerConfig
+    inputs:
+      - name: values
+        value:
+          - "0"
+      - name: op
+        value: "nmatches"
+      - name: input_column
+        value: "down_votes"
+  - name: AudioDurationColumnPruner
+    config: AudioDurationColumnPrunerConfig
+    inputs:
+      - name: input_column
+        value: "audio_duration"
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForTTS
+  - name: MelExtractingMapper
+    config: MelExtractingMapperConfig
+    inputs:
+      - name: remove_columns
+        value:
+          - "audio_duration"
+          - "sentence_domain"
+          - "up_votes"
+          - "down_votes"
+          - "age"
+          - "gender"
+          - "accents"
+          - "variant"
+          - "locale"
+          - "segment"
+  - name: TextNormalizingMapper
+    config: TextMapperConfig
+    inputs:
+      - name: input_column
+        value: "sentence"
+  - name: TextTokenizingMapper
+    config: SmolLM2TextTokenizingMapperConfig

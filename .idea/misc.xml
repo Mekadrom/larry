@@ -4,4 +4,8 @@
     <option name="sdkName" value="uv (larry-v2)" />
   </component>
   <component name="ProjectRootManager" version="2" project-jdk-name="uv (larry)" project-jdk-type="Python SDK" />
+  <component name="PyrightConfiguration">
+    <option name="enabled" value="true" />
+    <option name="inlayHints" value="false" />
+  </component>
 </project>

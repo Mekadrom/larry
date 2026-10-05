@@ -1,0 +1,35 @@
+preprocessor:
+  inputs:
+    - name: provenance_columns
+      value:
+        - "librivox_book_id"
+        - "speaker_id"
+
+dataset:
+  config: MythicInfinityLibriHeavyDatasetConfig
+  overrides:
+    - name: cache_dir
+      value: /home/zadar/.cache/larry/intermediates/voice/mels/libriheavy/
+
+pipeline:
+  - name: AudioDurationColumnPruner
+    config: AudioDurationColumnPrunerConfig
+    inputs:
+      - name: input_column
+        value: "audio_duration"
+      - name: remove_column
+        value: true
+      - name: remove_columns
+        value:
+          - "text_transcription"
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForTTS
+  - name: MelExtractingMapper
+    config: MelExtractingMapperConfig
+  - name: TextNormalizingMapper
+    config: TextMapperConfig
+    inputs:
+      - name: input_column
+        value: "text_original"
+  - name: TextTokenizingMapper
+    config: SmolLM2TextTokenizingMapperConfig

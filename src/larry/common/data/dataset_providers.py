@@ -1,32 +1,38 @@
-import abc
-import dataclasses
 import logging
+from abc import ABC
 from abc import abstractmethod
-from typing import Sequence, Mapping, Any
+from pathlib import Path
+from typing import Sequence, Mapping, Any, ClassVar
 from typing import Union
 
 import datasets
-from datasets import DatasetDict, Dataset, IterableDatasetDict, IterableDataset
+from datasets import DatasetDict, Dataset, IterableDatasetDict, IterableDataset, NamedSplit
 from datasets import Split
 
+from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig
+from larry.common.utils.registrable import Registrable
+from larry.common.utils.types import TypeRegistry
 
-@dataclasses.dataclass(kw_only=True)
-class DatasetProvider[C](abc.ABC):
-    """Wrapper interface that to provide ``DatasetDict | Dataset | IterableDatasetDict | IterableDataset``."""
-    config: C
+
+class DatasetProvider[C: DatasetConfig = DatasetConfig](Registrable, ABC, root=True):
+    REGISTRY: ClassVar[TypeRegistry[DatasetProvider]]
+
+    _config: C
 
     def __init__(self, config: C) -> None:
-        self.config = config
+        self._config = config
         self.log = logging.getLogger(type(self).__name__)
+
+    @property
+    def config(self) -> C:
+        return self._config
 
     @abstractmethod
     def load_dataset(self) -> Union[DatasetDict, Dataset, IterableDatasetDict, IterableDataset]:
-        """Loads a dataset and returns it in the huggingface format."""
         ...
 
 
-class HuggingFaceDatasetProvider[C](DatasetProvider[C]):
-    """Default implementation of ``DatasetProvider`` which loads using huggingface's datasets library."""
+class HuggingFaceDatasetProvider[C: DatasetConfig = DatasetConfig](DatasetProvider[C]):
     @property
     def path(self) -> str | None:
         return self.config.path
@@ -41,14 +47,20 @@ class HuggingFaceDatasetProvider[C](DatasetProvider[C]):
 
     @property
     def data_files(self) -> str | Sequence[str] | Mapping[str, str | Sequence[str]] | None:
-        return {self.split: self.config.data_files}
+        files = self.config.data_files
+        split = self.config.split
+        if files is None or isinstance(files, Mapping):
+            return files
+        if isinstance(split, (str, NamedSplit)):
+            return {str(split): files}
+        return files
 
     @property
     def split(self) -> str | Split | list[str] | list[Split] | None:
         return self.config.split
 
     @property
-    def cache_dir(self) -> str | None:
+    def cache_dir(self) -> str | Path | None:
         return self.config.cache_dir
 
     @property
@@ -77,11 +89,6 @@ class HuggingFaceDatasetProvider[C](DatasetProvider[C]):
         )
 
     def load_dataset(self) -> DatasetDict | Dataset | IterableDatasetDict | IterableDataset:
-        """Delegates to huggingface's ``datasets.load_dataset()``, passing config values in verbatim.
-
-        Has to switch on ``self.config.streaming`` because the overloads of ``datasets.load_dataset()`` mess with the
-        type hinting when passing a ``bool`` typed field instead of a literal ``True`` or ``False``.
-        """
         kwargs = dict(self.load_dataset_kwargs)
         kwargs.pop("streaming", None)
         self.log.info(f"saving dataset using kwargs={kwargs} from config={self.config}")

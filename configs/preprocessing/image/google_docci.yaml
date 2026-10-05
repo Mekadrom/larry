@@ -1,0 +1,42 @@
+preprocessor:
+  inputs:
+    - name: provenance_columns
+      value:
+        - "example_id"
+
+dataset:
+  config: GoogleDOCCIMediaCachedDatasetConfig
+  overrides:
+    - name: download_extract_cache_dir
+      value: /home/zadar/.cache/larry/download_extract/image/google_docci/
+    - name: cache_dir
+      value: /home/zadar/.cache/larry/intermediates/image/google_docci/
+    - name: batch_size
+      value: 64
+
+pipeline:
+  - name: TextNormalizingMapper
+    config: TextMapperConfig
+    inputs:
+      - name: input_column
+        value: "description"
+      - name: batch_size
+        value: 64
+      - name: filter_null_outputs
+        value: true
+      - name: remove_columns
+        value:
+          - "split"
+          - "image_file"
+  - name: TextTokenizingMapper
+    config: SmolLM2TextTokenizingMapperConfig
+    inputs:
+      - name: batch_size
+        value: 64
+  - name: ImageResizingMapper
+    config: ImageResizingMapperConfig
+    inputs:
+      - name: batch_size
+        value: 64
+      - name: filter_null_outputs
+        value: true

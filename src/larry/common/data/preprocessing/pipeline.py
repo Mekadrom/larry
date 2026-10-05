@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import shutil
 import sys
@@ -7,18 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import yaml
 from datasets import Dataset, DatasetDict
 
-from larry.common.config.dataset_config import DatasetConfig
-from larry.common.config.pipeline_config import PipelineConfig
+from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig
+from larry.common.config.data.preprocessing.pipeline_config import PipelineConfig
+from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
 from larry.common.data.dataset_providers import DatasetProvider
-from larry.common.data.preprocessing.preprocessing_registries import dataset_provider_config_classes_by_modality, \
-    preprocessor_config_classes, default_preprocessor_config_classes_by_mapper_class, preprocessor_classes, \
-    dataset_provider_classes_by_name
 from larry.common.data.preprocessing.preprocessors import Preprocessor
-from larry.parquet_utils import save_parquet_shards
-from larry.utils.types import Modality
+from larry.common.data.utils import save_parquet_shards, split_by_fractions
+from larry.common.utils import load_yaml_config
 
 
 class Pipeline:
@@ -27,87 +25,91 @@ class Pipeline:
     dataset_provider: DatasetProvider
     pipeline: list[Preprocessor]
 
-    def __init__(self, output_dir: Path, command: Modality, pipeline_file: Path, clean: bool = False) -> None:
-        self.log = logging.getLogger(__name__)
-
+    def __init__(self, config_file: Path, output_dir: Path, clean: bool = False) -> None:
         """Instantiates a ``Runner`` and the configs specified for this preprocessing pipeline run."""
-        self.log.info(f"Loading pipeline file from yaml pipeline_file={pipeline_file}")
-        definition = self._load_definition_from_yaml(pipeline_file)
-        self.log.info("Pipeline file loaded.")
+        self.log = logging.getLogger(__name__)
+        self.output_dir = output_dir
 
-        pipeline_config_dict = definition.get("preprocessor")
-        self.config = PipelineConfig.from_dict(pipeline_config_dict)
+        self.log.info(f"Loading pipeline config from yaml config_file={config_file}")
+        definition = load_yaml_config(config_file)
+        self.log.info("Pipeline config loaded.")
 
-        dataset = definition.get("dataset")
-        dataset_config_name = dataset.get("config")
-        dataset_config_overrides = dataset.get("overrides", [])
-        dataset_config_type = dataset_provider_config_classes_by_modality[command][dataset_config_name]
+        preprocessor_config_dict: dict[str, Any] = definition.get("preprocessor", {})
+        preprocessor_inputs: list[dict[str, Any]] = preprocessor_config_dict.get("inputs", [])
+        self.config = PipelineConfig(
+            **{i["name"]: i["value"] for i in preprocessor_inputs}
+        )
 
-        self.log.info(f"{dataset_provider_config_classes_by_modality[command]}[{dataset_config_name}]")
+        dataset_config_dict: dict[str, Any] = definition.get("dataset", {})
 
-        self.log.info(f"Using dataset_config_name={dataset_config_name}, retrieved type: {dataset_config_type}.")
+        dataset_config_type_name = dataset_config_dict.get("config")
+        dataset_config_split_fractions = dataset_config_dict.get("splits", None)
+        if dataset_config_split_fractions:
+            self.fractions = {i["name"]: i["part"] for i in dataset_config_split_fractions}
+        else:
+            self.fractions = {"train": 1.0}
 
+        dataset_config_type = DatasetConfig.REGISTRY.resolve(dataset_config_type_name)
+        self.log.info(f"Using dataset_config_type_name={dataset_config_type_name}")
+
+        dataset_config_overrides = dataset_config_dict.get("overrides", [])
         self.log.info(f"Applying dataset_config_overrides={dataset_config_overrides}")
+
         dataset_provider_config: DatasetConfig = dataset_config_type(
             **{i["name"]: i["value"] for i in dataset_config_overrides}
         )
 
-        dataset_provider_config.cache_dir = Path(dataset_provider_config.cache_dir).expanduser().resolve()
-        if clean:
-            self.log.info(f"cleaning up {dataset_provider_config.cache_dir}")
-            shutil.rmtree(dataset_provider_config.cache_dir, ignore_errors=True)
+        if dataset_provider_config.cache_dir:
+            dataset_provider_config.cache_dir = Path(dataset_provider_config.cache_dir).expanduser().resolve()
+            if clean:
+                self.log.info(f"Cleaning up {dataset_provider_config.cache_dir}")
+                shutil.rmtree(dataset_provider_config.cache_dir, ignore_errors=True)
 
-        provider_name = dataset_provider_config.provider_name
-        self.log.info(f"Using provider_name={provider_name} from config of type {type(dataset_provider_config)}")
-        self.dataset_provider = dataset_provider_classes_by_name[provider_name](dataset_provider_config)
+        dataset_provider_type_name = dataset_provider_config.provider_name
+        self.log.info(
+            f"Using dataset_provider_type_name={dataset_provider_type_name} "
+            f"for dataset_provider_config={dataset_provider_config}"
+        )
+        dataset_provider_type = DatasetProvider.REGISTRY.resolve(dataset_provider_type_name)
+        self.dataset_provider = dataset_provider_type(dataset_provider_config)
 
-        preprocessor_configs = definition.get("pipeline")
-        self.pipeline = self._build_mapper_pipeline(preprocessor_configs)
+        pipeline_configs = definition.get("pipeline", None)
+        if pipeline_configs:
+            self.pipeline = self._build_mapper_pipeline(pipeline_configs)
+        else:
+            self.log.critical(
+                "No pipeline configured; parquets will be downloaded and cached locally according to the configuration."
+            )
+            self.pipeline = []
+        self.log.info("Preprocessor constructed")
 
-        self.output_dir = output_dir
-
-        self.log.info("Preprocessor constructed.")
-
-    def _load_definition_from_yaml(self, yaml_file: Path) -> dict[str, Any]:
-        with open(yaml_file) as stream:
-            try:
-                return yaml.safe_load(stream)
-            except:
-                self.log.exception(f"Error loading pipeline file {yaml_file}:")
-                raise
-
-    def _build_mapper_pipeline(self, preprocessor_configs: list[dict[str, Any]]) -> list[Preprocessor]:
+    def _build_mapper_pipeline(self, pipeline_configs: list[dict[str, Any]]) -> list[Preprocessor]:
         pipeline: list[Preprocessor] = []
 
-        for preprocessor_config in preprocessor_configs:
-            preprocessor_class_name = preprocessor_config.pop("name")
-            preprocessor_config_name = preprocessor_config.pop("config", None)
-            self.log.info(
-                f"Processing preprocessor_config_name={preprocessor_config_name} "
-                f"for preprocessor_class_name={preprocessor_class_name}"
-            )
+        for preprocessor_config in pipeline_configs:
+            preprocessor_type_name = preprocessor_config.get("name")
+            preprocessor_type = Preprocessor.REGISTRY.resolve(preprocessor_type_name)
 
-            config_overrides = preprocessor_config.get("inputs", [])
-            config_overrides = {i["name"]: i["value"] for i in config_overrides}
-
-            preprocessor_config_instance = preprocessor_config_classes.get(
-                preprocessor_config_name,
-                None
-            )(**config_overrides)
-
-            if preprocessor_config_instance is None:
-                preprocessor_config_instance = default_preprocessor_config_classes_by_mapper_class[
-                    preprocessor_class_name
-                ]
-
-            preprocessor_config_instance.load_overrides(config_overrides)
+            preprocessor_config_type_name = preprocessor_config.get("config")
+            preprocessor_config_type = PreprocessorConfig.REGISTRY.resolve(preprocessor_config_type_name)
 
             self.log.info(
-                f"preprocessor_class_name={preprocessor_class_name} "
-                f"using preprocessor_config_instance={preprocessor_config_instance}"
+                f"Using preprocessor_config_type_name={preprocessor_config_type_name} "
+                f"for preprocessor_type_name={preprocessor_type_name}"
             )
 
-            pipeline.append(preprocessor_classes[preprocessor_class_name](preprocessor_config_instance))
+            preprocessor_config_overrides = preprocessor_config.get("inputs", [])
+            self.log.info(f"Applying preprocessor_config_overrides={preprocessor_config_overrides}")
+            preprocessor_config = preprocessor_config_type(
+                **{i["name"]: i["value"] for i in preprocessor_config_overrides}
+            )
+
+            self.log.info(
+                f"preprocessor_type_name={preprocessor_type_name} "
+                f"using preprocessor_config={preprocessor_config}"
+            )
+
+            pipeline.append(preprocessor_type(preprocessor_config))
 
         return pipeline
 
@@ -135,17 +137,20 @@ class Pipeline:
 
         os.makedirs(self.output_dir, exist_ok=True)
         if isinstance(dataset, DatasetDict):
-            for split, split_ds in dataset.items():
-                self._preprocess_and_save_shards(split, split_ds)
+            for _, split_ds in dataset.items():
+                self._preprocess_and_save_shards(split_ds)
         elif isinstance(dataset, Dataset):
-            self._preprocess_and_save_shards("train", dataset)
+            self._preprocess_and_save_shards(dataset)
         else:
             raise TypeError(f"expected some kind of Dataset, got {type(dataset).__name__}")
 
         self._compile_and_save_provenance()
         self.log.info("Dataset saved to disk.")
 
-    def _preprocess_and_save_shards(self, prefix: str, dataset: Dataset) -> None:
+    def _preprocess_and_save_shards(self, dataset: Dataset | DatasetDict) -> None:
+        if not math.isclose(sum(self.fractions.values()), 1.0, abs_tol=1e-6):
+            raise ValueError("")
+
         for mapper in self.pipeline:
             try:
                 mapper.log.info(f"columns in: {dataset.column_names}")
@@ -156,7 +161,21 @@ class Pipeline:
             except:
                 mapper.log.critical(f"Error during _preprocess_and_save_shards in mapper={mapper}")
                 raise
-        save_parquet_shards(dataset, self.output_dir, self.config.parquet_size_mb, prefix)
+
+        if self.fractions and not isinstance(dataset, DatasetDict):
+            dataset = split_by_fractions(dataset, self.fractions)
+
+        if isinstance(dataset, DatasetDict):
+            for split_name, split_dataset in dataset.items():
+                split_name = str(split_name)
+                save_parquet_shards(
+                    split_dataset,
+                    self.output_dir,
+                    self.config.parquet_size_mb,
+                    prefix=split_name
+                )
+        else:
+            save_parquet_shards(dataset, self.output_dir, self.config.parquet_size_mb, prefix="train")
 
     def _compile_and_save_provenance(self) -> None:
         """Saves a separate json file that records the sources of this saved dataset."""

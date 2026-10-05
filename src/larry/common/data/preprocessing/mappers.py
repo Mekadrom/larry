@@ -1,14 +1,15 @@
 from abc import ABC
-from typing import Sequence, Any
+from typing import Any
 
-from datasets import Dataset, Features
+from datasets import Dataset, Features, DatasetDict
 from datasets.features.features import FeatureType
 
-from larry.common.config.mapper_configs import MapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import MapperConfig
 from larry.common.data.preprocessing.preprocessors import Preprocessor
+from larry.common.data.utils import features_of
 
 
-class Mapper[I, O, C=MapperConfig](Preprocessor[C], ABC):
+class Mapper[I, O, C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
     def __init__(self, config: C) -> None:
         super().__init__(config)
         self.remove_columns = self.config.remove_columns + (
@@ -34,7 +35,7 @@ class Mapper[I, O, C=MapperConfig](Preprocessor[C], ABC):
                  f"(input_column={self.config.input_column} -> output_column={self.config.output_column})",
         )
 
-    def preprocess_dataset(self, dataset: Dataset) -> Dataset:
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         dataset = dataset.map(
             self.preprocess_batch,
             features=self.preprocessing_features(dataset),
@@ -44,7 +45,7 @@ class Mapper[I, O, C=MapperConfig](Preprocessor[C], ABC):
             dataset = self.filter_nulls(dataset)
         return dataset
 
-    def filter_nulls(self, dataset: Dataset) -> Dataset:
+    def filter_nulls(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         return dataset.filter(
             lambda batch: [x is not None for x in batch],
             input_columns=self.config.output_column,
@@ -54,19 +55,22 @@ class Mapper[I, O, C=MapperConfig](Preprocessor[C], ABC):
             load_from_cache_file=self.config.cache_results,
         )
 
-    def preprocessing_features(self, dataset: Dataset) -> Features | None:
+    def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
         output_feature = self.output_feature()
         if output_feature is None:
             return None
 
-        features = dataset.features.copy()
+        features = features_of(dataset).copy()
         for col in self.remove_columns:
             features.pop(col, None)
         features[self.config.output_column] = output_feature
         return features
 
-    def preprocess_batch(self, batch: dict[str, Sequence[Any]]) -> dict[str, Sequence[Any]]:
-        return {self.config.output_column: [self.preprocess_example(row) for row in batch[self.config.input_column]]}
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        return {self.config.output_column: [
+            self.preprocess_example(row)
+            for row in batch[self.config.input_column]
+        ]}
 
     def preprocess_example(self, example: I) -> O:
         ...

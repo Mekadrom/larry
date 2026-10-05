@@ -4,14 +4,14 @@ import torchaudio.transforms
 from datasets import Array2D
 from datasets.features.features import FeatureType
 from torchaudio import transforms
-from torchcodec.decoders import AudioDecoder
 
 from larry.common.data.preprocessing.mappers import Mapper
-from larry.utils.types import EncodedAudio
-from larry.voice.config.voice_mapper_configs import MelExtractingMapperConfig, VoiceMapperConfig
+from larry.common.utils.types import EncodedAudio
+from larry.voice.config.preprocessing.voice_mapper_configs import MelExtractingMapperConfig, VoiceMapperConfig
+from larry.voice.utils import bytes_to_waveforms
 
 
-class VoiceMapper[I, O, C=VoiceMapperConfig](Mapper[I, O, C]):
+class VoiceMapper[I, O, C: VoiceMapperConfig = VoiceMapperConfig](Mapper[I, O, C]):
     ...
 
 
@@ -33,16 +33,7 @@ class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtrac
         return Array2D(shape=(None, self.config.n_mels), dtype=self.config.audio_dtype)
 
     def preprocess_example(self, example: EncodedAudio) -> np.ndarray | None:
-        samples = AudioDecoder(example["bytes"], sample_rate=self.config.sample_rate).get_all_samples()
-        waveform = samples.data
-
-        if waveform.ndim > 1 and waveform.shape[0] == 2:
-            # downmix to mono
-            waveform = waveform.mean(dim=0, keepdim=True)
-
-        if waveform.ndim > 1 and waveform.shape[0] == 1:
-            # remove single channel
-            waveform = waveform.squeeze(0)
+        waveform = bytes_to_waveforms(example["bytes"], self.config.sample_rate)
 
         waveform = self._remove_mains_hum(waveform)
 

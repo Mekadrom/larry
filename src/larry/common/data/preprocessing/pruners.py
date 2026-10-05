@@ -1,18 +1,18 @@
 from functools import partial
-from typing import Callable, Any
+from typing import Any, assert_never
 
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 
-from larry.common.config.pruner_configs import ColumnValuesPrunerConfig, PrunerConfig
+from larry.common.config.data.preprocessing.pruner_configs import ColumnValuesPrunerConfig, PrunerConfig
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 
 
-class Pruner[I, C=PrunerConfig](Preprocessor[C]):
+class Pruner[I, C: PrunerConfig = PrunerConfig](Preprocessor[C]):
     def validate(self) -> None:
         if self.config.input_column is None:
             raise ValueError(f"input_column must be specified for {self.__class__.__name__}")
 
-    def preprocess_dataset(self, dataset: Dataset) -> Dataset:
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         dataset = dataset.filter(
             lambda batch: [not p for p in self.prune_batched(batch)],
             input_columns=self.config.input_column,
@@ -41,11 +41,15 @@ class Pruner[I, C=PrunerConfig](Preprocessor[C]):
 class ColumnValuesPruner(Pruner[Any, ColumnValuesPrunerConfig]):
     def __init__(self, config: ColumnValuesPrunerConfig):
         super().__init__(config)
-        op_dict: dict[str, Callable[..., bool]] = {
-            "matches": ColumnValuesPruner.op_matches,
-            "nmatches": ColumnValuesPruner.op_nmatches,
-        }
-        self.op = partial(op_dict.get(self.config.op), self.config.op_config, self.config.values)
+        op_name = self.config.op
+        match op_name:
+            case "matches":
+                op = ColumnValuesPruner.op_matches
+            case "nmatches":
+                op = ColumnValuesPruner.op_nmatches
+            case _:
+                assert_never(op_name)
+        self.op = partial(op, self.config.op_config, self.config.values)
 
     def prune_example(self, example: str) -> bool:
         return self.op(example)
