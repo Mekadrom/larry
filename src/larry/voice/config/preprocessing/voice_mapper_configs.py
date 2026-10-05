@@ -1,23 +1,23 @@
 import dataclasses
 from typing import Literal
 
-from larry.common.config.data.preprocessing.mapper_configs import MapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
 from larry.voice.config.preprocessing.voice_configs import VoiceConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class VoiceMapperConfig(VoiceConfig, MapperConfig):
+class VoiceSingleColumnMapperConfig(VoiceConfig, SingleColumnMapperConfig):
     input_column: str = "audio"
     output_column: str = "audio"
 
 
 @dataclasses.dataclass(kw_only=True)
-class AudioColumnCastMapperConfig(VoiceMapperConfig):
+class AudioColumnCastMapperConfig(VoiceSingleColumnMapperConfig):
     decode: bool = False
 
 
 @dataclasses.dataclass(kw_only=True)
-class MelExtractingMapperConfig(VoiceMapperConfig):
+class MelExtractingMapperConfig(VoiceSingleColumnMapperConfig):
     n_fft: int = 1024
     hop_length: int = 256
     f_min: float = 0.0

@@ -6,6 +6,7 @@ from datasets import Features, Value, Dataset
 from torchcodec.decoders import AudioDecoder
 
 from larry.common.data.cached_dataset_providers import MediaCachedDatasetProvider, CachedDatasetProvider
+from larry.common.data.dataset_providers import DatasetProvider
 from larry.voice.config.preprocessing.voice_dataset_configs import CommonVoiceDatasetConfig, \
     SCOTUSManifestCachedDatasetConfig
 

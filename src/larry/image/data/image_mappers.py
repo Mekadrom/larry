@@ -9,20 +9,20 @@ from datasets.features.features import FeatureType
 from torchvision import transforms
 from torchvision.io import encode_jpeg, decode_image, ImageReadMode
 
-from larry.common.data.preprocessing.mappers import Mapper
+from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedImage
 from larry.image.config.preprocessing.image_mapper_configs import UrlImageMapperConfig, ImageResizingMapperConfig, \
-    ImageMapperConfig
+    ImageSingleColumnMapperConfig
 from larry.image.data import image_transforms as larry_image_transforms
 
 
-class ImageMapper[I, O, C: ImageMapperConfig = ImageMapperConfig](Mapper[I, O, C]):
+class ImageSingleColumnMapper[I, O, C: ImageSingleColumnMapperConfig = ImageSingleColumnMapperConfig](SingleColumnMapper[I, O, C]):
     def output_feature(self) -> FeatureType | None:
         return datasets.Image(decode=False)
 
 
-class UrlImageMapper(ImageMapper[str, EncodedImage | None, UrlImageMapperConfig]):
+class UrlImageMapper(ImageSingleColumnMapper[str, EncodedImage | None, UrlImageMapperConfig]):
     def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
         features = super().preprocessing_features(dataset)
         if features is None:
@@ -59,7 +59,7 @@ class UrlImageMapper(ImageMapper[str, EncodedImage | None, UrlImageMapperConfig]
         return None
 
 
-class ImageResizingMapper(ImageMapper[EncodedImage | None, EncodedImage | None, ImageResizingMapperConfig]):
+class ImageResizingMapper(ImageSingleColumnMapper[EncodedImage | None, EncodedImage | None, ImageResizingMapperConfig]):
     def __init__(self, config: ImageResizingMapperConfig) -> None:
         super().__init__(config)
 

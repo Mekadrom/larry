@@ -6,7 +6,7 @@ preprocessor:
         - "speaker_id"
 
 dataset:
-  config: MythicInfinityLibriHeavyDatasetConfig
+  config: LarrySCOTUSManifestDatasetConfig
   overrides:
     - name: cache_dir
       value: /home/zadar/.cache/larry/intermediates/voice/mels/libriheavy/

@@ -24,7 +24,6 @@ class MythicInfinityLibriHeavyDatasetConfig(DatasetConfig, VoiceDatasetConfig):
 
     path: str = "mythicinfinity/libriheavy"
     name: str | None = "large"
-    split: str | Split | list[str] | list[Split] | None = "train"
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -95,3 +94,10 @@ class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig)
     sleep: float = 1.0
 
     terms: str = "2010-2025"
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarrySCOTUSManifestDatasetConfig(DatasetConfig, VoiceDatasetConfig):
+    """https://huggingface.co/datasets/thelarryproject/scotus_manifest"""
+
+    path: str = "thelarryproject/scotus_manifest"

@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "larry"
+type: software
+authors:
+  - family-names: "Hartmann"
+    given-names: "Justin"
+repository-code: "https://github.com/Mekadrom/larry"
+license: Apache-2.0
+version: "0.1.0"
+date-released: "2026-10-04"

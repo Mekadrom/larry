@@ -1,16 +1,16 @@
 import dataclasses
 
-from larry.common.config.data.preprocessing.mapper_configs import MapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class TextMapperConfig(MapperConfig):
+class TextSingleColumnMapperConfig(SingleColumnMapperConfig):
     input_column: str = "text"
     output_column: str = "text"
 
 
 @dataclasses.dataclass(kw_only=True)
-class TextTokenizingMapperConfig(TextMapperConfig):
+class TextTokenizingMapperConfig(TextSingleColumnMapperConfig):
     tokenizer: str
     output_column: str = "input_ids"
 

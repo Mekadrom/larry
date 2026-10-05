@@ -6,6 +6,7 @@ from larry.common.config.data.preprocessing.preprocessor_configs import Preproce
 
 @dataclasses.dataclass(kw_only=True)
 class PrunerConfig(PreprocessorConfig):
+    input_column: str
     prune_nulls: bool = True
 
 

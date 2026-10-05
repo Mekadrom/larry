@@ -5,17 +5,17 @@ from datasets import Array2D
 from datasets.features.features import FeatureType
 from torchaudio import transforms
 
-from larry.common.data.preprocessing.mappers import Mapper
+from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.common.utils.types import EncodedAudio
-from larry.voice.config.preprocessing.voice_mapper_configs import MelExtractingMapperConfig, VoiceMapperConfig
+from larry.voice.config.preprocessing.voice_mapper_configs import MelExtractingMapperConfig, VoiceSingleColumnMapperConfig
 from larry.voice.utils import bytes_to_waveforms
 
 
-class VoiceMapper[I, O, C: VoiceMapperConfig = VoiceMapperConfig](Mapper[I, O, C]):
+class VoiceSingleColumnMapper[I, O, C: VoiceSingleColumnMapperConfig = VoiceSingleColumnMapperConfig](SingleColumnMapper[I, O, C]):
     ...
 
 
-class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):
+class MelExtractingMapper(VoiceSingleColumnMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):
     def __init__(self, config: MelExtractingMapperConfig) -> None:
         super().__init__(config)
         self.transform = transforms.MelSpectrogram(

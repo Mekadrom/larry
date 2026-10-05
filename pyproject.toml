@@ -1,7 +1,8 @@
 [project]
 name = "larry"
 version = "1.0.0"
-description = "Add your description here"
+description = "The larry project."
+license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -24,6 +25,7 @@ dependencies = [
     "dacite>=1.9.2",
     "tensorboard>=2.21.0",
     "pandas>=3.0.6",
+    "gitpython>=3.2.0",
 ]
 
 [[tool.uv.index]]

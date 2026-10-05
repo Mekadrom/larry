@@ -6,16 +6,16 @@ from datasets import List, Value
 from datasets.features.features import FeatureType
 from transformers import AutoTokenizer
 
-from larry.common.data.preprocessing.mappers import Mapper
+from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
-    TextMapperConfig
+    TextSingleColumnMapperConfig
 
 
-class TextMapper[I, O, C: TextMapperConfig = TextMapperConfig](Mapper[I, O, C]):
+class TextSingleColumnMapper[I, O, C: TextSingleColumnMapperConfig = TextSingleColumnMapperConfig](SingleColumnMapper[I, O, C]):
     ...
 
 
-class TextNormalizingMapper(TextMapper[str | None, str | None, TextMapperConfig]):
+class TextNormalizingMapper(TextSingleColumnMapper[str | None, str | None, TextSingleColumnMapperConfig]):
     def preprocess_example(self, example: str | None) -> str | None:
         if not example:
             return None
@@ -66,7 +66,7 @@ class TextNormalizingMapper(TextMapper[str | None, str | None, TextMapperConfig]
 
 
 # noinspection PyTypeChecker
-class TextTokenizingMapper(TextMapper[list[str], torch.Tensor | None, TextTokenizingMapperConfig]):
+class TextTokenizingMapper(TextSingleColumnMapper[list[str], torch.Tensor | None, TextTokenizingMapperConfig]):
     def __init__(self, config: TextTokenizingMapperConfig) -> None:
         super().__init__(config)
         # noinspection PyNoneFunctionAssignment

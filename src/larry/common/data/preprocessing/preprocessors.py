@@ -9,7 +9,7 @@ from datasets import Dataset, Features, Value, DatasetDict
 from jsonpath_ng import JSONPath
 
 from larry.common.config.data.preprocessing.preprocessor_configs import RemoveColumnsPreprocessorConfig, \
-    NestedExtractionPreprocessorConfig, PreprocessorConfig, ValidationSetSplittingMapperConfig
+    NestedExtractionPreprocessorConfig, PreprocessorConfig
 from larry.common.data.utils import features_of
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry

@@ -17,9 +17,9 @@ from larry.voice.config.preprocessing.voice_downloader_configs import SCOTUSDock
 #                     term/docket
 _CASE_LINK = re.compile(r"href='\.\./audio/(\d{4})/([0-9A-Za-z._-]+)'")
 _TRANSCRIPT_LINK = re.compile(r"argument_transcripts/(\d{4})/([0-9A-Za-z._-]+?)(?:_[0-9a-z]{4})?\.pdf")
-_MP3 = re.compile(r"""["'](https?://[^"']*?/mp3files/[^"']+\.mp3)["']""", re.I)
-_PDF = re.compile(r"""href=['"]([^'"]*argument_transcripts/[^'"]+\.pdf)['"]""", re.I)
-_SPAN = re.compile(r"""<span id=["'][^"']*%s["'][^>]*>(.*?)</span>""", re.S)
+_MP3 = re.compile(r"""["'](https?://[^"']*?/mp3files/[^"']+\.mp3)["']""", re.IGNORECASE)
+_PDF = re.compile(r"""href=['"]([^'"]*argument_transcripts/[^'"]+\.pdf)['"]""", re.IGNORECASE)
+_SPAN = re.compile(r"""<span id=["'][^"']*%s["'][^>]*>(.*?)</span>""", re.DOTALL)
 
 
 class SCOTUSTermManifestDownloader(RangedIndexMultiFileDownloader[SCOTUSTermManifestDownloaderConfig]):

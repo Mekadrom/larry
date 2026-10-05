@@ -26,6 +26,7 @@ from larry.common.optim.qk_clip import QKClipHandler, QKClipCallback
 from larry.common.training.callbacks import TrainingCallback, ModelInitLoggingCallback
 from larry.common.training.training_model import LarryModel
 from larry.common.training.viz_callbacks import VizCallback
+from larry.common.utils import git_utils
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
 
@@ -114,7 +115,10 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
     @functools.cached_property
     def git_commit_hash(self) -> str:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        repo_state = git_utils.git_info()
+        if repo_state is not None:
+            return repo_state.git_commit
+        return "head"
 
     def make_optimizers(self, model: nn.Module) -> list[Optimizer]:
         if self.config.optimizer_name == "muon":

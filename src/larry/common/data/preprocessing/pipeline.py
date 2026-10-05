@@ -4,6 +4,7 @@ import math
 import os
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ from larry.common.config.data.preprocessing.preprocessor_configs import Preproce
 from larry.common.data.dataset_providers import DatasetProvider
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 from larry.common.data.utils import save_parquet_shards, split_by_fractions
-from larry.common.utils import load_yaml_config
+from larry.common.utils import load_yaml_config, git_utils
 
 
 class Pipeline:
@@ -179,6 +180,20 @@ class Pipeline:
 
     def _compile_and_save_provenance(self) -> None:
         """Saves a separate json file that records the sources of this saved dataset."""
-        (self.output_dir / "provenance.json").write_text(
-            json.dumps({"provenanceColumns": self.config.provenance_columns})
-        )
+        provenance = {
+            "provenanceColumns": self.config.provenance_columns,
+            "produced_on": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+
+        repo_state = git_utils.git_info()
+        if repo_state is not None:
+            provenance.update({
+                "git_commit": repo_state.git_commit,
+                "git_is_dirty": repo_state.git_dirty,
+            })
+        else:
+            provenance.update({
+                "git_commit": "not a git repo",
+                "git_is_dirty": "not a git repo"
+            })
+        (self.output_dir / "provenance.json").write_text(json.dumps(provenance))
