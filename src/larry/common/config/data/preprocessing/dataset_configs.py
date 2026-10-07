@@ -28,6 +28,7 @@ class DatasetConfig(Registrable, root=True):
     num_proc: int | None = None
 
     provenance_columns: list[str] = dataclasses.field(default_factory=list)
+    provenance_ancestry: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(kw_only=True)

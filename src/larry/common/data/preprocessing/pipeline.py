@@ -37,6 +37,7 @@ class Pipeline:
 
         preprocessor_config_dict: dict[str, Any] = definition.get("preprocessor", {})
         preprocessor_inputs: list[dict[str, Any]] = preprocessor_config_dict.get("inputs", [])
+        self.log.info(f"using preprocessor_inputs={preprocessor_inputs}")
         self.config = PipelineConfig(
             **{i["name"]: i["value"] for i in preprocessor_inputs}
         )
@@ -110,7 +111,7 @@ class Pipeline:
                 f"using preprocessor_config={preprocessor_config}"
             )
 
-            pipeline.append(preprocessor_type(preprocessor_config))
+            pipeline.append(preprocessor_type(self.config.provenance_columns, preprocessor_config))
 
         return pipeline
 
@@ -164,16 +165,20 @@ class Pipeline:
                 raise
 
         if self.fractions and not isinstance(dataset, DatasetDict):
-            dataset = split_by_fractions(dataset, self.fractions)
+            dataset = split_by_fractions(dataset, self.config.default_batch_size, self.fractions, seed=self.config.seed)
 
         if isinstance(dataset, DatasetDict):
             for split_name, split_dataset in dataset.items():
                 split_name = str(split_name)
                 save_parquet_shards(
-                    split_dataset,
+                    split_dataset.map(
+                        batched=True,
+                        batch_size=self.config.default_batch_size,
+                        writer_batch_size=self.config.default_batch_size
+                    ),
                     self.output_dir,
                     self.config.parquet_size_mb,
-                    prefix=split_name
+                    prefix = split_name
                 )
         else:
             save_parquet_shards(dataset, self.output_dir, self.config.parquet_size_mb, prefix="train")
@@ -196,4 +201,12 @@ class Pipeline:
                 "git_commit": "not a git repo",
                 "git_is_dirty": "not a git repo"
             })
+
+        if self.dataset_provider.config.path not in ("parquet", "csv", "json", "tsv"):
+            # since the dataset provider is where this dataset came from, it is the direct ancestor. ancestors of those
+            # datasets will be able to crawled by a script that has yet to be made
+            provenance.update({
+                "ancestry": self.dataset_provider.config.path
+            })
+
         (self.output_dir / "provenance.json").write_text(json.dumps(provenance))

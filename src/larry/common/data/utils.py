@@ -3,13 +3,14 @@ from typing import Mapping
 
 import numpy as np
 from datasets import Dataset, DatasetDict, Features
+from tqdm import tqdm
 
 
 def save_parquet_shards(ds: Dataset, parent_dir: Path, parquet_target_size_mb: float, prefix: str) -> None:
     parquet_dir = parent_dir / prefix
     parquet_dir.mkdir(parents=True, exist_ok=True)
     num_shards = max(1, min(len(ds), ds.data.nbytes // (parquet_target_size_mb * 1024 ** 2)))
-    for i in range(num_shards):
+    for i in tqdm(range(num_shards)):
         shard = ds.shard(num_shards, i, contiguous=True)
         shard.to_parquet(
             parquet_dir / f"{prefix}-{i:05d}-of-{num_shards:05d}.parquet"
@@ -17,8 +18,12 @@ def save_parquet_shards(ds: Dataset, parent_dir: Path, parquet_target_size_mb: f
     (parent_dir / f"{prefix}.parquets.complete").touch(exist_ok=True)
 
 
-def split_by_fractions(dataset: Dataset, fractions: Mapping[str, float]) -> DatasetDict:
-    dataset = dataset.shuffle().flatten_indices()
+def split_by_fractions(dataset: Dataset, batch_size: int, fractions: Mapping[str, float], seed: int = 42) -> DatasetDict:
+    dataset = dataset.shuffle(seed=seed).map(
+        batched=True,
+        batch_size=batch_size,
+        writer_batch_size=batch_size
+    )
     n = len(dataset)
 
     # eg for fractions like {"train": 0.98, "val": 0.01, "test": 0.01} produces an array of [0.0, 0.98, 0.99, 1.00]

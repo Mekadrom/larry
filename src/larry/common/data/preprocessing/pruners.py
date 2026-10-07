@@ -4,6 +4,7 @@ from typing import Any, assert_never
 from datasets import Dataset, DatasetDict
 
 from larry.common.config.data.preprocessing.pruner_configs import ColumnValuesPrunerConfig, PrunerConfig
+from larry.common.data.preprocessing import Pipeline
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 
 
@@ -39,8 +40,8 @@ class Pruner[I, C: PrunerConfig = PrunerConfig](Preprocessor[C]):
 
 
 class ColumnValuesPruner(Pruner[Any, ColumnValuesPrunerConfig]):
-    def __init__(self, config: ColumnValuesPrunerConfig):
-        super().__init__(config)
+    def __init__(self, provenance_columns: list[str], config: ColumnValuesPrunerConfig):
+        super().__init__(provenance_columns, config)
         op_name = self.config.op
         match op_name:
             case "matches":

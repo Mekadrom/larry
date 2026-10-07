@@ -23,6 +23,15 @@ class UrlAudioMapperConfig(UrlMapperConfig, VoiceMapperConfig):
 
     download_cache_dir: str = "/tmp/larry/audio_url_mapper"
 
+    duration_column: str | None = None
+
+    hash_column: str = "audio_url_hash"
+
+
+@dataclasses.dataclass(kw_only=True)
+class AudioDurationMapperConfig(VoiceMapperConfig):
+    output_column: str = "duration_s"
+
 
 @dataclasses.dataclass(kw_only=True)
 class MelExtractingMapperConfig(VoiceMapperConfig):

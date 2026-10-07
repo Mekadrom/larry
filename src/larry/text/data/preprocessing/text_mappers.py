@@ -1,8 +1,6 @@
-import functools
 import re
 from typing import Any
 
-import requests
 import torch
 from datasets import List, Value
 from datasets.features.features import FeatureType
@@ -11,7 +9,19 @@ from transformers import AutoTokenizer
 from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
 from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
 from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
-    TextSingleColumnMapperConfig, UrlTextMapperConfig
+    TextMapperConfig, UrlTextMapperConfig
+import re
+from typing import Any
+
+import torch
+from datasets import List, Value
+from datasets.features.features import FeatureType
+from transformers import AutoTokenizer
+
+from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
+from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
+from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
+    TextMapperConfig, UrlTextMapperConfig
 
 
 class TextMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperConfig](SingleColumnMapper[I, O, C]):
@@ -27,14 +37,13 @@ class UrlTextMapper(UrlMapper[str, UrlTextMapperConfig], TextMapper[str, str | N
 
     def extract_content(self, example: str, content: bytes) -> str:
         try:
-            content = str(content, "utf-8", errors="replace")
+            return content.decode("utf-8", errors="replace")
         except (LookupError, TypeError):
             self.log.error(f"content encoding error, content was not utf-8 for content of size {len(content)}")
-            content = str(content, errors="replace")
-        return content
+            return content.decode(errors="replace")
 
 
-class TextNormalizingMapper(TextMapper[str | None, str | None, TextSingleColumnMapperConfig]):
+class TextNormalizingMapper(TextMapper[str | None, str | None, TextMapperConfig]):
     def preprocess_example(self, example: str | None) -> str | None:
         if not example:
             return None
@@ -86,8 +95,8 @@ class TextNormalizingMapper(TextMapper[str | None, str | None, TextSingleColumnM
 
 # noinspection PyTypeChecker
 class TextTokenizingMapper(TextMapper[list[str], torch.Tensor | None, TextTokenizingMapperConfig]):
-    def __init__(self, config: TextTokenizingMapperConfig) -> None:
-        super().__init__(config)
+    def __init__(self, provenance_columns: list[str], config: TextTokenizingMapperConfig) -> None:
+        super().__init__(provenance_columns, config)
         # noinspection PyNoneFunctionAssignment
         self.tokenizer = AutoTokenizer.from_pretrained(self.config.tokenizer)
         self.log.info(f"Using tokenizer with vocab_size={len(self.tokenizer)}")

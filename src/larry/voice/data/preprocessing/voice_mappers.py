@@ -1,6 +1,8 @@
+import hashlib
+from typing import Any
+
 import datasets
 import numpy as np
-import requests
 import torch
 import torchaudio.transforms
 from datasets import Array2D
@@ -11,7 +13,7 @@ from torchcodec.decoders import AudioDecoder
 from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
 from larry.common.utils.types import EncodedAudio
 from larry.voice.config.preprocessing.voice_mapper_configs import MelExtractingMapperConfig, \
-    VoiceMapperConfig, UrlAudioMapperConfig
+    VoiceMapperConfig, UrlAudioMapperConfig, AudioDurationMapperConfig
 from larry.voice.utils import bytes_to_waveforms
 
 
@@ -32,19 +34,26 @@ class UrlAudioMapper(
 
     def validate_content(self, example: str, content: bytes) -> None:
         decoder = AudioDecoder(content)  # raises if the stream can't be parsed
-        meta = decoder.metadata
-        duration = meta.duration_seconds_from_header
-        if duration is None or duration < 0.1:
-            raise ValueError(f"implausible duration: {duration} for url={example}")
+        head = decoder.get_samples_played_in_range(0.0, 1.0)
+        if head.data.shape[-1] == 0:
+            raise ValueError(f"no decodable audio at start of {example}")
 
-        tail = decoder.get_samples_played_in_range(max(0.0, duration - 5.0), duration)
-        if tail.data.shape[-1] == 0:
-            raise ValueError(f"no decodable audio at the end of the file from {example}; likely truncated")
+
+class AudioDurationMapper(SingleColumnMapper[EncodedAudio | None, float | None, AudioDurationMapperConfig]):
+    def __init__(self, provenance_columns: list[str], config: AudioDurationMapperConfig) -> None:
+        super().__init__(provenance_columns, config)
+        # don't remove input column by default
+        self.remove_columns = self.config.remove_columns
+
+    def preprocess_example(self, example: EncodedAudio | None) -> float | None:
+        if example is None:
+            return None
+        return AudioDecoder(example["bytes"], sample_rate=8000, num_channels=1).get_all_samples().duration_seconds
 
 
 class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):
-    def __init__(self, config: MelExtractingMapperConfig) -> None:
-        super().__init__(config)
+    def __init__(self, provenance_columns: list[str], config: MelExtractingMapperConfig) -> None:
+        super().__init__(provenance_columns, config)
         self.transform = transforms.MelSpectrogram(
             n_fft=config.n_fft,
             hop_length=config.hop_length,

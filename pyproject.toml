@@ -26,7 +26,8 @@ dependencies = [
     "tensorboard>=2.21.0",
     "pandas>=3.0.6",
     "gitpython>=3.2.0",
-    "pypdf>=6.19.0",
+    "pdfplumber>=0.11.10",
+    "pyarrow-stubs>=20.0.0.20260819",
 ]
 
 [[tool.uv.index]]

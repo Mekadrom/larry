@@ -2,9 +2,9 @@ preprocessor:
   inputs:
     - name: provenance_columns
       value:
-        - "path"
-        - "client_id"
-        - "sentence_id"
+        - path
+        - client_id
+        - sentence_id
 
 dataset:
   config: CommonVoiceDatasetConfig

@@ -20,7 +20,8 @@ class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
 
     _config: C
 
-    def __init__(self, config: C) -> None:
+    def __init__(self, provenance_columns: list[str], config: C) -> None:
+        self.provenance_columns = provenance_columns
         self._config = config
         self.validate()
         self.log = logging.getLogger(type(self).__name__)
@@ -41,6 +42,15 @@ class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
         """A warning."""
         raise NotImplementedError("don't do this")
 
+    def provenance_string(self, batch: dict[str, list[Any]], index: int) -> str:
+        column_values = {}
+        for c in self.provenance_columns:
+            column_values[c] = batch[c][index]
+        strs = []
+        for c, v in column_values.items():
+            strs.append(f"{c}={v}")
+        return f"{{{', '.join(strs)}}}"
+
 
 class RemoveColumnsPreprocessor(Preprocessor[RemoveColumnsPreprocessorConfig]):
     def validate(self) -> None:
@@ -52,8 +62,8 @@ class RemoveColumnsPreprocessor(Preprocessor[RemoveColumnsPreprocessorConfig]):
 
 
 class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConfig]):
-    def __init__(self, config: NestedExtractionPreprocessorConfig) -> None:
-        super().__init__(config)
+    def __init__(self, provenance_columns: list[str], config: NestedExtractionPreprocessorConfig) -> None:
+        super().__init__(provenance_columns, config)
         self.parsed_queries = {
             mapping["outputColumn"]: jsonpath_ng.parse(mapping["jsonPath"])
             for mapping in self.config.json_path_to_output_column_mappings

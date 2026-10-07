@@ -2,8 +2,8 @@ preprocessor:
   inputs:
     - name: provenance_columns
       value:
-        - "librivox_book_id"
-        - "speaker_id"
+        - librivox_book_id
+        - speaker_id
 
 dataset:
   config: LarrySCOTUSManifestDatasetConfig

@@ -17,8 +17,8 @@ from larry.common.data.utils import features_of
 
 
 class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
-    def __init__(self, config: C) -> None:
-        super().__init__(config)
+    def __init__(self, provenance_columns: list[str], config: C) -> None:
+        super().__init__(provenance_columns, config)
         self.remove_columns = self.config.remove_columns
 
     def map_kwargs(self) -> dict[str, Any]:
@@ -46,8 +46,8 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
 
 
 class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperConfig](Mapper[C], ABC):
-    def __init__(self, config: C) -> None:
-        super().__init__(config)
+    def __init__(self, provenance_columns: list[str], config: C) -> None:
+        super().__init__(provenance_columns, config)
         self.remove_columns = self.config.remove_columns + (
             [self.config.input_column] if self.config.input_column != self.config.output_column else []
         )
@@ -67,9 +67,29 @@ class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperC
             raise ValueError(f"output_column must be specified for {self.__class__.__name__}")
 
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
-        dataset = super().preprocess_dataset(dataset)
-        if self.config.filter_null_outputs:
+        return self._filter_nulls(super().preprocess_dataset(dataset))
+
+    def _filter_nulls(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        if isinstance(dataset, Dataset):
             dataset = self.filter_nulls(dataset)
+        elif isinstance(dataset, DatasetDict):
+            for split, split_ds in dataset.items():
+                dataset[split] = self.filter_nulls(split_ds)
+        return dataset
+
+    def filter_nulls(self, dataset: Dataset) -> Dataset:
+        n = dataset.data.column(self.config.output_column).null_count
+        if self.config.filter_null_outputs and n > 0:
+            self.log.warning(f"dropping {n} null rows from {self.config.output_column}")
+            return dataset.filter(
+                lambda batch: [x is not None for x in batch],
+                input_columns=self.config.output_column,
+                batched=True,
+                batch_size=self.config.batch_size,
+                writer_batch_size=self.config.writer_batch_size,
+                keep_in_memory=not self.config.cache_results,
+                load_from_cache_file=self.config.cache_results,
+            )
         return dataset
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
@@ -93,16 +113,6 @@ class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperC
             features.pop(column, None)
         features.update({self.config.output_column: output_feature})
         return features
-
-    def filter_nulls(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
-        return dataset.filter(
-            lambda batch: [x is not None for x in batch],
-            input_columns=self.config.output_column,
-            batched=True,
-            batch_size=self.config.batch_size,
-            keep_in_memory=not self.config.cache_results,
-            load_from_cache_file=self.config.cache_results,
-        )
 
     def output_feature(self) -> FeatureType | None:
         return None
@@ -128,19 +138,33 @@ class ValueOverrideMapper(Mapper[ValueOverrideMapperConfig]):
 
 
 class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str, O | None, C], ABC):
-    def __init__(self, config: C) -> None:
-        super().__init__(config)
+    session: requests.Session | None = None
+
+    def __init__(self, provenance_columns: list[str], config: C) -> None:
+        super().__init__(provenance_columns, config)
         if self.config.download_cache_dir is not None:
             self.download_cache_dir = Path(self.config.download_cache_dir).expanduser().resolve()
             os.makedirs(self.download_cache_dir, exist_ok=True)
         else:
             self.download_cache_dir = None
-        self.session = requests.Session()
-        self.session.headers["User-Agent"] = self.user_agent()
 
-    def preprocess_example(self, example: str) -> O | None:
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        column = batch[self.config.input_column]
+        examples = []
+        hashes = []
+        for i, example in enumerate(column):
+            h = str(hashlib.sha256(example.encode('utf-8')).hexdigest())
+            examples.append(self._preprocess_example(column[i], h))
+            hashes.append(h)
+
+        return {
+            self.config.output_column: examples,
+            self.config.hash_column: hashes,
+        }
+
+    def _preprocess_example(self, example: str, url_hash: str) -> O | None:
         if self.download_cache_dir is not None:
-            cache_file_path = self.download_cache_dir / f"{hashlib.sha256(example.encode('utf-8')).hexdigest()}"
+            cache_file_path = self.download_cache_dir / url_hash
         else:
             cache_file_path = None
 
@@ -157,6 +181,11 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
                 content = None
 
         if content is None:
+            # lazy init session
+            self._ensure_session()
+            if self.session is None:
+                raise ValueError("session was not initialized")
+
             for attempt in range(self.config.max_retries + 1):
                 sleep = self.config.busy_wait + (self.config.retry_backoff * 2 ** (attempt - 1) if attempt else 0)
                 time.sleep(sleep)
@@ -208,6 +237,11 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
         )
         return None
 
+    def _ensure_session(self) -> None:
+        if self.session is None:
+            self.session = requests.Session()
+            self.session.headers["User-Agent"] = self.user_agent()
+
     @abstractmethod
     def user_agent(self) -> str:
         ...
@@ -229,6 +263,22 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
     @abstractmethod
     def extract_content(self, example: str, content: bytes) -> O:
         ...
+
+    def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        output_feature = self.output_feature()
+        if output_feature is None:
+            return None
+
+        features = super().preprocessing_features(dataset)
+        if features is None:
+            features = features_of(dataset).copy()
+        for column in self.remove_columns:
+            features.pop(column, None)
+        features.update({
+            self.config.output_column: output_feature,
+            self.config.hash_column: Value("string"),
+        })
+        return features
 
 
 class UrlBytesMapper(UrlMapper[bytes, UrlBytesMapperConfig]):

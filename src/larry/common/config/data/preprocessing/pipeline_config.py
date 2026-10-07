@@ -7,3 +7,5 @@ class PipelineConfig:
 
     parquet_size_mb: int = 500
     provenance_columns: list[str] = dataclasses.field(default_factory=list)
+    default_batch_size: int = 1000
+    seed: int = 42

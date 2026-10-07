@@ -37,8 +37,8 @@ class UrlImageMapper(
 
 
 class ImageResizingMapper(ImageMapper[EncodedImage | None, EncodedImage | None, ImageResizingMapperConfig]):
-    def __init__(self, config: ImageResizingMapperConfig) -> None:
-        super().__init__(config)
+    def __init__(self, provenance_columns: list[str], config: ImageResizingMapperConfig) -> None:
+        super().__init__(provenance_columns, config)
 
         transform = []
         if self.config.pad_to_equal:

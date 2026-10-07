@@ -98,6 +98,6 @@ class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig)
 
 @dataclasses.dataclass(kw_only=True)
 class LarrySCOTUSManifestDatasetConfig(DatasetConfig, VoiceDatasetConfig):
-    """https://huggingface.co/datasets/thelarryproject/scotus_manifest"""
+    """https://huggingface.co/datasets/thelarryproject/scotus-manifest"""
 
-    path: str = "thelarryproject/scotus_manifest"
+    path: str = "thelarryproject/scotus-manifest"

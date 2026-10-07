@@ -4,21 +4,32 @@ from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMa
 
 
 @dataclasses.dataclass(kw_only=True)
-class TextSingleColumnMapperConfig(SingleColumnMapperConfig):
+class TextMapperConfig(SingleColumnMapperConfig):
     input_column: str = "text"
     output_column: str = "text"
 
 
 @dataclasses.dataclass(kw_only=True)
-class UrlTextMapperConfig(UrlMapperConfig, TextSingleColumnMapperConfig):
+class UrlTextMapperConfig(UrlMapperConfig, TextMapperConfig):
     input_column: str = "url"
     output_column: str = "text"
 
     download_cache_dir: str = "/tmp/larry/text_url_mapper"
 
+    hash_column: str = "text_url_hash"
+
 
 @dataclasses.dataclass(kw_only=True)
-class TextTokenizingMapperConfig(TextSingleColumnMapperConfig):
+class SCOTUSTranscriptPdfTextMapperConfig(SingleColumnMapperConfig):
+    input_column: str = "bytes_url_hash"
+    docket_column: str = "docket"
+    output_column: str = "transcript"
+
+    download_cache_dir: str = "/tmp/larry/bytes_url_mapper"
+
+
+@dataclasses.dataclass(kw_only=True)
+class TextTokenizingMapperConfig(TextMapperConfig):
     tokenizer: str
     output_column: str = "input_ids"
 
