@@ -1,12 +1,9 @@
-import hashlib
-from typing import Any
-
 import datasets
 import numpy as np
 import torch
 import torchaudio.transforms
 from datasets import Array2D
-from datasets.features.features import FeatureType
+from datasets.features.features import FeatureType, Value
 from torchaudio import transforms
 from torchcodec.decoders import AudioDecoder
 
@@ -40,15 +37,14 @@ class UrlAudioMapper(
 
 
 class AudioDurationMapper(SingleColumnMapper[EncodedAudio | None, float | None, AudioDurationMapperConfig]):
-    def __init__(self, provenance_columns: list[str], config: AudioDurationMapperConfig) -> None:
-        super().__init__(provenance_columns, config)
-        # don't remove input column by default
-        self.remove_columns = self.config.remove_columns
-
     def preprocess_example(self, example: EncodedAudio | None) -> float | None:
         if example is None:
             return None
-        return AudioDecoder(example["bytes"], sample_rate=8000, num_channels=1).get_all_samples().duration_seconds
+        duration_s = AudioDecoder(example["bytes"], sample_rate=8000, num_channels=1).get_all_samples().duration_seconds
+        return round(duration_s, 3)
+
+    def output_feature(self) -> FeatureType | None:
+        return Value("float64")
 
 
 class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):

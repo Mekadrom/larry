@@ -32,6 +32,8 @@ class UrlAudioMapperConfig(UrlMapperConfig, VoiceMapperConfig):
 class AudioDurationMapperConfig(VoiceMapperConfig):
     output_column: str = "duration_s"
 
+    keep_input: bool = True
+
 
 @dataclasses.dataclass(kw_only=True)
 class MelExtractingMapperConfig(VoiceMapperConfig):

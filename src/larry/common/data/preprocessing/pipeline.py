@@ -131,10 +131,6 @@ class Pipeline:
         dataset = self.dataset_provider.load_dataset()
         self.log.info("Dataset initialized. Preprocessing...")
 
-        self.log.info("Formatting dataset for torch...")
-        dataset = dataset.with_format("torch")
-        self.log.info("Dataset torch formatted.")
-
         torch.set_num_threads(1)
 
         os.makedirs(self.output_dir, exist_ok=True)

@@ -86,7 +86,7 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
             attempt += 1
             temp_file_path = self.output_file_path.with_name(f"{self.output_file_path.name}.part")
             try:
-                content = self._download_file(self.url, self.output_file_path, return_contents=True)
+                content = self._download_file(self.url, temp_file_path, return_contents=True)
             except Exception as e:
                 self.log.critical(f"Error downloading file_name={self.output_file_path} from download_path={self.url}")
                 last = e
@@ -119,7 +119,7 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
 
     def _validate(self, content: bytes) -> bool:
         if self.config.validate_content_contains is not None:
-            if self.config.validate_content_contains in content:
+            if self.config.validate_content_contains.encode("utf-8") in content:
                 # downloaded and validated
                 return True
         else:

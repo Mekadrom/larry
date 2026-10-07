@@ -29,6 +29,5 @@ class NestedExtractionPreprocessorConfig(PreprocessorConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class ValidationSetSplittingMapperConfig(PreprocessorConfig):
-    input_column: str
-    val_split_percent: float
+class ColumnCastingPreprocessorConfig(PreprocessorConfig):
+    column_casts: dict[str, str] = dataclasses.field(default_factory=dict)

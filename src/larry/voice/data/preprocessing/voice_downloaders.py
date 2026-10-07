@@ -39,7 +39,7 @@ class SCOTUSTermManifestDownloader(RangedIndexMultiFileDownloader[SCOTUSTermMani
         # need to process the index files into a single file
         term_htmls = glob.glob(str(self.download_cache_abs_dir / "term_manifest_audio/*.html"))
 
-        self.log.critical(f"globbed: {term_htmls}")
+        self.log.info(f"globbed: {term_htmls}")
 
         docket_indices = {}
 
@@ -48,7 +48,7 @@ class SCOTUSTermManifestDownloader(RangedIndexMultiFileDownloader[SCOTUSTermMani
             term = term_html_path.stem
             term_html_content = term_html_path.read_text("utf-8")
 
-            self.log.critical(f"processing term={term}")
+            self.log.info(f"processing term={term}")
 
             seen = set()
             out = []
@@ -56,7 +56,7 @@ class SCOTUSTermManifestDownloader(RangedIndexMultiFileDownloader[SCOTUSTermMani
                 # check term contents because the wrong one is sometimes served
                 # (the index url for 2023 frequently serves 2025 for some reason)
                 if t == term and docket not in seen:
-                    self.log.critical(f"found docket={docket} for term={term} in first pass")
+                    self.log.info(f"found docket={docket} for term={term} in first pass")
                     seen.add(docket)
                     out.append(docket)
 
@@ -66,7 +66,7 @@ class SCOTUSTermManifestDownloader(RangedIndexMultiFileDownloader[SCOTUSTermMani
 
             for t, docket in _TRANSCRIPT_LINK.findall(term_html_content):
                 if t == term and docket not in seen:
-                    self.log.critical(f"found docket={docket} for term={term} in second pass")
+                    self.log.info(f"found docket={docket} for term={term} in second pass")
                     seen.add(docket)
                     out.append(docket)
             if out:

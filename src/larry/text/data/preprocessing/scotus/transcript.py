@@ -38,23 +38,36 @@ def pdf_to_text(pdf_path: str) -> str:
 # match a bunch of raw spaces before the line number(s), followed by at least 2 tabs or spaces, followed by any
 # single non-whitespace character and any character thereafter, then any whitespace until the end of the line.
 _BODY = re.compile(r"^ {0,10}(\d{1,2})[ \t]{2,}(\S.*?)\s*$")
-_LABEL = r"(?:CHIEF JUSTICE|JUSTICE|GENERAL|MRS?\.|MS\.) [A-Z](?:[^\W\d_]|['-])+"
-_MIDLINE = re.compile(rf"\s(?={_LABEL}[:.]\s)")
-_TITLED = re.compile(rf"^({_LABEL})[:.]\s+(.*)$")
 
-def _body_lines(raw: str) -> str:
+# a speaker label with an explicit title prefix. the prefix is always all-caps in a label and mixed case in speech
+# ("Mr.", "Justice"), which makes it safe to detect mid-line. surnames may contain non-ascii letters ("AGUIÑAGA"),
+# apostrophes, hyphens, and lowercase letters ("McGRATH", "LaCOUR").
+_LABEL = r"(?:CHIEF\sJUSTICE|JUSTICE|GENERAL|MRS?\.|MS\.)\s[A-Z](?:[^\W\d_]|['-])+"
+# split point in front of a titled label that the reporter didn't put on its own line; the terminator may be a colon
+# or (as a reporter typo) a period. the lookbehind stops "CHIEF JUSTICE ROBERTS" from being split at "JUSTICE"
+_MIDLINE = re.compile(rf"(?<!CHIEF)\s(?={_LABEL}[:.](?:\s|$))")
+# a titled label at the start of a line, terminated by a colon or a period
+_TITLED = re.compile(rf"^({_LABEL})[:.](?:\s+(.*))?$")
+
+
+def _body_lines(raw: str) -> list[str]:
     out = []
     for line in raw.splitlines():
         # replace weird characters with regular ones
         line = (line.replace("\f", "").replace("\u00ad", "-")
                 .replace("\u2019", "'").replace("\u2018", "'")
                 .replace("\u201c", '"').replace("\u201d", '"'))
+
+        # match only lines with line number and specific whitespace formatting
         m = _BODY.match(line)
         if not m:
             continue
+
+        # sanity check line number (not many per page in gt transcripts)
         n = int(m.group(1))
         if not 1 <= n <= 30:
             continue
+        # one label per line from here on: split in front of any label embedded mid-line
         out.extend(p.strip() for p in _MIDLINE.split(m.group(2)) if p.strip())
     return out
 
@@ -68,6 +81,7 @@ _NOTE_CLOSED = re.compile(r"^[(\[{]([^(){}\[\]]+)[}\])](\.)*?$")
 
 
 def _note_text(text):
+    # match opening and closing parentheses appearing uninterrupted in one line
     m = _NOTE_CLOSED.match(text)
     if not m:
         return None
@@ -88,7 +102,7 @@ _HEADING = re.compile(
 )
 
 
-def _looks_like_heading(text):
+def _looks_like_heading(text: str) -> bool:
     if _HEADING.search(text):
         return True
     # headers are all-caps with no colon and more than one word
@@ -119,9 +133,10 @@ _WHEREUPON_LOOSE = re.compile(r"^Whereupon\b.*\d{1,2}:\d{2}\s*[ap]\.?\s?m", re.I
 _INDEX_LINE = re.compile(r"^[A-Za-z][A-Za-z'\u2019-]*\s+\[\d+\]\s+\d")
 # stage directions and inserted notes can occasionally be unbounded or across multiple lines)
 _NOTE_OPEN = re.compile(r"^\([A-Z][^)]*$")
-# match speaker names, requiring that they start with a capital letter first. then they can consist of any combination
-# of non-nonword and non-numeric characters, period (eg "MR.", "MRS.", apostrophes ("O'LEARY"), ampersands, slashes,
-# spaces, and hyphens, a literal ":" colon, and then any trailing content is captured (speech)
+# fallback for labels without a title prefix ("THE COURT", "UNIDENTIFIED", bare surnames): requires that they start
+# with a capital letter first. then they can consist of any combination of non-nonword and non-numeric characters,
+# period (eg "MR.", "MRS.", apostrophes ("O'LEARY"), ampersands, slashes, spaces, and hyphens, a literal ":" colon,
+# and then any trailing content is captured (speech)
 _SPEAKER = re.compile(r"^(?!RCRA:)([A-Z](?:[^\W\d_]|[.'&/ -]){1,43}):(?:\s+(.*))?$")
 
 
@@ -142,9 +157,10 @@ def parse(url_hash: str) -> Transcript:
 
     if end is None:
         end = len(lines)
-        for i, ln in enumerate(lines[start:]):
+        for i, ln in enumerate(lines[start:], start):
             if _INDEX_LINE.match(ln):
                 end = i
+                break
 
     tr = Transcript()
 
@@ -154,11 +170,11 @@ def parse(url_hash: str) -> Transcript:
     paren = None
 
     def flush():
-        nonlocal speaker, buf
+        nonlocal buf
         if speaker is not None and buf:
             # normalize whitespace
             text = re.sub(r"\s+", " ", " ".join(buf)).strip()
-            # repair a trailing hyphen that got cutoff because i0 can't find which other regex is removing them
+            # repair a trailing double hyphen that got cut down to a single one
             text = re.sub(r"(?<=\s)-$", "--", text)
             if text:
                 tr.turns.append(Turn(speaker=speaker, text=text, line_start=buf_line))
@@ -176,22 +192,26 @@ def parse(url_hash: str) -> Transcript:
                 continue
             if len(paren) < _MAX_NOTE_LINES:
                 continue
-            # not a note after all; it was speech
-            buf.extend(paren)
+            # not a note after all; it was speech. the current line is processed below, so leave it out here
+            buf.extend(paren[:-1])
             paren = None
 
-        note = _note_text(text)
-        if note is not None:
+        if _note_text(text) is not None:
             continue
         if _NOTE_OPEN.match(text) and " " in text:
-            paren, paren_line = [text], i
+            # the note is skipped without ending the turn; the current speaker continues after it
+            paren = [text]
             continue
 
         if _looks_like_heading(text):
             continue
 
-        m = _SPEAKER.match(text)
-        if m and _is_label(m.group(1)) and not _HEADING.search(m.group(1)):
+        m = _TITLED.match(text)
+        if m is None:
+            m = _SPEAKER.match(text)
+            if m and not (_is_label(m.group(1)) and not _HEADING.search(m.group(1))):
+                m = None
+        if m:
             flush()
             speaker = re.sub(r"\s+", " ", m.group(1)).strip()
             buf_line = i
@@ -201,8 +221,6 @@ def parse(url_hash: str) -> Transcript:
             continue
 
         if speaker is None:
-            # Text before any speaker label inside the proceedings. Rare; keep it under a
-            # sentinel rather than silently discarding audio-bearing words.
             speaker = "UNIDENTIFIED"
             buf_line = i
         buf.append(text)

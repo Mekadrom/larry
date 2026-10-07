@@ -14,6 +14,7 @@ class SingleColumnMapperConfig(MapperConfig):
     input_column: str
     output_column: str
     filter_null_outputs: bool = False
+    keep_input: bool = False
 
 
 @dataclasses.dataclass

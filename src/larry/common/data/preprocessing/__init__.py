@@ -46,7 +46,12 @@ def main() -> None:
 
     if args.clean:
         log.info(f"cleaning up {output_dir}")
-        shutil.rmtree(output_dir, ignore_errors=True)
+        # remove just split dirs containing parquets; leave readmes and anything else
+        subdirs = [x for x in output_dir.iterdir() if x.is_dir()]
+        for subdir in subdirs:
+            shutil.rmtree(subdir, ignore_errors=True)
+        # to be re-generated
+        (output_dir / "provenance.json").unlink(missing_ok=True)
 
     p = Pipeline(config_file, output_dir, clean=args.clean)
     p.run()

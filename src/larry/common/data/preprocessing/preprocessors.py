@@ -9,7 +9,7 @@ from datasets import Dataset, Features, Value, DatasetDict
 from jsonpath_ng import JSONPath
 
 from larry.common.config.data.preprocessing.preprocessor_configs import RemoveColumnsPreprocessorConfig, \
-    NestedExtractionPreprocessorConfig, PreprocessorConfig
+    NestedExtractionPreprocessorConfig, PreprocessorConfig, ColumnCastingPreprocessorConfig
 from larry.common.data.utils import features_of
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
@@ -120,3 +120,15 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
         if isinstance(matches, str) and matches.strip() == "":
             matches = None
         return matches
+
+
+class ColumnCastingPreprocessor(Preprocessor[ColumnCastingPreprocessorConfig]):
+
+    def validate(self) -> None:
+        if not self.config.column_casts:
+            raise ValueError(f"column_casts must be specified for {self.__class__.__name__}")
+
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        for k, v in self.config.column_casts.items():
+            dataset = dataset.cast_column(k, Value(v))
+        return dataset

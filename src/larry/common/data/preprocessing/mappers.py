@@ -48,9 +48,9 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
 class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperConfig](Mapper[C], ABC):
     def __init__(self, provenance_columns: list[str], config: C) -> None:
         super().__init__(provenance_columns, config)
-        self.remove_columns = self.config.remove_columns + (
-            [self.config.input_column] if self.config.input_column != self.config.output_column else []
-        )
+        self.remove_columns = list(self.config.remove_columns)
+        if not self.config.keep_input and self.config.input_column != self.config.output_column:
+            self.remove_columns.append(self.config.input_column)
 
     def map_kwargs(self) -> dict[str, Any]:
         k = super().map_kwargs()

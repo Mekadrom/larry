@@ -33,6 +33,8 @@ pipeline:
         value: true
       - name: validate_starts_with
         value: "%PDF-"
+      - name: keep_input
+        value: true
   - name: UrlAudioMapper
     config: UrlAudioMapperConfig
     inputs:
@@ -57,7 +59,6 @@ pipeline:
         value: 8
       - name: remove_columns
         value:
-          - pdf_bytes
           - audio_url_hash
   - name: SCOTUSTranscriptPdfTextMapper
     config: SCOTUSTranscriptPdfTextMapperConfig

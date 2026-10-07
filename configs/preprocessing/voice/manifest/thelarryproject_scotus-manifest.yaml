@@ -29,3 +29,9 @@ pipeline:
             input_column_value: "13-7120rearg"
             output_column: date_argued
             output_column_value: "2015-04-20"
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      - name: column_casts
+        value:
+          date_argued: date32
