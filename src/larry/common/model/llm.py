@@ -5,7 +5,7 @@ from larry.common.config.model.model_configs import LLMBlockModuleConfig, Attent
 from larry.common.model.attention import LarryAttention
 
 
-class LarrySimpleLLMBlock(nn.Module):
+class LarrySimpleEncoderBlock(nn.Module):
     def __init__(self, config: LLMBlockModuleConfig) -> None:
         super().__init__()
 

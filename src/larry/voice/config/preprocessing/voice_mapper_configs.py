@@ -55,12 +55,14 @@ class SpeechSegmentationAligningMapperConfig(MapperConfig):
 
     min_aligned_fraction: float = 0.8
     max_segment_seconds: float = 25.0
-    pad_seconds: float = 0.1
-    max_pause_seconds: float | None = 1.5
+    pad_start_seconds: float = 0.1
+    pad_end_seconds: float = 0.3
+    max_pause_seconds: float | None = 2.0
     max_chars_per_frame: float = 0.8
     min_anchor_run: int = 4
     block_seconds: float = 60.0
     max_block_seconds: float = 240.0
+    max_word_seconds: float = 2.5
     slack_seconds: float = 0.5
 
     copy_columns: list[str] = dataclasses.field(default_factory=list)

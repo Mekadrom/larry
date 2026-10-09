@@ -5,7 +5,7 @@ import torch
 from torch import nn
 
 from larry.common.config.model.model_configs import LLMBlockModuleConfig
-from larry.common.model.llm import LarrySimpleLLMBlock
+from larry.common.model.llm import LarrySimpleEncoderBlock
 from larry.common.model.model import LarryModelOutput
 from larry.common.training.training_model import LarryModel, GenerationOutput, GenerativeModel
 from larry.text.config.model.text_model_configs import TextModelConfig, SmokeTestLLMModelConfig
@@ -33,7 +33,7 @@ class SmokeTestLLM(GenerativeModel[torch.Tensor, TextGenerationOutput], TextMode
 
         block_fields = {f.name for f in dataclasses.fields(LLMBlockModuleConfig)}
         self.blocks = nn.Sequential(*[
-            LarrySimpleLLMBlock(LLMBlockModuleConfig(**{
+            LarrySimpleEncoderBlock(LLMBlockModuleConfig(**{
                 k: v
                 for k, v in dataclasses.asdict(config).items()
                 if k in block_fields

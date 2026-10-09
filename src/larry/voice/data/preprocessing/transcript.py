@@ -110,6 +110,7 @@ class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=
 class TokenStream:
     ftr: FlattenedTranscript
     words: list[str]
+    words_by_token: list[list[str]]
     owners: list[int]
     content_mask: list[bool]
 
@@ -150,4 +151,7 @@ class TokenStream:
         token_stream = cls()
         token_stream.ftr = tr.flatten()
         token_stream.words, token_stream.owners = normalizer.normalize_stream(token_stream.ftr.tokens)
+        token_stream.words_by_token = [[] for _ in token_stream.ftr.tokens]
+        for w, o in zip(token_stream.words, token_stream.owners):
+            token_stream.words_by_token[o].append(w)
         return token_stream

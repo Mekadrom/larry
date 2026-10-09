@@ -70,7 +70,9 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
 ](Mapper[C], ABC):
     def __init__(self, provenance_columns: list[str], config: C) -> None:
         super().__init__(provenance_columns, config)
-        self.output_columns = ["audio", "text", "audio_seconds", "start_s", "end_s", "speaker_id", "avg_word_score"]
+        self.output_columns = [
+            "audio", "text", "text_normalized", "audio_seconds", "start_s", "end_s", "speaker_id", "avg_word_score"
+        ]
 
         self.stage_pattern = None
         if self.config.stage_direction_pattern:
@@ -147,6 +149,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
                 ).to_tensor(format="flac")
                 batch_results["audio"].append({"bytes": flac.numpy().tobytes(), "path": None})
                 batch_results["text"].append(seg.text)
+                batch_results["text_normalized"].append(seg.text_normalized)
                 batch_results["audio_seconds"].append(round(seg.end_s - seg.start_s, 3))
                 batch_results["start_s"].append(round(seg.start_s, 3))
                 batch_results["end_s"].append(round(seg.end_s, 3))
@@ -178,6 +181,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
             **{c: src[c] for c in self.config.copy_columns},
             "audio": datasets.Audio(decode=False),
             "text": Value("string"),
+            "text_normalized": Value("string"),
             "audio_seconds": Value("float64"),
             "start_s": Value("float64"),
             "end_s": Value("float64"),

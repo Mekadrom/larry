@@ -44,8 +44,9 @@ from guilt.
 
 Rinse and repeat.
 
-All code within this project is human-made. Commercial generative AI is only used for feedback and aiding development 
-through means that don't involve producing code to be committed to this project's repository.
+~~All~~ Most code within this project is human-made. Commercial generative AI is ~~only~~ primarily used for feedback 
+and aiding development through means that don't involve producing code to be committed to this project's repository.
+Notable exceptions include complex or well-known algorithms applied in specific circumstances.
 
 # Seed Models Overview
 

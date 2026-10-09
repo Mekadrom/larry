@@ -12,6 +12,7 @@ from larry.voice.data.preprocessing.transcript import TokenStream
 class Segment:
     audio: torch.Tensor
     text: str
+    text_normalized: str
     speaker_id: str
     avg_word_score: float
     start_s: float
@@ -44,6 +45,7 @@ class Segmenter:
         pieces = []
         cur = []
         prev = None
+        cap = self.config.max_segment_seconds - self.config.pad_start_seconds - self.config.pad_end_seconds
         for t in toks:
             cur_span = spans[t]
             if cur_span is None:
@@ -56,7 +58,7 @@ class Segmenter:
                     gap = cur_span.start - prev_span.end
 
             pause = self.config.max_pause_seconds is not None and gap > self.config.max_pause_seconds
-            too_long = bool(cur) and cur_span.end - spans[cur[0]].start > self.config.max_segment_seconds
+            too_long = bool(cur) and cur_span.end - spans[cur[0]].start > cap
 
             if cur and (pause or too_long):
                 stops = [
@@ -71,7 +73,7 @@ class Segmenter:
                     cut = stops[-1] + 1
 
                 # sentence cut leaves a remainder that's still too long with t; cut everything instead
-                if cut < len(cur) and cur_span.end - spans[cur[cut]].start > self.config.max_segment_seconds:
+                if cut < len(cur) and cur_span.end - spans[cur[cut]].start > cap:
                     cut = len(cur)
 
                 pieces.append(cur[:cut])
@@ -89,7 +91,9 @@ class Segmenter:
         spans = self.timeline.spans
         ftr = self.stream.ftr
         sample_rate = self.config.sample_rate
-        pad_seconds = self.config.pad_seconds
+        pad_start_seconds = self.config.pad_start_seconds
+        pad_end_seconds = self.config.pad_end_seconds
+        max_word_seconds = self.config.max_word_seconds
 
         # handle masks
         words = [
@@ -100,25 +104,40 @@ class Segmenter:
         if not words:
             return None
 
-        aligned = [
-            t
-            for t in words
-            if self.timeline.ok_mask[t]
-        ]
+        aligned = []
+        for t in words:
+            if self.timeline.ok_mask[t]:
+                span = spans[t]
+                if span is not None:
+                    if span.end - span.start <= max_word_seconds:
+                        aligned.append(t)
+                else:
+                    raise ValueError(f"null span: t={t}")
 
         if len(aligned) / len(words) < self.config.min_aligned_fraction:
             return None
 
         first_span = spans[piece[0]]
         last_span = spans[piece[-1]]
+        nxt = piece[-1] + 1
 
         if not first_span or not last_span:
             return None
 
-        start_s = max(0.0, first_span.start - pad_seconds)
+        start_s = max(0.0, first_span.start - pad_start_seconds)
 
         audio_duration = len(waveform) / sample_rate
-        end_s = min(audio_duration, last_span.end + pad_seconds)
+        limit = audio_duration
+        if nxt < len(spans):
+            next_span = spans[nxt]
+            if next_span is not None:
+                limit = next_span.start
+        end_s = min(audio_duration, last_span.end + pad_end_seconds, max(last_span.end + pad_start_seconds, limit))
+
+        length = end_s - start_s
+        if length > self.config.max_segment_seconds:
+            self.log.warning(f"dropping {length:.1f}s segment at {start_s:.1f}s: exceeds cap")
+            return None
 
         if last_span.end <= first_span.start:
             return None
@@ -139,6 +158,7 @@ class Segmenter:
         return Segment(
             audio=waveform[a:b],
             text=" ".join(ftr.tokens[t] for t in piece),
+            text_normalized=" ".join(w for t in piece for w in self.stream.words_by_token[t]),
             speaker_id=ftr.speakers[piece[0]],
             avg_word_score=score,
             start_s=start_s,
