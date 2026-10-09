@@ -48,8 +48,6 @@ class UrlMapperConfig(SingleColumnMapperConfig):
 
     download_cache_dir: str = "/tmp/larry/url_mapper"
 
-    hash_column: str = "url_hash"
-
 
 @dataclasses.dataclass(kw_only=True)
 class UrlBytesMapperConfig(UrlMapperConfig):
@@ -57,5 +55,3 @@ class UrlBytesMapperConfig(UrlMapperConfig):
     validate_starts_with: str | None = None
 
     download_cache_dir: str = "/tmp/larry/bytes_url_mapper"
-
-    hash_column: str = "bytes_url_hash"

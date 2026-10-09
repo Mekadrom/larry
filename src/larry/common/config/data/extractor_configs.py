@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Sequence
+from collections.abc import Sequence
 
 
 def _strip_archive_suffix(file_name: str) -> str:

@@ -137,9 +137,10 @@ class ValueOverrideMapper(Mapper[ValueOverrideMapperConfig]):
         return output_batch
 
 
-class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str, O | None, C], ABC):
-    session: requests.Session | None = None
+_SESSIONS: dict[str, requests.Session] = {}
 
+
+class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str, O | None, C], ABC):
     def __init__(self, provenance_columns: list[str], config: C) -> None:
         super().__init__(provenance_columns, config)
         if self.config.download_cache_dir is not None:
@@ -159,7 +160,6 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
 
         return {
             self.config.output_column: examples,
-            self.config.hash_column: hashes,
         }
 
     def _preprocess_example(self, example: str, url_hash: str) -> O | None:
@@ -182,15 +182,15 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
 
         if content is None:
             # lazy init session
-            self._ensure_session()
-            if self.session is None:
+            session = self._lazy_get_session()
+            if session is None:
                 raise ValueError("session was not initialized")
 
             for attempt in range(self.config.max_retries + 1):
                 sleep = self.config.busy_wait + (self.config.retry_backoff * 2 ** (attempt - 1) if attempt else 0)
                 time.sleep(sleep)
                 try:
-                    response = self.session.get(example, timeout=self.config.timeout)
+                    response = session.get(example, timeout=self.config.timeout)
                 except (requests.ConnectionError, requests.Timeout):
                     self.log.warning(f"network error (attempt {attempt + 1}) for {example}", exc_info=True)
                     continue
@@ -237,10 +237,13 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
         )
         return None
 
-    def _ensure_session(self) -> None:
-        if self.session is None:
-            self.session = requests.Session()
-            self.session.headers["User-Agent"] = self.user_agent()
+    def _lazy_get_session(self) -> requests.Session:
+        key = repr(self.config)
+        if key not in _SESSIONS:
+            session = requests.Session()
+            session.headers["User-Agent"] = self.user_agent()
+            _SESSIONS[key] = session
+        return _SESSIONS[key]
 
     @abstractmethod
     def user_agent(self) -> str:
@@ -276,7 +279,6 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
             features.pop(column, None)
         features.update({
             self.config.output_column: output_feature,
-            self.config.hash_column: Value("string"),
         })
         return features
 

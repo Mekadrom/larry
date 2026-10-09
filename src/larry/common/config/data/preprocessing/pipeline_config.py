@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Any
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -9,3 +10,5 @@ class PipelineConfig:
     provenance_columns: list[str] = dataclasses.field(default_factory=list)
     default_batch_size: int = 1000
     seed: int = 42
+
+    provenance_overrides: list[dict[str, list[Any]]] = dataclasses.field(default_factory=list)

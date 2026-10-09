@@ -1,11 +1,11 @@
 import functools
 import math
 from abc import ABC
-from typing import Mapping, Any
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 import torch
-from datasets import DatasetDict
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 

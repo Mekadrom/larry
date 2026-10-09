@@ -16,16 +16,13 @@ class UrlTextMapperConfig(UrlMapperConfig, TextMapperConfig):
 
     download_cache_dir: str = "/tmp/larry/text_url_mapper"
 
-    hash_column: str = "text_url_hash"
-
 
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSTranscriptPdfTextMapperConfig(SingleColumnMapperConfig):
-    input_column: str = "bytes_url_hash"
+    input_column: str = "pdf_bytes"
     docket_column: str = "docket"
+    date_argued_column: str = "date_argued"
     output_column: str = "transcript"
-
-    download_cache_dir: str = "/tmp/larry/bytes_url_mapper"
 
 
 @dataclasses.dataclass(kw_only=True)

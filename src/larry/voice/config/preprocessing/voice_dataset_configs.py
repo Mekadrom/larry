@@ -101,3 +101,10 @@ class LarrySCOTUSManifestDatasetConfig(DatasetConfig, VoiceDatasetConfig):
     """https://huggingface.co/datasets/thelarryproject/scotus-manifest"""
 
     path: str = "thelarryproject/scotus-manifest"
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarrySCOTUSUnalignedDatasetConfig(DatasetConfig, VoiceDatasetConfig):
+    """https://huggingface.co/datasets/thelarryproject/scotus-unaligned"""
+
+    path: str = "thelarryproject/scotus-unaligned"

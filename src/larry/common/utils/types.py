@@ -1,6 +1,6 @@
 import inspect
-from collections.abc import Iterable
-from typing import Literal, Callable, TypedDict, ClassVar
+from collections.abc import Iterable, Callable
+from typing import Literal, TypedDict, ClassVar
 
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler

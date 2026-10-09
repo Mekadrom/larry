@@ -3,8 +3,8 @@ import dataclasses
 import logging
 from abc import ABC, abstractmethod
 from collections import UserDict
-from collections.abc import Iterable
-from typing import Callable, Any, Literal, assert_never
+from collections.abc import Iterable, Callable
+from typing import Any, Literal, assert_never
 
 import librosa
 import numpy as np

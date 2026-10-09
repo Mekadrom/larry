@@ -205,4 +205,7 @@ class Pipeline:
                 "ancestry": self.dataset_provider.config.path
             })
 
-        (self.output_dir / "provenance.json").write_text(json.dumps(provenance))
+        for n, v in {i["name"]: i["value"] for i in self.config.provenance_overrides}.items():
+            provenance[n] = v
+
+        (self.output_dir / "provenance.json").write_text(json.dumps(provenance, indent="\t"))

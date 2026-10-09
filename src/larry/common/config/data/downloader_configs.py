@@ -1,5 +1,6 @@
 import dataclasses
-from typing import ClassVar, Sequence
+from collections.abc import Sequence
+from typing import ClassVar
 
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry

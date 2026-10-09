@@ -3,8 +3,9 @@ import os
 import time
 import urllib.parse
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from pathlib import Path
-from typing import ClassVar, Sequence
+from typing import ClassVar
 from urllib.parse import quote, urljoin
 
 import requests

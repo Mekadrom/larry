@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Sequence
+from collections.abc import Sequence
 
 from larry.common.config.data.downloader_configs import MultiFileDownloaderConfig, RangedIndexMultiFileDownloaderConfig, \
     DownloaderConfig, SingleFileDownloaderConfig

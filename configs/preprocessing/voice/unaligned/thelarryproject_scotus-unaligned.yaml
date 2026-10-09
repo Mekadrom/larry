@@ -57,9 +57,6 @@ pipeline:
         value: 8
       - name: writer_batch_size
         value: 8
-      - name: remove_columns
-        value:
-          - audio_url_hash
   - name: SCOTUSTranscriptPdfTextMapper
     config: SCOTUSTranscriptPdfTextMapperConfig
     inputs:

@@ -1,7 +1,8 @@
 import dataclasses
 from typing import Literal
 
-from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig, \
+    MapperConfig
 from larry.voice.config.preprocessing.voice_configs import VoiceConfig
 
 
@@ -25,14 +26,46 @@ class UrlAudioMapperConfig(UrlMapperConfig, VoiceMapperConfig):
 
     duration_column: str | None = None
 
-    hash_column: str = "audio_url_hash"
-
 
 @dataclasses.dataclass(kw_only=True)
 class AudioDurationMapperConfig(VoiceMapperConfig):
     output_column: str = "duration_s"
 
     keep_input: bool = True
+
+
+@dataclasses.dataclass(kw_only=True)
+class AlignerConfig:
+    stride: int = 320
+    model_id: str = "facebook/wav2vec2-large-960h-lv60-self"
+    sample_rate: int = 16000
+    telomere_size: int = 400
+    chunk_seconds: float = 30.0
+    overlap_seconds: float = 3.0
+
+
+@dataclasses.dataclass(kw_only=True)
+class SpeechSegmentationAligningMapperConfig(MapperConfig):
+    text_column: str
+    audio_column: str = "audio"
+
+    sample_rate: int = 16000
+
+    stage_direction_pattern: str | None = None
+
+    min_aligned_fraction: float = 0.8
+    max_segment_seconds: float = 25.0
+    pad_seconds: float = 0.1
+    max_pause_seconds: float | None = 1.5
+    max_chars_per_frame: float = 0.8
+    min_anchor_run: int = 4
+    block_seconds: float = 60.0
+    max_block_seconds: float = 240.0
+    slack_seconds: float = 0.5
+
+    copy_columns: list[str] = dataclasses.field(default_factory=list)
+
+    aligner_config: AlignerConfig = dataclasses.field(default_factory=AlignerConfig)
 
 
 @dataclasses.dataclass(kw_only=True)

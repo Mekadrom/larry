@@ -2,9 +2,10 @@ import glob
 import logging
 import os.path
 from abc import abstractmethod, ABC
+from collections.abc import Mapping, Sequence
 from functools import partial
 from pathlib import Path
-from typing import Sequence, Mapping, Any
+from typing import Any
 
 import datasets
 from datasets import DatasetDict, Dataset, IterableDatasetDict, IterableDataset, Features

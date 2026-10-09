@@ -28,6 +28,7 @@ dependencies = [
     "gitpython>=3.2.0",
     "pdfplumber>=0.11.10",
     "pyarrow-stubs>=20.0.0.20260819",
+    "av>=19.0.1",
 ]
 
 [[tool.uv.index]]
@@ -81,6 +82,7 @@ dev = [
     "ruff",
     "mypy",
     "basedpyright>=1.40.1",
+    "duckdb>=1.5.6",
 ]
 
 [tool.basedpyright]

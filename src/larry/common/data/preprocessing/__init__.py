@@ -1,4 +1,5 @@
 import argparse
+import glob
 import logging
 import shutil
 from pathlib import Path
@@ -44,7 +45,7 @@ def main() -> None:
     output_dir = Path(args.output_dir).expanduser().resolve()
     config_file = Path(args.config_file).expanduser().resolve()
 
-    if args.clean:
+    if args.clean and output_dir.exists():
         log.info(f"cleaning up {output_dir}")
         # remove just split dirs containing parquets; leave readmes and anything else
         subdirs = [x for x in output_dir.iterdir() if x.is_dir()]
@@ -52,6 +53,10 @@ def main() -> None:
             shutil.rmtree(subdir, ignore_errors=True)
         # to be re-generated
         (output_dir / "provenance.json").unlink(missing_ok=True)
+        # remove markers
+        completed_files = glob.glob(str(output_dir / "*.completed"))
+        for completed_file in completed_files:
+            Path(completed_file).resolve().unlink()
 
     p = Pipeline(config_file, output_dir, clean=args.clean)
     p.run()

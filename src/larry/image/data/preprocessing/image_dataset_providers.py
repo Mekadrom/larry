@@ -1,4 +1,4 @@
-from typing import Mapping
+from collections.abc import Mapping
 
 from larry.common.data.cached_dataset_providers import MediaCachedDatasetProvider
 from larry.image.config.preprocessing.image_dataset_configs import GoogleDOCCIMediaCachedDatasetConfig

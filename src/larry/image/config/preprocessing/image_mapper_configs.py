@@ -18,8 +18,6 @@ class UrlImageMapperConfig(UrlMapperConfig, ImageMapperConfig):
 
     download_cache_dir: str = "/tmp/larry/image_url_mapper"
 
-    hash_column: str = "image_url_hash"
-
 
 @dataclasses.dataclass(kw_only=True)
 class ImageResizingMapperConfig(ImageMapperConfig):

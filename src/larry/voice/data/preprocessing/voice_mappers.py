@@ -1,17 +1,33 @@
+from abc import abstractmethod, ABC
+import io
+import re
+from functools import partial
+from typing import Any
+
+import av
 import datasets
 import numpy as np
 import torch
-import torchaudio.transforms
+import torchaudio
 from datasets import Array2D
-from datasets.features.features import FeatureType, Value
+from datasets.features.features import FeatureType, Value, Features
 from torchaudio import transforms
 from torchcodec.decoders import AudioDecoder
+from torchcodec.encoders import AudioEncoder
 
-from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
+from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper, Mapper
+from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedAudio
 from larry.voice.config.preprocessing.voice_mapper_configs import MelExtractingMapperConfig, \
-    VoiceMapperConfig, UrlAudioMapperConfig, AudioDurationMapperConfig
+    VoiceMapperConfig, UrlAudioMapperConfig, AudioDurationMapperConfig, SpeechSegmentationAligningMapperConfig
+from larry.voice.data.preprocessing.alignment import SpanScore, LongAlignment, TokenTimeline, Aligner
+from larry.voice.data.preprocessing.normalization import TextNormalizer
+from larry.voice.data.preprocessing.segmentation import Segmenter
+from larry.voice.data.preprocessing.transcript import TokenStream, Turn, Transcript, pdf_bytes_to_text
 from larry.voice.utils import bytes_to_waveforms
+
+_ALIGNERS: dict[str, Aligner] = {}
+_NORMALIZERS: dict[str, TextNormalizer] = {}
 
 
 class VoiceMapper[I, O, C: VoiceMapperConfig = VoiceMapperConfig](SingleColumnMapper[I, O, C]):
@@ -40,12 +56,134 @@ class AudioDurationMapper(SingleColumnMapper[EncodedAudio | None, float | None, 
     def preprocess_example(self, example: EncodedAudio | None) -> float | None:
         if example is None:
             return None
-        duration_s = AudioDecoder(example["bytes"], sample_rate=8000, num_channels=1).get_all_samples().duration_seconds
-        return round(duration_s, 3)
+        with av.open(io.BytesIO(example["bytes"]), mode="r") as c:
+            s = c.streams.audio[0]
+            n = sum(p.duration for p in c.demux(s) if p.duration)
+            return round(float(n * s.time_base), 3)
 
     def output_feature(self) -> FeatureType | None:
         return Value("float64")
 
+
+class SpeechSegmentationAligningMapper[
+C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConfig
+](Mapper[C], ABC):
+    def __init__(self, provenance_columns: list[str], config: C) -> None:
+        super().__init__(provenance_columns, config)
+        self.output_columns = ["audio", "text", "audio_seconds", "start_s", "end_s", "speaker_id", "avg_word_score"]
+
+        self.stage_pattern = None
+        if self.config.stage_direction_pattern:
+            self.stage_pattern = re.compile(self.config.stage_direction_pattern)
+
+    def validate(self) -> None:
+        if self.config.audio_column is None:
+            raise ValueError(f"audio_column must be specified for {self.__class__.__name__}")
+        if self.config.text_column is None:
+            raise ValueError(f"text_column must be specified for {self.__class__.__name__}")
+        if self.config.sample_rate != self.config.aligner_config.sample_rate:
+            raise ValueError("sample_rate must match aligner_config.sample_rate")
+
+    def preprocess_dataset(self, dataset):
+        self.remove_columns = list(features_of(dataset).keys())
+        return dataset.map(
+            self.preprocess_batch,
+            features=self.preprocessing_features(dataset),
+            **self.map_kwargs()
+        )
+
+    def _lazy_get_aligner(self) -> Aligner:
+        key = repr(self.config.aligner_config)
+        if key not in _ALIGNERS:
+            _ALIGNERS[key] = Aligner(self.config.aligner_config)
+        return _ALIGNERS[key]
+
+    def _lazy_get_normalizer(self) -> TextNormalizer:
+        key = repr(self.config.aligner_config)
+        if key not in _NORMALIZERS:
+            _NORMALIZERS[key] = self.make_normalizer()
+        return _NORMALIZERS[key]
+
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        batch_results = {k: [] for k in self.config.copy_columns + self.output_columns}
+
+        audios = batch[self.config.audio_column]
+        texts = batch[self.config.text_column]
+
+        aligner = self._lazy_get_aligner()
+        normalizer = self._lazy_get_normalizer()
+
+        for i, (audio, text) in enumerate(zip(audios, texts)):
+            waveform = bytes_to_waveforms(audio["bytes"], self.config.sample_rate)[0]
+            emissions = aligner.ctc_emissions(waveform)
+
+            turns = []
+            for line_no, line in enumerate(text.splitlines()):
+                if not line.strip():
+                    continue
+                speaker, _, said = line.partition(": ")
+                if self.stage_pattern is not None:
+                    said = self.stage_pattern.sub(" ", said)
+                turns.append(Turn(speaker, said, line_no))
+
+            stream = TokenStream.from_transcript(self.make_transcript(turns, batch, i), normalizer)
+            result = LongAlignment(self.config, aligner, emissions, stream.words).run()
+            timeline = TokenTimeline(stream.fold(result.spans), stream.ftr.groups)
+            timeline.fill_gaps()
+
+            self.log.info(f"n_failed_words={result.n_failed_words} for {self.provenance_string(batch, i)}")
+            self.log.info(f"greedy_decode_score={result.greedy_decode_score} for {self.provenance_string(batch, i)}")
+
+            segments = Segmenter(self.config, stream, timeline).segments(waveform)
+
+            if not segments:
+                self.log.warning(f"skipping {self.provenance_string(batch, i)}: no segments survived")
+                continue
+
+            for seg in segments:
+                flac = AudioEncoder(
+                    seg.audio.unsqueeze(0).cpu().float(),
+                    sample_rate=self.config.sample_rate
+                ).to_tensor(format="flac")
+                batch_results["audio"].append({"bytes": flac.numpy().tobytes(), "path": None})
+                batch_results["text"].append(seg.text)
+                batch_results["audio_seconds"].append(round(seg.end_s - seg.start_s, 3))
+                batch_results["start_s"].append(round(seg.start_s, 3))
+                batch_results["end_s"].append(round(seg.end_s, 3))
+                batch_results["speaker_id"].append(seg.speaker_id)
+                batch_results["avg_word_score"].append(seg.avg_word_score)
+
+            for k in self.config.copy_columns:
+                batch_results[k].extend([batch[k][i]] * len(segments))
+
+        return batch_results
+
+    def make_transcript(self, turns: list[Turn], batch: dict[str, list[Any]], index: int) -> Transcript:
+        tr = self.new_transcript(turns, batch, index)
+        tr.body_lines = tr.extract_body_lines(tr.raw_text)
+        tr.load_appearances()
+        return tr
+
+    @abstractmethod
+    def make_normalizer(self) -> TextNormalizer:
+        ...
+
+    @abstractmethod
+    def new_transcript(self, turns: list[Turn], batch: dict[str, list[Any]], index: int) -> Transcript:
+        ...
+
+    def preprocessing_features(self, dataset):
+        src = features_of(dataset).copy()
+        return Features({
+            **{c: src[c] for c in self.config.copy_columns},
+            "audio": datasets.Audio(decode=False),
+            "text": Value("string"),
+            "audio_seconds": Value("float64"),
+            "start_s": Value("float64"),
+            "end_s": Value("float64"),
+            "speaker_id": Value("string"),
+            "avg_word_score": Value("float64"),
+        })
 
 class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):
     def __init__(self, provenance_columns: list[str], config: MelExtractingMapperConfig) -> None:

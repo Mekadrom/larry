@@ -1,8 +1,9 @@
 import logging
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Sequence, Mapping
 from pathlib import Path
-from typing import Sequence, Mapping, Any, ClassVar
+from typing import Any, ClassVar
 from typing import Union
 
 import datasets

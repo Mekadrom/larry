@@ -6,6 +6,10 @@ preprocessor:
       value:
         - term
         - docket
+    - name: provenance_overrides
+      value:
+      - name: aligner_model_id
+        value: "facebook/wav2vec2-large-960h-lv60-self"
 
 dataset:
   config: LarrySCOTUSUnalignedDatasetConfig
@@ -14,10 +18,18 @@ dataset:
       value: /home/zadar/.cache/larry/intermediates/voice/unaligned/thelarryproject_scotus-aligned/
 
 pipeline:
-  - name: SCOTUSSegmentingPreprocessor
-    config: SCOTUSSegmentingPreprocessorConfig
+  - name: SCOTUSSpeechSegmentationAligningMapper
+    config: SCOTUSSpeechSegmentationAligningMapperConfig
     inputs:
       - name: batch_size
-        value: 8
+        value: 1
       - name: writer_batch_size
         value: 8
+      - name: copy_columns
+        value:
+          - term
+          - docket
+          - case_name
+          - date_argued
+          - pdf_url
+          - page_url
