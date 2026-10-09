@@ -12,24 +12,26 @@ dataset:
       value: /home/zadar/.cache/larry/intermediates/voice/mels/libriheavy/
 
 pipeline:
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      - name: column_name_mappings
+        value:
+          audio_duration: duration_s
+          text_original: text
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      - name: column_casts
+        value:
+          audio: "audio_no_decode"
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
-    inputs:
-      - name: input_column
-        value: "audio_duration"
-      - name: remove_column
-        value: true
-      - name: remove_columns
-        value:
-          - "text_transcription"
   - name: AudioQualityPruner
     config: AudioQualityPrunerConfigForTTS
   - name: MelExtractingMapper
     config: MelExtractingMapperConfig
   - name: TextNormalizingMapper
     config: TextMapperConfig
-    inputs:
-      - name: input_column
-        value: "text_original"
   - name: TextTokenizingMapper
     config: SmolLM2TextTokenizingMapperConfig

@@ -31,3 +31,8 @@ class NestedExtractionPreprocessorConfig(PreprocessorConfig):
 @dataclasses.dataclass(kw_only=True)
 class ColumnCastingPreprocessorConfig(PreprocessorConfig):
     column_casts: dict[str, str] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass(kw_only=True)
+class ColumnRenamingPreprocessorConfig(PreprocessorConfig):
+    column_name_mappings: dict[str, str] = dataclasses.field(default_factory=dict)

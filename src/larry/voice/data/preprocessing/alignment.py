@@ -6,9 +6,11 @@ from collections.abc import Callable
 import numpy as np
 import torch
 import torchaudio.functional as AF
+from torch.nn.utils.rnn import pad_sequence
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
-from larry.voice.config.preprocessing.voice_mapper_configs import AlignerConfig, SpeechSegmentationAligningMapperConfig
+from larry.voice.config.preprocessing.voice_configs import AlignerConfig
+from larry.voice.config.preprocessing.voice_mapper_configs import SpeechSegmentationAligningMapperConfig
 
 
 @dataclasses.dataclass
@@ -80,41 +82,41 @@ class Aligner:
 
         # collect a list of start indices by hopping
         starts = list(range(0, max(1, n_samples - 2 * trim), hop))
-        for i, start in enumerate(starts):
-            end = min(n_samples, start + win)
-            seg = waveform[start:end]
+        # inside ctc_emissions, replacing the per-chunk loop
+        full = [
+            s
+            for s in starts
+            if s + win <= n_samples
+        ]
+        tail = [
+            s
+            for s in starts
+            if s + win > n_samples and n_samples - s >= 2 * self.config.telomere_size
+        ]
 
-            if len(seg) < 2 * self.config.telomere_size:
-                continue
+        batch_size = self.config.emission_batch_size
+        for b in range(0, len(full), batch_size):
+            group = full[b:b + batch_size]
+            chunks = [
+                waveform[s:s + win]
+                for s in group
+            ]
 
-            # zero-mean unit-var norm, expected by at least facebook/wav2vec2-large-960h-lv60-self
-            # do this in float32 before any downcasting
-            x = seg.to(self.device).float()
-            x = (x - x.mean()) / (x.std() + 1e-7)
-            x = x.to(self.device, self.dtype)
+            x = torch.stack(chunks).to(self.device).float()
+            x = (x - x.mean(dim=-1, keepdim=True)) / (x.std(dim=-1, keepdim=True) + 1e-7)
 
-            logits = self.model(x.unsqueeze(0)).logits.float()[0]
+            logits = self.model(x.to(self.dtype)).logits.float()
             log_probs = torch.log_softmax(logits, dim=-1)
+            for s, chunk_log_probs in zip(group, log_probs):
+                self._place(out, filled, s, chunk_log_probs, trim_frames, total_frames)
 
-            frame_start = start // self.config.stride
+        for s in tail:
+            x = waveform[s:n_samples].to(self.device).float()
+            x = (x - x.mean()) / (x.std() + 1e-7)
 
-            if i == 0:
-                low = 0
-            else:
-                low = trim_frames
-
-            high = log_probs.shape[0]
-
-            align_low = frame_start + low
-            align_high = min(total_frames, frame_start + high)
-            align_dist = align_high - align_low
-
-            if align_high > align_low:
-                out[align_low:align_high] = log_probs[low:low + align_dist]
-                filled[align_low:align_high] = True
-
-            if progress is not None:
-                progress(i + 1, len(starts))
+            logits = self.model(x.to(self.dtype).unsqueeze(0)).logits.float()[0]
+            log_probs = torch.log_softmax(logits, dim=-1)
+            self._place(out, filled, s, log_probs, trim_frames, total_frames)
 
         if not filled.all():
             # last partial frames can be unfilled
@@ -123,6 +125,29 @@ class Aligner:
             out[~filled, self.blank] = 0.0  # set log prob of just the blank vocab id to 0; effectively large confidence
 
         return out
+
+    def _place(
+            self,
+            out: torch.Tensor,
+            filled: torch.Tensor,
+            start: int,
+            log_probs: torch.Tensor,
+            trim_frames: int,
+            total_frames: int,
+    ) -> None:
+        if start == 0:
+            low = 0
+        else:
+            low = trim_frames
+
+        frame_start = start // self.config.stride
+        high = min(total_frames, frame_start + log_probs.shape[0])
+        if high <= frame_start + low:
+            return
+
+        count = high - frame_start - low
+        out[frame_start + low:high] = log_probs[low:low + count]
+        filled[frame_start + low:high] = True
 
     def greedy_words(self, emissions: torch.Tensor) -> list[tuple[str, int, int]]:
         """[(word, start_frame, end_frame)] from argmax - the anchor hypothesis."""
@@ -158,18 +183,7 @@ class Aligner:
         Returns [(start_frame, end_frame, score)] per word, frames relative to the slice.
         Raises RuntimeError if the block has too few frames for the target.
         """
-        targets = []
-        owner = []
-        for i, word in enumerate(words):
-            ids = self.token_ids(word)
-            if ids is None:
-                continue
-            if targets:
-                targets.append(self.delim)
-                owner.append(-1)
-            targets.extend(ids)
-            # track which word each ctc alignment frame is "owned" by
-            owner.extend([i] * len(ids))
+        targets, owners = self.get_targets_owners(words)
 
         if not targets:
             return [None] * len(words)
@@ -185,7 +199,7 @@ class Aligner:
 
         # use list instead of tuple for mutability
         out: list[SpanScore | None] = [None] * len(words)
-        for span, word_idx in zip(spans, owner):
+        for span, word_idx in zip(spans, owners):
             if word_idx < 0:
                 continue
 
@@ -203,6 +217,63 @@ class Aligner:
                 cur.count += 1
 
         return out
+
+    def get_targets_owners(self, words: list[str]) -> tuple[list[int], list[int]]:
+        targets = []
+        owners = []
+        for i, word in enumerate(words):
+            ids = self.token_ids(word)
+            if ids is None:
+                continue
+            if targets:
+                targets.append(self.delim)
+                owners.append(-1)
+            targets.extend(ids)
+            # track which word each ctc alignment frame is "owned" by
+            owners.extend([i] * len(ids))
+        return targets, owners
+
+    @torch.inference_mode()
+    def clip_emissions(self, waveforms: list[torch.Tensor]) -> list[torch.Tensor]:
+        normalized = []
+        for w in waveforms:
+            w = w.float()
+            normalized.append((w - w.mean()) / (w.std() + 1e-7))
+
+        sample_counts = [
+            len(w)
+            for w in waveforms
+        ]
+        lengths = torch.tensor(sample_counts)
+
+        x = pad_sequence(normalized, batch_first=True).to(self.device, self.dtype)
+        positions = torch.arange(x.shape[1])
+        mask = (positions[None, :] < lengths[:, None]).long().to(self.device)
+
+        logits = self.model(x, attention_mask=mask).logits.float()
+        log_probs = torch.log_softmax(logits, dim=-1)
+        # noinspection PyProtectedMember
+        frame_counts = self.model._get_feat_extract_output_lengths(lengths)
+
+        return [
+            log_probs[i, :int(frame_counts[i])]
+            for i in range(len(waveforms))
+        ]
+
+    def mismatch_score(self, emissions: torch.Tensor, targets: list[int]) -> float | None:
+        if len(targets) == 0:
+            return None
+
+        ctc_targets = torch.tensor([targets], dtype=torch.int32, device=emissions.device)
+        try:
+            _, scores = AF.forced_align(emissions.unsqueeze(0), ctc_targets, blank=self.blank)
+        except RuntimeError:
+            # more targets than frames
+            return None
+
+        free = emissions.max(dim=-1).values.sum()
+        forced = scores[0].sum()
+        return float(free - forced) / emissions.shape[0]
 
 
 @dataclasses.dataclass

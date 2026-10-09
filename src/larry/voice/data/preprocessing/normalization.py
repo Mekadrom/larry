@@ -122,7 +122,7 @@ def pairs(s):
     return cardinal(int(s))
 
 
-class TextNormalizer(ABC):
+class TextNormalizer:
     def normalize_stream(self, tokens: list[str]) -> tuple[list[str], list[int]]:
         """(normalized words, owner index into `tokens` for each normalized word)."""
         words = []
@@ -209,5 +209,10 @@ class SCOTUSTextNormalizer(TextNormalizer):
         m = re.fullmatch(r"(\d{1,2})-(\d{3,4})", token.replace(",", ""))
         if m:
             return cardinal(int(m.group(1))) + " " + pairs(m.group(2))
+
+        # statutes; looks very similar to year
+        t = token.replace(",", "")
+        if re.fullmatch(r"\d{4}", t) and 2100 <= int(t) <= 9999:
+            return year(int(t))
 
         return super().number_token(token)

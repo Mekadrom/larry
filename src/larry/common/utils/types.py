@@ -54,6 +54,12 @@ class EncodedAudio(TypedDict):
     path: str | None
 
 
+class AudioDurationText(TypedDict):
+    audio: EncodedAudio
+    duration_s: float
+    text: str
+
+
 def filter_by_type[T](i: Iterable[object], t: type[T]) -> list[T]:
     return [o for o in i if isinstance(o, t)]
 

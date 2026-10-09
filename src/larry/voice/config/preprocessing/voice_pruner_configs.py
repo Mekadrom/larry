@@ -1,16 +1,17 @@
 import dataclasses
 
 from larry.common.config.data.preprocessing.pruner_configs import PrunerConfig
-from larry.voice.config.preprocessing.voice_configs import VoiceConfig
+from larry.voice.config.preprocessing.voice_configs import VoiceConfig, AlignerConfig
 
 
 @dataclasses.dataclass(kw_only=True)
 class VoicePrunerConfig(VoiceConfig, PrunerConfig):
-    input_column: str = "audio"
+    input_columns: list[str] = dataclasses.field(default_factory=lambda: ["audio"])
 
 
 @dataclasses.dataclass(kw_only=True)
 class AudioDurationColumnPrunerConfig(VoicePrunerConfig):
+    input_columns: list[str] = dataclasses.field(default_factory=lambda: ["duration_s"])
     max_duration: float = 20.0
     min_duration: float = 0.1
 

@@ -2,7 +2,7 @@ import difflib
 import re
 from datetime import date
 
-from larry.voice.config.preprocessing.transcript_configs import SCOTUSTranscriptConfig
+from larry.voice.config.preprocessing.voice_configs import SCOTUSTranscriptConfig
 from larry.voice.data.preprocessing import transcript
 from larry.voice.data.preprocessing.transcript import Transcript
 

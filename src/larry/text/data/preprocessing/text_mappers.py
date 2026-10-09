@@ -10,18 +10,6 @@ from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMa
 from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
 from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
     TextMapperConfig, UrlTextMapperConfig
-import re
-from typing import Any
-
-import torch
-from datasets import List, Value
-from datasets.features.features import FeatureType
-from transformers import AutoTokenizer
-
-from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
-from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
-from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
-    TextMapperConfig, UrlTextMapperConfig
 
 
 class TextMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperConfig](SingleColumnMapper[I, O, C]):

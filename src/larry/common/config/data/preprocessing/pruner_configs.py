@@ -6,14 +6,13 @@ from larry.common.config.data.preprocessing.preprocessor_configs import Preproce
 
 @dataclasses.dataclass(kw_only=True)
 class PrunerConfig(PreprocessorConfig):
-    input_column: str
+    input_columns: list[str] = dataclasses.field(default_factory=list)
     prune_nulls: bool = True
 
 
 @dataclasses.dataclass(kw_only=True)
 class ColumnValuesPrunerConfig(PrunerConfig):
-    op: Literal["matches", "nmatches"]
-    values: list[Any | None] = dataclasses.field(default_factory=list)
+    op: Literal["matches", "nmatches", "in_range", "nin_range"]
     op_config: dict[str, Any] = dataclasses.field(default_factory=lambda: {
         "containing": False,
         "case_insensitive": True,

@@ -7,7 +7,7 @@ from typing import ClassVar, Self
 
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
-from larry.voice.config.preprocessing.transcript_configs import TranscriptConfig
+from larry.voice.config.preprocessing.voice_configs import TranscriptConfig
 from larry.voice.data.preprocessing.alignment import SpanScore
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 

@@ -13,11 +13,15 @@ dataset:
       part: 0.95
 
 pipeline:
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      - name: column_name_mappings
+        value:
+          Text: text
   - name: TextNormalizingMapper
     config: TextMapperConfig
     inputs:
-      - name: input_column
-        value: "Text"
       - name: filter_null_outputs
         value: true
   - name: TextTokenizingMapper

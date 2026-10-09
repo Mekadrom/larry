@@ -15,11 +15,15 @@ dataset:
       value: 64
 
 pipeline:
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      - name: column_name_mappings
+        value:
+          description: text
   - name: TextNormalizingMapper
     config: TextMapperConfig
     inputs:
-      - name: input_column
-        value: "description"
       - name: batch_size
         value: 64
       - name: filter_null_outputs

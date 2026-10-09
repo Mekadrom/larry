@@ -5,11 +5,12 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 import jsonpath_ng
-from datasets import Dataset, Features, Value, DatasetDict
+from datasets import Dataset, Features, Value, DatasetDict, Audio
 from jsonpath_ng import JSONPath
 
 from larry.common.config.data.preprocessing.preprocessor_configs import RemoveColumnsPreprocessorConfig, \
-    NestedExtractionPreprocessorConfig, PreprocessorConfig, ColumnCastingPreprocessorConfig
+    NestedExtractionPreprocessorConfig, PreprocessorConfig, ColumnCastingPreprocessorConfig, \
+    ColumnRenamingPreprocessorConfig
 from larry.common.data.utils import features_of
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
@@ -123,12 +124,25 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
 
 
 class ColumnCastingPreprocessor(Preprocessor[ColumnCastingPreprocessorConfig]):
-
     def validate(self) -> None:
         if not self.config.column_casts:
             raise ValueError(f"column_casts must be specified for {self.__class__.__name__}")
 
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         for k, v in self.config.column_casts.items():
-            dataset = dataset.cast_column(k, Value(v))
+            if v == "audio_no_decode":
+                dataset = dataset.cast_column(k, Audio(decode=False))
+            elif v == "audio_decode":
+                dataset = dataset.cast_column(k, Audio(decode=True))
+            else:
+                dataset = dataset.cast_column(k, Value(v))
         return dataset
+
+
+class ColumnRenamingPreprocessor(Preprocessor[ColumnRenamingPreprocessorConfig]):
+    def validate(self) -> None:
+        if not self.config.column_name_mappings:
+            raise ValueError(f"column_name_mappings must be specified for {self.__class__.__name__}")
+
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        return dataset.rename_columns(self.config.column_name_mappings)

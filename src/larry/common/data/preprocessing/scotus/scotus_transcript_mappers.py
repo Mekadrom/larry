@@ -8,7 +8,7 @@ from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.common.data.utils import features_of
 from larry.text.config.preprocessing.text_mapper_configs import SCOTUSTranscriptPdfTextMapperConfig
 from larry.voice.config.preprocessing.scotus.scotus_mapper_configs import SCOTUSSpeechSegmentationAligningMapperConfig
-from larry.voice.config.preprocessing.transcript_configs import SCOTUSTranscriptConfig
+from larry.voice.config.preprocessing.voice_configs import SCOTUSTranscriptConfig
 from larry.voice.data.preprocessing import scotus_transcript as scotus_transcript
 from larry.voice.data.preprocessing.normalization import TextNormalizer, SCOTUSTextNormalizer
 from larry.voice.data.preprocessing.scotus_transcript import SCOTUSTranscript

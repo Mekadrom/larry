@@ -15,42 +15,48 @@ dataset:
       value: /home/zadar/.cache/larry/intermediates/voice/mels/mozilla-foundation_cv27/
 
 pipeline:
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      - name: column_name_mappings
+        value:
+          audio_duration: duration_s
+          sentence: text
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      - name: column_casts
+        value:
+          audio: "audio_no_decode"
   - name: ColumnValuesPruner
     config: ColumnValuesPrunerConfig
     inputs:
-      - name: values
+      - name: op_config
         value:
-          - "0"
+          values:
+            - "0"
       - name: op
-        value: "nmatches"
+        value: "matches"
       - name: input_column
         value: "down_votes"
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
-    inputs:
-      - name: input_column
-        value: "audio_duration"
   - name: AudioQualityPruner
     config: AudioQualityPrunerConfigForTTS
-  - name: MelExtractingMapper
-    config: MelExtractingMapperConfig
+  - name: CTCScorePruner
+    config: CTCScorePrunerConfig
+  - name: ColumnValuesPruner
+    config: ColumnValuesPrunerConfig
     inputs:
-      - name: remove_columns
+      - name: op_config
         value:
-          - "audio_duration"
-          - "sentence_domain"
-          - "up_votes"
-          - "down_votes"
-          - "age"
-          - "gender"
-          - "accents"
-          - "variant"
-          - "locale"
-          - "segment"
+          min_value:
+            - -3
+      - name: op
+        value: "in_range"
+      - name: input_column
+        value: "ctc_mismatch"
   - name: TextNormalizingMapper
     config: TextMapperConfig
-    inputs:
-      - name: input_column
-        value: "sentence"
   - name: TextTokenizingMapper
     config: SmolLM2TextTokenizingMapperConfig

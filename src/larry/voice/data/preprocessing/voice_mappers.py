@@ -1,7 +1,6 @@
-from abc import abstractmethod, ABC
 import io
 import re
-from functools import partial
+from abc import abstractmethod, ABC
 from typing import Any
 
 import av
@@ -9,7 +8,7 @@ import datasets
 import numpy as np
 import torch
 import torchaudio
-from datasets import Array2D
+from datasets import Array2D, Dataset, DatasetDict
 from datasets.features.features import FeatureType, Value, Features
 from torchaudio import transforms
 from torchcodec.decoders import AudioDecoder
@@ -19,11 +18,12 @@ from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMappe
 from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedAudio
 from larry.voice.config.preprocessing.voice_mapper_configs import MelExtractingMapperConfig, \
-    VoiceMapperConfig, UrlAudioMapperConfig, AudioDurationMapperConfig, SpeechSegmentationAligningMapperConfig
-from larry.voice.data.preprocessing.alignment import SpanScore, LongAlignment, TokenTimeline, Aligner
+    VoiceMapperConfig, UrlAudioMapperConfig, AudioDurationMapperConfig, SpeechSegmentationAligningMapperConfig, \
+    CTCScoreMapperConfig
+from larry.voice.data.preprocessing.alignment import LongAlignment, TokenTimeline, Aligner
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 from larry.voice.data.preprocessing.segmentation import Segmenter
-from larry.voice.data.preprocessing.transcript import TokenStream, Turn, Transcript, pdf_bytes_to_text
+from larry.voice.data.preprocessing.transcript import TokenStream, Turn, Transcript
 from larry.voice.utils import bytes_to_waveforms
 
 _ALIGNERS: dict[str, Aligner] = {}
@@ -101,7 +101,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         return _ALIGNERS[key]
 
     def _lazy_get_normalizer(self) -> TextNormalizer:
-        key = repr(self.config.aligner_config)
+        key = repr(self.config)
         if key not in _NORMALIZERS:
             _NORMALIZERS[key] = self.make_normalizer()
         return _NORMALIZERS[key]
@@ -188,6 +188,81 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
             "speaker_id": Value("string"),
             "avg_word_score": Value("float64"),
         })
+
+
+class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
+    def validate(self) -> None:
+        if not self.config.audio_column:
+            raise ValueError(f"audio_column must be specified for {self.__class__.__name__}")
+        if not self.config.text_column:
+            raise ValueError(f"text_column must be specified for {self.__class__.__name__}")
+        if not self.config.duration_column:
+            raise ValueError(f"duration_column must be specified for {self.__class__.__name__}")
+
+    def _lazy_get_aligner(self) -> Aligner:
+        key = repr(self.config.aligner_config)
+        if key not in _ALIGNERS:
+            _ALIGNERS[key] = Aligner(self.config.aligner_config)
+        return _ALIGNERS[key]
+
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        aligner = self._lazy_get_aligner()
+        normalizer = self.make_normalizer()
+
+        audios = batch[self.config.audio_column]
+        texts = batch[self.config.text_column]
+        durations = batch[self.config.duration_column]
+
+        order = sorted(range(len(audios)), key=lambda i: durations[i])
+        scores: list[float | None] = [None] * len(audios)
+
+        group: list[int] = []
+        for i in order:
+            # ascending order: durations[i] is the longest in the group, so this is the padded size
+            padded_seconds = (len(group) + 1) * durations[i]
+            if len(group) > 0 and padded_seconds > self.config.max_batch_seconds:
+                self._score_group(aligner, normalizer, group, audios, texts, scores)
+                group = []
+            group.append(i)
+
+        if len(group) > 0:
+            self._score_group(aligner, normalizer, group, audios, texts, scores)
+
+        return {
+            self.config.output_column: scores
+        }
+
+    def _score_group(
+            self,
+            aligner: Aligner,
+            normalizer: TextNormalizer,
+            indices: list[int],
+            audios: list[Any],
+            texts: list[str],
+            scores: list[float | None],
+    ) -> None:
+        waveforms = [
+            bytes_to_waveforms(audios[i]["bytes"], sample_rate=self.config.sample_rate)[0]
+            for i in indices
+        ]
+        emissions = aligner.clip_emissions(waveforms)
+        for i, emission in zip(indices, emissions):
+            words, _ = normalizer.normalize_stream(texts[i].split())
+            targets, _ = aligner.get_targets_owners(words)
+            scores[i] = aligner.mismatch_score(emission, targets)
+
+    def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        features = super().preprocessing_features(dataset)
+        if not features:
+            features = features_of(dataset).copy()
+        for column in self.remove_columns:
+            features.pop(column, None)
+        features[self.config.output_column] = Value("float64")
+        return features
+
+    def make_normalizer(self) -> TextNormalizer:
+        return TextNormalizer()
+
 
 class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):
     def __init__(self, provenance_columns: list[str], config: MelExtractingMapperConfig) -> None:

@@ -3,7 +3,7 @@ from typing import Literal
 
 from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig, \
     MapperConfig
-from larry.voice.config.preprocessing.voice_configs import VoiceConfig
+from larry.voice.config.preprocessing.voice_configs import VoiceConfig, AlignerConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -35,16 +35,6 @@ class AudioDurationMapperConfig(VoiceMapperConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class AlignerConfig:
-    stride: int = 320
-    model_id: str = "facebook/wav2vec2-large-960h-lv60-self"
-    sample_rate: int = 16000
-    telomere_size: int = 400
-    chunk_seconds: float = 30.0
-    overlap_seconds: float = 3.0
-
-
-@dataclasses.dataclass(kw_only=True)
 class SpeechSegmentationAligningMapperConfig(MapperConfig):
     text_column: str
     audio_column: str = "audio"
@@ -66,6 +56,18 @@ class SpeechSegmentationAligningMapperConfig(MapperConfig):
     slack_seconds: float = 0.5
 
     copy_columns: list[str] = dataclasses.field(default_factory=list)
+
+    aligner_config: AlignerConfig = dataclasses.field(default_factory=AlignerConfig)
+
+
+@dataclasses.dataclass(kw_only=True)
+class CTCScoreMapperConfig(VoiceMapperConfig):
+    audio_column: str = "audio"
+    text_column: str = "text_normalized"
+    duration_column: str = "duration_s"
+    output_column: str = "ctc_mismatch"
+
+    max_batch_seconds: float = 360.0
 
     aligner_config: AlignerConfig = dataclasses.field(default_factory=AlignerConfig)
 
