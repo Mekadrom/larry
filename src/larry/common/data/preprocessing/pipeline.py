@@ -29,7 +29,7 @@ class Pipeline:
     pipeline: list[Preprocessor]
     provenance: Provenance
 
-    def __init__(self, config_file: Path, output_dir: Path, clean: bool = False) -> None:
+    def __init__(self, config_file: Path, output_dir: Path, clean: bool = False, provenance_only: bool = False) -> None:
         """Instantiates a ``Runner`` and the configs specified for this preprocessing pipeline run."""
         self.log = logging.getLogger(__name__)
         self.output_dir = output_dir
@@ -75,6 +75,8 @@ class Pipeline:
         self.dataset_provider = dataset_provider_type(dataset_provider_config)
 
         self.provenance = self._build_provenance(copy.deepcopy(self.config.provenance))
+        self._compile_and_save_provenance()
+        self.provenance_only = provenance_only
 
         pipeline_configs = definition.get("pipeline", None)
         if pipeline_configs:
@@ -149,6 +151,11 @@ class Pipeline:
 
     def preprocess_all(self) -> None:
         """Super method for the primary entrypoint for preprocessors. Does all the work using ``self.config``."""
+
+        if self.provenance_only:
+            self.log.warning("--provenance_only passed; will skip preprocessing.")
+            return
+
         self.log.info("Initializing dataset...")
         dataset = self.dataset_provider.load_dataset()
         self.log.info("Dataset initialized. Preprocessing...")
@@ -164,7 +171,6 @@ class Pipeline:
         else:
             raise TypeError(f"expected some kind of Dataset, got {type(dataset).__name__}")
 
-        self._compile_and_save_provenance()
         self.log.info("Dataset saved to disk.")
 
     def _preprocess_and_save_shards(self, dataset: Dataset | DatasetDict) -> None:

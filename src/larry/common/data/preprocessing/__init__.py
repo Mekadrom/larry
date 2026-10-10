@@ -40,10 +40,20 @@ def main() -> None:
         help="Whether to clean the output and intermediate cache prior to preprocessing."
     )
 
+    argparser.add_argument(
+        "--provenance_only",
+        action='store_true',
+        help="Avoids preprocessing again and just updates the provenance.json in the output directory. "
+             "Force disables --clean."
+    )
+
     args = argparser.parse_args()
 
     output_dir = Path(args.output_dir).expanduser().resolve()
     config_file = Path(args.config_file).expanduser().resolve()
+
+    if args.provenance_only:
+        setattr(args, "clean", False)
 
     if args.clean and output_dir.exists():
         log.info(f"cleaning up {output_dir}")
@@ -58,5 +68,5 @@ def main() -> None:
         for completed_file in completed_files:
             Path(completed_file).resolve().unlink()
 
-    p = Pipeline(config_file, output_dir, clean=args.clean)
+    p = Pipeline(config_file, output_dir, clean=args.clean, provenance_only=args.provenance_only)
     p.run()
