@@ -24,7 +24,7 @@ ZERO_ROWS = {
     "nulls": """SELECT * EXCLUDE (audio)
                 FROM seg
                 WHERE audio.bytes IS NULL
-                   OR text IS NULL
+                   OR text_original IS NULL
                    OR speaker_id IS NULL
                    OR avg_word_score IS NULL""",
     "bad_times": """SELECT docket, start_s, end_s, duration_s
@@ -34,14 +34,14 @@ ZERO_ROWS = {
                        OR abs(duration_s - (end_s - start_s)) > 0.002""",
     "over_cap": "SELECT docket, start_s, duration_s FROM seg WHERE duration_s > 25.0 + 0.001",
     "duplicates": "SELECT docket, start_s, count(*) FROM seg GROUP BY docket, start_s HAVING count(*) > 1",
-    # text
-    "no_alphanumeric": "SELECT docket, start_s, text FROM seg WHERE NOT regexp_matches(text, '[A-Za-z0-9]')",
-    "stage_leak": r"""SELECT docket, start_s, text
+    # text_original
+    "no_alphanumeric": "SELECT docket, start_s, text_original FROM seg WHERE NOT regexp_matches(text_original, '[A-Za-z0-9]')",
+    "stage_leak": r"""SELECT docket, start_s, text_original
                       FROM seg
-                      WHERE regexp_matches(text, '(?i)\((?:laughter|pause|nods|indicating|inaudible|crosstalk)')""",
-    "label_leak": r"""SELECT docket, start_s, text
+                      WHERE regexp_matches(text_original, '(?i)\((?:laughter|pause|nods|indicating|inaudible|crosstalk)')""",
+    "label_leak": r"""SELECT docket, start_s, text_original
                       FROM seg
-                      WHERE regexp_matches(text,
+                      WHERE regexp_matches(text_original,
                                            '\b(?:CHIEF JUSTICE|JUSTICE|GENERAL|MRS?\.|MS\.) [A-Z]{3,}[A-Z''-]*:')""",
     # speakers
     "justice_outside_tenure": """
@@ -78,9 +78,9 @@ def test_rates(con):
                                                 SELECT count(*),
                                                        count_if(regexp_matches(speaker_id, '^scotus:\d')),
                                                        count_if(duration_s < 0.3),
-                                                       count_if(duration_s > 3 AND len(string_split(text, ' ')) / duration_s < 1.0),
+                                                       count_if(duration_s > 3 AND len(string_split(text_original, ' ')) / duration_s < 1.0),
                                                        count_if(duration_s > 1 AND
-                                                                len(regexp_extract_all(text, '[A-Za-z0-9'']+')) /
+                                                                len(regexp_extract_all(text_original, '[A-Za-z0-9'']+')) /
                                                                 duration_s > 8.0)
                                                 FROM seg""").fetchone()
     assert fallback / n < 0.001, fallback
