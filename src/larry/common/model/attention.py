@@ -6,7 +6,7 @@ from rotary_embedding_torch import RotaryEmbedding
 from rotary_embedding_torch import apply_rotary_emb
 from torch import nn
 
-from larry.common.config.model.model_configs import AttentionModuleConfig
+from larry.common.config.model.model_configs import AttentionModuleConfig, FSMNAttentionConfig
 from larry.common.model.kv_cache import KVCache
 from larry.common.optim.qk_clip import QKModule
 
@@ -16,9 +16,9 @@ class LarryAttention(nn.Module, QKModule):
         super().__init__()
         self.config = config
 
-        self.d_queries = config.d_queries
-        self.d_values = config.d_values
         self.n_query_groups = config.n_query_groups
+        self.d_queries = config.d_model // config.n_heads
+        self.d_values = config.d_model // config.n_heads // self.n_query_groups
         self.n_heads = config.n_heads
 
         # for gqa, queries have full n_heads, keys/values have fewer n_query_groups (shared across query heads)
@@ -244,3 +244,51 @@ class LarryAttention(nn.Module, QKModule):
         output = self.proj_dropout(output)
 
         return output, new_kv_cache
+
+
+class FSMNAttention(LarryAttention):
+    """Self-attention plus an FSMN memory branch (SAN-M): a depthwise conv over time, added to the attention output."""
+
+    def __init__(self, config: FSMNAttentionConfig) -> None:
+        super().__init__(config)
+        d_model = config.d_model
+        kernel_size = config.fsmn_kernel_size
+
+        self.memory_proj = nn.Linear(d_model, d_model, bias=config.use_qkv_bias)
+        self.fsmn = nn.Conv1d(d_model, d_model, kernel_size, groups=d_model, bias=False)
+
+        left = (kernel_size - 1) // 2
+        self.fsmn_padding = (left, kernel_size - 1 - left)
+        self.memory_dropout = nn.Dropout(config.proj_dropout_p)
+
+    def forward(
+            self,
+            hidden_states: torch.Tensor,
+            attention_mask: torch.Tensor | None = None,
+            position_ids: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, None]:
+        attended, _ = super().forward(
+            hidden_states,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+        )
+        memory = self._memory(hidden_states, attention_mask)
+        return attended + memory, None
+
+    def _memory(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor | None) -> torch.Tensor:
+        memory_in = self.memory_proj(hidden_states)  # [B, T, D]
+
+        # the conv mixes neighboring frames and ignores the attention mask, so padded frames
+        # must be zeroed before it (they hold the projection's bias, not zero) and after it
+        keep = None
+        if attention_mask is not None:
+            keep = attention_mask.unsqueeze(-1).to(memory_in.dtype)  # [B, T, 1], 1 on real frames
+            memory_in = memory_in * keep
+
+        x = F.pad(memory_in.transpose(1, 2), self.fsmn_padding)  # [B, D, T + k - 1]
+        memory = self.fsmn(x).transpose(1, 2) + memory_in
+
+        if keep is not None:
+            memory = memory * keep
+
+        return self.memory_dropout(memory)

@@ -54,6 +54,7 @@ class SpeechSegmentationAligningMapperConfig(MapperConfig):
     max_block_seconds: float = 240.0
     max_word_seconds: float = 2.5
     slack_seconds: float = 0.5
+    reading_margin_seconds: float = 0.3
 
     copy_columns: list[str] = dataclasses.field(default_factory=list)
 
@@ -65,9 +66,11 @@ class CTCScoreMapperConfig(VoiceMapperConfig):
     audio_column: str = "audio"
     text_column: str = "text_normalized"
     duration_column: str = "duration_s"
-    output_column: str = "ctc_mismatch"
 
-    max_batch_seconds: float = 360.0
+    score_output_column: str = "ctc_mismatch"
+    text_output_column: str = "text_normalized"
+
+    max_batch_seconds: float = 400.0
 
     aligner_config: AlignerConfig = dataclasses.field(default_factory=AlignerConfig)
 

@@ -1,37 +1,32 @@
 preprocessor:
   inputs:
-    - name: provenance_columns
-      value:
-        - term
-        - docket
+    provenance_columns:
+      - term
+      - docket
 
 dataset:
   config: SCOTUSManifestCachedDatasetConfig
   overrides:
-    - name: download_extract_cache_dir
-      value: /home/zadar/.cache/larry/download_extract/voice/manifest/thelarryproject_scotus-manifest/
-    - name: cache_dir
-      value: /home/zadar/.cache/larry/intermediates/voice/manifest/thelarryproject_scotus-manifest/
+    download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/voice/manifest/thelarryproject_scotus-manifest/
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/manifest/thelarryproject_scotus-manifest/
 
 pipeline:
   - name: ValueOverrideMapper
     config: ValueOverrideMapperConfig
     inputs:
-      - name: mappings_in
-        value:
-          # the page for the reargument of Johnson v. United States points to the original argument's transcripts;
-          # these mappings adjust for this singular case
-          - input_column: "docket"
-            input_column_value: "13-7120rearg"
-            output_column: pdf_url
-            output_column_value: "https://www.supremecourt.gov/oral_arguments/argument_transcripts/2014/13-7120_hd1a.pdf"
-          - input_column: "docket"
-            input_column_value: "13-7120rearg"
-            output_column: date_argued
-            output_column_value: "2015-04-20"
+      mappings_in:
+        # the page for the reargument of Johnson v. United States points to the original argument's transcripts;
+        # these mappings adjust for this singular case
+        - input_column: "docket"
+          input_column_value: "13-7120rearg"
+          output_column: pdf_url
+          output_column_value: "https://www.supremecourt.gov/oral_arguments/argument_transcripts/2014/13-7120_hd1a.pdf"
+        - input_column: "docket"
+          input_column_value: "13-7120rearg"
+          output_column: date_argued
+          output_column_value: "2015-04-20"
   - name: ColumnCastingPreprocessor
     config: ColumnCastingPreprocessorConfig
     inputs:
-      - name: column_casts
-        value:
-          date_argued: date32
+      column_casts:
+        date_argued: date32

@@ -71,9 +71,7 @@ class Training:
         trainer_config_overrides = trainer_config_dict.get("overrides", [])
         self.log.info(f"Applying trainer_config_overrides={trainer_config_overrides}")
 
-        trainer_config: LarryTrainerConfig = trainer_config_type(
-            **{i["name"]: i["value"] for i in trainer_config_overrides}
-        )
+        trainer_config: LarryTrainerConfig = trainer_config_type(**trainer_config_overrides)
         return trainer_config
 
     def _build_model_config(self, model_config_dict: dict[str, Any]) -> ModelConfig:

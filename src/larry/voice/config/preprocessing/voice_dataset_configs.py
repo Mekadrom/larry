@@ -27,6 +27,15 @@ class MythicInfinityLibriHeavyDatasetConfig(DatasetConfig, VoiceDatasetConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
+class MikhailTHifiTTSDatasetConfig(DatasetConfig, VoiceDatasetConfig):
+    """https://huggingface.co/datasets/MikhailT/hifi-tts"""
+
+    path: str = "MikhailT/hifi-tts"
+    name: str | None = "all"
+    split: str | Split | list[str] | list[Split] | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
 class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
     """https://mozilladatacollective.com/datasets/cmu5jplf300nwmh07iqvk9leo"""
 

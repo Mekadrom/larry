@@ -291,7 +291,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
             if output.metrics:
                 eval_metrics.update(output.metrics)
 
-            n_tokens = (batch["labels"] != -100).sum().item()
+            n_tokens = self.eval_token_count(batch)
             total += torch.stack([loss.float() * n_tokens, torch.tensor(float(n_tokens), device=total.device)])
 
         total = self.accelerator.reduce(total, reduction="sum")
@@ -313,6 +313,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         return grad_norm_metrics
 
     def clip_grads(self) -> MetricDict | None:
+        stats: MetricDict | None = None
         if self.train_state.global_step % self.config.logging_steps == 0:
             self.metrics.add_grad_norms(self.model, self.train_state.global_step, per_param_scalars=True)
 
@@ -328,6 +329,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
                         scalar=min(1.0, self.config.max_grad_norm / (total_norm + 1e-6))
                     ),
                 ])
+        return stats
 
     def save(self, step: int) -> None:
         path = Path(self.metrics.log_dir).expanduser().resolve() / f"checkpoint-{step}"
@@ -359,15 +361,15 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         return step_metrics
 
     @abstractmethod
-    def make_dataset_dict(self) -> dict[str, Dataset]:
+    def make_dataset_dict(self) -> Mapping[str, Dataset]:
         ...
 
     @abstractmethod
-    def make_train_dataloader(self, dataset: dict[str, Dataset]) -> DataLoader:
+    def make_train_dataloader(self, dataset: Mapping[str, Dataset]) -> DataLoader:
         ...
 
     @abstractmethod
-    def make_eval_dataloader(self, dataset: dict[str, Dataset]) -> DataLoader:
+    def make_eval_dataloader(self, dataset: Mapping[str, Dataset]) -> DataLoader:
         ...
 
     @abstractmethod
@@ -385,6 +387,9 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
     @abstractmethod
     def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
         ...
+
+    def eval_token_count(self, batch: Mapping[str, Any]) -> int:
+        return 1  # ctc loss is already token weighted; don't weight by tokens here for eval loss
 
     def train_batch_size(self, batch: Mapping[str, Any]) -> int:
         return self.config.train_batch_size
@@ -409,10 +414,10 @@ class TrainState:
 class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](TrainerBase[M, C]):
     accelerator: Accelerator
 
-    def make_dataset_dict(self) -> dict[str, Dataset]:
+    def make_dataset_dict(self) -> Mapping[str, Dataset]:
         return load_dataset(**self.config.dataset_config)
 
-    def make_train_dataloader(self, dataset: dict[str, Dataset]) -> DataLoader:
+    def make_train_dataloader(self, dataset: Mapping[str, Dataset]) -> DataLoader:
         return DataLoader(
             dataset["train"],
             shuffle=True,
@@ -420,17 +425,15 @@ class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Tr
             drop_last=True,
             collate_fn=self.make_collate_fn(),
             num_workers=self.config.num_dataloader_workers,
-            persistent_workers=True
         )
 
-    def make_eval_dataloader(self, dataset: Dataset | dict[str, Dataset]) -> DataLoader:
+    def make_eval_dataloader(self, dataset: Dataset | Mapping[str, Dataset]) -> DataLoader:
         return DataLoader(
             dataset["validation"],
             shuffle=False,
             batch_size=self.config.eval_batch_size,
             collate_fn=self.make_collate_fn(),
             num_workers=self.config.num_dataloader_workers,
-            persistent_workers=True
         )
 
     def make_collate_fn(self) -> Callable[..., dict[str, Any]] | None:

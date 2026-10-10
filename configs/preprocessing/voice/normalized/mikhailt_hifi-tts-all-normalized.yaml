@@ -1,0 +1,27 @@
+preprocessor:
+  inputs:
+    provenance_columns:
+      - speaker
+      - file
+
+dataset:
+  config: MikhailTHifiTTSDatasetConfig
+  overrides:
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/normalized/mikhailt_hifi-tts-all-normalized/
+
+pipeline:
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      column_name_mappings:
+        audio_duration: duration_s
+        text_transcription: text_normalized
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: "audio_no_decode"
+  - name: CTCScoreMapper
+    config: CTCScoreMapperConfig
+    inputs:
+      text_column: text_original

@@ -5,10 +5,12 @@ import tempfile
 from abc import ABC, abstractmethod
 from typing import ClassVar, Self
 
+import torch
+
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
 from larry.voice.config.preprocessing.voice_configs import TranscriptConfig
-from larry.voice.data.preprocessing.alignment import SpanScore
+from larry.voice.data.preprocessing.alignment import SpanScore, Aligner
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 
 
@@ -107,12 +109,117 @@ class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=
         ...
 
 
-class TokenStream:
-    ftr: FlattenedTranscript
+class NormalizedTokens:
+    tokens: list[str]
+    readings: list[list[list[str]]]  # token -> options -> words
+    choice: list[int]
     words: list[str]
-    words_by_token: list[list[str]]
     owners: list[int]
+    words_by_token: list[list[str]]
+    word_start: list[int]
     content_mask: list[bool]
+
+    def __init__(self, tokens: list[str], normalizer: TextNormalizer) -> None:
+        self.tokens = tokens
+        self.readings = [
+            normalizer.normalize_token(token)
+            for token in tokens
+        ]
+        self.choice = [0] * len(self.readings)
+        self.rebuild()
+
+    def rebuild(self) -> None:
+        self.words = []
+        self.owners = []
+        self.words_by_token = []
+        self.word_start = []
+        for t, options in enumerate(self.readings):
+            chosen = options[self.choice[t]]
+            self.word_start.append(len(self.words))
+            self.words_by_token.append(chosen)
+            self.words.extend(chosen)
+            self.owners.extend([t] * len(chosen))
+
+        self.content_mask = [
+            len(chosen) > 0
+            for chosen in self.words_by_token
+        ]
+
+    def choose_readings(
+            self,
+            aligner: Aligner,
+            emissions: torch.Tensor,
+            word_spans: list[SpanScore | None],
+            margin_seconds: float,
+    ) -> bool:
+        """Pick each ambiguous token's reading by forced-align score in its local window. True if any changed."""
+        changed = False
+        for t, options in enumerate(self.readings):
+            if len(options) < 2:
+                continue
+
+            first = self.word_start[t]
+            last = first + len(self.words_by_token[t]) - 1
+            if first == 0 or last + 1 >= len(self.words):
+                continue
+
+            before = word_spans[first - 1]
+            after = word_spans[last + 1]
+            if before is None or after is None:
+                continue
+
+            lo = max(0, int((before.start - margin_seconds) / aligner.frame_seconds))
+            hi = min(emissions.shape[0], int((after.end + margin_seconds) / aligner.frame_seconds) + 1)
+            window = emissions[lo:hi]
+
+            best = self.choice[t]
+            best_score: float | None = None
+            for c, option in enumerate(options):
+                candidate = [self.words[first - 1]] + option + [self.words[last + 1]]
+                score = aligner.path_score(window, candidate)
+                if score is None:
+                    continue
+                if best_score is None or score > best_score:
+                    best = c
+                    best_score = score
+
+            if best != self.choice[t]:
+                self.choice[t] = best
+                changed = True
+
+        return changed
+
+    def choose_readings_whole(self, aligner: Aligner, emissions: torch.Tensor) -> None:
+        for t, options in enumerate(self.readings):
+            if len(options) < 2:
+                continue
+
+            best = self.choice[t]
+            best_score: float | None = None
+            for c in range(len(options)):
+                self.choice[t] = c
+                self.rebuild()
+                score = aligner.path_score(emissions, self.words)
+                if score is None:
+                    continue
+                if best_score is None or score > best_score:
+                    best = c
+                    best_score = score
+
+            self.choice[t] = best
+        self.rebuild()
+
+
+class TokenStream(NormalizedTokens):
+    ftr: FlattenedTranscript
+
+    def __init__(self, ftr: FlattenedTranscript, normalizer: TextNormalizer) -> None:
+        self.ftr = ftr
+        super().__init__(ftr.tokens, normalizer)
+
+    @classmethod
+    def from_transcript(cls, tr: Transcript, normalizer: TextNormalizer) -> Self:
+        return cls(tr.flatten(), normalizer)
 
     def fold(self, spans: list[SpanScore | None]) -> list[SpanScore | None]:
         acc = {}
@@ -134,10 +241,6 @@ class TokenStream:
         for owner, span in acc.items():
             tok_time[owner] = span
 
-        self.content_mask = [False] * len(self.ftr.tokens)
-        for o in self.owners:
-            self.content_mask[o] = True
-
         return tok_time
 
     def turns(self) -> list[list[int]]:
@@ -145,13 +248,3 @@ class TokenStream:
         for t, turn_idx in enumerate(self.ftr.turn_idx):
             by_turn[turn_idx].append(t)
         return by_turn
-
-    @classmethod
-    def from_transcript(cls, tr: Transcript, normalizer: TextNormalizer) -> Self:
-        token_stream = cls()
-        token_stream.ftr = tr.flatten()
-        token_stream.words, token_stream.owners = normalizer.normalize_stream(token_stream.ftr.tokens)
-        token_stream.words_by_token = [[] for _ in token_stream.ftr.tokens]
-        for w, o in zip(token_stream.words, token_stream.owners):
-            token_stream.words_by_token[o].append(w)
-        return token_stream

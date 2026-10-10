@@ -9,6 +9,12 @@ class TextMapperConfig(SingleColumnMapperConfig):
     output_column: str = "text"
 
 
+class CTCTextNormalizingMapperConfig(TextMapperConfig):
+    input_column: str = "text_original"
+    output_column: str = "text_normalized"
+    keep_input: bool = True
+
+
 @dataclasses.dataclass(kw_only=True)
 class UrlTextMapperConfig(UrlMapperConfig, TextMapperConfig):
     input_column: str = "url"

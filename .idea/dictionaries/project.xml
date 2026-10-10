@@ -3,10 +3,14 @@
     <words>
       <w>adamw</w>
       <w>argparser</w>
+      <w>freqs</w>
+      <w>fsmn</w>
       <w>mblocks</w>
       <w>mels</w>
       <w>naninf</w>
       <w>nexact</w>
+      <w>sdpa</w>
+      <w>slen</w>
       <w>subdirs</w>
     </words>
   </dictionary>

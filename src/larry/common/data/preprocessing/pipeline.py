@@ -36,11 +36,9 @@ class Pipeline:
         self.log.info("Pipeline config loaded.")
 
         preprocessor_config_dict: dict[str, Any] = definition.get("preprocessor", {})
-        preprocessor_inputs: list[dict[str, Any]] = preprocessor_config_dict.get("inputs", [])
+        preprocessor_inputs: dict[str, Any] = preprocessor_config_dict.get("inputs", [])
         self.log.info(f"using preprocessor_inputs={preprocessor_inputs}")
-        self.config = PipelineConfig(
-            **{i["name"]: i["value"] for i in preprocessor_inputs}
-        )
+        self.config = PipelineConfig(**preprocessor_inputs)
 
         dataset_config_dict: dict[str, Any] = definition.get("dataset", {})
 
@@ -57,9 +55,7 @@ class Pipeline:
         dataset_config_overrides = dataset_config_dict.get("overrides", [])
         self.log.info(f"Applying dataset_config_overrides={dataset_config_overrides}")
 
-        dataset_provider_config: DatasetConfig = dataset_config_type(
-            **{i["name"]: i["value"] for i in dataset_config_overrides}
-        )
+        dataset_provider_config: DatasetConfig = dataset_config_type(**dataset_config_overrides)
 
         if dataset_provider_config.cache_dir:
             dataset_provider_config.cache_dir = Path(dataset_provider_config.cache_dir).expanduser().resolve()
@@ -102,9 +98,7 @@ class Pipeline:
 
             preprocessor_config_overrides = preprocessor_config.get("inputs", [])
             self.log.info(f"Applying preprocessor_config_overrides={preprocessor_config_overrides}")
-            preprocessor_config = preprocessor_config_type(
-                **{i["name"]: i["value"] for i in preprocessor_config_overrides}
-            )
+            preprocessor_config = preprocessor_config_type(**preprocessor_config_overrides)
 
             self.log.info(
                 f"preprocessor_type_name={preprocessor_type_name} "
@@ -205,7 +199,7 @@ class Pipeline:
                 "ancestry": self.dataset_provider.config.path
             })
 
-        for n, v in {i["name"]: i["value"] for i in self.config.provenance_overrides}.items():
+        for n, v in self.config.provenance_overrides.items():
             provenance[n] = v
 
         (self.output_dir / "provenance.json").write_text(json.dumps(provenance, indent="\t"))

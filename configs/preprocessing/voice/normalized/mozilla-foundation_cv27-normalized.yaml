@@ -1,0 +1,29 @@
+preprocessor:
+  inputs:
+    provenance_columns:
+      - path
+      - client_id
+      - sentence_id
+
+dataset:
+  config: CommonVoiceDatasetConfig
+  overrides:
+    download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/voice/tts/mozilla-foundation_cv27/
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/normalized/mozilla-foundation_cv27-normalized/
+
+pipeline:
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      column_name_mappings:
+        audio_duration: duration_s
+        sentence: text_original
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: "audio_no_decode"
+  - name: CTCScoreMapper
+    config: CTCScoreMapperConfig
+    inputs:
+      text_column: text_original

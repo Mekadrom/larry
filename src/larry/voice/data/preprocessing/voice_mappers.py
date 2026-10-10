@@ -4,11 +4,10 @@ from abc import abstractmethod, ABC
 from typing import Any
 
 import av
-import datasets
 import numpy as np
 import torch
 import torchaudio
-from datasets import Array2D, Dataset, DatasetDict
+from datasets import Array2D, Dataset, DatasetDict, Audio
 from datasets.features.features import FeatureType, Value, Features
 from torchaudio import transforms
 from torchcodec.decoders import AudioDecoder
@@ -23,7 +22,7 @@ from larry.voice.config.preprocessing.voice_mapper_configs import MelExtractingM
 from larry.voice.data.preprocessing.alignment import LongAlignment, TokenTimeline, Aligner
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 from larry.voice.data.preprocessing.segmentation import Segmenter
-from larry.voice.data.preprocessing.transcript import TokenStream, Turn, Transcript
+from larry.voice.data.preprocessing.transcript import TokenStream, Turn, Transcript, NormalizedTokens
 from larry.voice.utils import bytes_to_waveforms
 
 _ALIGNERS: dict[str, Aligner] = {}
@@ -32,7 +31,7 @@ _NORMALIZERS: dict[str, TextNormalizer] = {}
 
 class VoiceMapper[I, O, C: VoiceMapperConfig = VoiceMapperConfig](SingleColumnMapper[I, O, C]):
     def output_feature(self) -> FeatureType | None:
-        return datasets.Audio(decode=False)
+        return Audio(decode=False)
 
 
 class UrlAudioMapper(
@@ -71,7 +70,14 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
     def __init__(self, provenance_columns: list[str], config: C) -> None:
         super().__init__(provenance_columns, config)
         self.output_columns = [
-            "audio", "text", "text_normalized", "audio_seconds", "start_s", "end_s", "speaker_id", "avg_word_score"
+            "audio",
+            "text_original",
+            "text_normalized",
+            "duration_s",
+            "start_s",
+            "end_s",
+            "speaker_id",
+            "avg_word_score"
         ]
 
         self.stage_pattern = None
@@ -130,6 +136,9 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
 
             stream = TokenStream.from_transcript(self.make_transcript(turns, batch, i), normalizer)
             result = LongAlignment(self.config, aligner, emissions, stream.words).run()
+            if stream.choose_readings(aligner, emissions, result.spans, self.config.reading_margin_seconds):
+                stream.rebuild()
+                result = LongAlignment(self.config, aligner, emissions, stream.words).run()
             timeline = TokenTimeline(stream.fold(result.spans), stream.ftr.groups)
             timeline.fill_gaps()
 
@@ -148,9 +157,9 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
                     sample_rate=self.config.sample_rate
                 ).to_tensor(format="flac")
                 batch_results["audio"].append({"bytes": flac.numpy().tobytes(), "path": None})
-                batch_results["text"].append(seg.text)
+                batch_results["text_original"].append(seg.text)
                 batch_results["text_normalized"].append(seg.text_normalized)
-                batch_results["audio_seconds"].append(round(seg.end_s - seg.start_s, 3))
+                batch_results["duration_s"].append(round(seg.end_s - seg.start_s, 3))
                 batch_results["start_s"].append(round(seg.start_s, 3))
                 batch_results["end_s"].append(round(seg.end_s, 3))
                 batch_results["speaker_id"].append(seg.speaker_id)
@@ -179,10 +188,10 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         src = features_of(dataset).copy()
         return Features({
             **{c: src[c] for c in self.config.copy_columns},
-            "audio": datasets.Audio(decode=False),
-            "text": Value("string"),
+            "audio": Audio(decode=False),
+            "text_original": Value("string"),
             "text_normalized": Value("string"),
-            "audio_seconds": Value("float64"),
+            "duration_s": Value("float64"),
             "start_s": Value("float64"),
             "end_s": Value("float64"),
             "speaker_id": Value("string"),
@@ -205,9 +214,15 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
             _ALIGNERS[key] = Aligner(self.config.aligner_config)
         return _ALIGNERS[key]
 
+    def _lazy_get_normalizer(self) -> TextNormalizer:
+        key = repr(self.config)
+        if key not in _NORMALIZERS:
+            _NORMALIZERS[key] = TextNormalizer()
+        return _NORMALIZERS[key]
+
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         aligner = self._lazy_get_aligner()
-        normalizer = self.make_normalizer()
+        normalizer = self._lazy_get_normalizer()
 
         audios = batch[self.config.audio_column]
         texts = batch[self.config.text_column]
@@ -215,21 +230,23 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
 
         order = sorted(range(len(audios)), key=lambda i: durations[i])
         scores: list[float | None] = [None] * len(audios)
+        normalized: list[str | None] = [None] * len(audios)
 
         group: list[int] = []
         for i in order:
             # ascending order: durations[i] is the longest in the group, so this is the padded size
             padded_seconds = (len(group) + 1) * durations[i]
             if len(group) > 0 and padded_seconds > self.config.max_batch_seconds:
-                self._score_group(aligner, normalizer, group, audios, texts, scores)
+                self._score_group(aligner, normalizer, group, audios, texts, scores, normalized)
                 group = []
             group.append(i)
 
         if len(group) > 0:
-            self._score_group(aligner, normalizer, group, audios, texts, scores)
+            self._score_group(aligner, normalizer, group, audios, texts, scores, normalized)
 
         return {
-            self.config.output_column: scores
+            self.config.score_output_column: scores,
+            self.config.text_output_column: normalized,
         }
 
     def _score_group(
@@ -240,6 +257,7 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
             audios: list[Any],
             texts: list[str],
             scores: list[float | None],
+            normalized: list[str | None],
     ) -> None:
         waveforms = [
             bytes_to_waveforms(audios[i]["bytes"], sample_rate=self.config.sample_rate)[0]
@@ -247,8 +265,17 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
         ]
         emissions = aligner.clip_emissions(waveforms)
         for i, emission in zip(indices, emissions):
-            words, _ = normalizer.normalize_stream(texts[i].split())
-            targets, _ = aligner.get_targets_owners(words)
+            text = texts[i]
+            if text is None:
+                continue
+
+            tokens = NormalizedTokens(text.split(), normalizer)
+            if len(tokens.words) == 0:
+                continue
+
+            tokens.choose_readings_whole(aligner, emission)
+            normalized[i] = " ".join(tokens.words)
+            targets, _ = aligner.get_targets_owners(tokens.words)
             scores[i] = aligner.mismatch_score(emission, targets)
 
     def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
@@ -258,10 +285,8 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
         for column in self.remove_columns:
             features.pop(column, None)
         features[self.config.output_column] = Value("float64")
+        features["text_normalized"] = Value("string")
         return features
-
-    def make_normalizer(self) -> TextNormalizer:
-        return TextNormalizer()
 
 
 class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):

@@ -275,6 +275,19 @@ class Aligner:
         forced = scores[0].sum()
         return float(free - forced) / emissions.shape[0]
 
+    def path_score(self, emissions: torch.Tensor, words: list[str]) -> float | None:
+        """Log-prob of the best path forced through `words` over every frame of `emissions`."""
+        targets, _ = self.get_targets_owners(words)
+        if len(targets) == 0 or len(targets) > emissions.shape[0]:
+            return None
+
+        ctc_targets = torch.tensor([targets], dtype=torch.int32, device=emissions.device)
+        try:
+            _, scores = AF.forced_align(emissions.unsqueeze(0), ctc_targets, blank=self.blank)
+        except RuntimeError:
+            return None
+        return float(scores[0].sum())
+
 
 @dataclasses.dataclass
 class LongAlignmentResult:

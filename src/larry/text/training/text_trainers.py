@@ -85,7 +85,7 @@ class SmokeTestLLMTrainer(TextTrainer[SmokeTestLLM, SmokeTestLLMTrainerConfig]):
             self.metrics.add_scalar("train/loss_by_tokens", train_loss.item(), int(self.tokens_seen.value))
         return self._callback_func(lambda c: c.on_step_end, train_loss, step)
 
-    def make_dataset_dict(self) -> dict[str, Dataset]:
+    def make_dataset_dict(self) -> Mapping[str, Dataset]:
         if self.tokenizer is None:
             raise ValueError(f"Please define a tokenizer for {type(self).__name__}")
 
@@ -116,4 +116,7 @@ class SmokeTestLLMTrainer(TextTrainer[SmokeTestLLM, SmokeTestLLMTrainerConfig]):
         return SmokeTestVizCallback(viz_steps)
 
     def make_criterion(self) -> Criterion:
-        return TeacherForcedVocabularyCrossEntropyCriterion(TeacherForcedVocabularyCrossEntropyCriterionConfig())
+        return TeacherForcedVocabularyCrossEntropyCriterion(
+            TeacherForcedVocabularyCrossEntropyCriterionConfig(),
+            self.model
+        )

@@ -90,7 +90,7 @@ def year(n):
     if 2000 <= n <= 2009:
         return "TWO THOUSAND" + ("" if n == 2000 else " " + _ONES[n - 2000])
 
-    if 1100 <= n <= 2099:
+    if 1100 <= n <= 9999:
         hi, lo = divmod(n, 100)
         if lo == 0:
             return cardinal(hi) + " HUNDRED"
@@ -111,15 +111,22 @@ def digits(s):
     ])
 
 
-def pairs(s):
-    """Docket/section style: 316 -> THREE SIXTEEN, 1199 -> ELEVEN NINETY NINE."""
+def pairs(s: str) -> str:
+    """Docket/section style: 316 -> THREE SIXTEEN, 7201 -> SEVENTY TWO OH ONE."""
     if len(s) == 3:
-        return _ONES[int(s[0])] + " " + cardinal(int(s[1:]))
+        head = _ONES[int(s[0])]
+        lo = int(s[1:])
+    elif len(s) == 4:
+        head = cardinal(int(s[:2]))
+        lo = int(s[2:])
+    else:
+        return cardinal(int(s))
 
-    if len(s) == 4:
-        return cardinal(int(s[:2])) + " " + cardinal(int(s[2:]))
-
-    return cardinal(int(s))
+    if lo == 0:
+        return head + " HUNDRED"
+    if lo < 10:
+        return head + " OH " + _ONES[lo]
+    return head + " " + cardinal(lo)
 
 
 class TextNormalizer:
@@ -128,12 +135,12 @@ class TextNormalizer:
         words = []
         owner = []
         for i, tok in enumerate(tokens):
-            for w in self.normalize_token(tok):
+            for w in self.normalize_token(tok)[0]:
                 words.append(w)
                 owner.append(i)
         return words, owner
 
-    def normalize_token(self, token: str) -> list[str]:
+    def normalize_token(self, token: str) -> list[list[str]]:
         """One original token -> zero or more CTC-alphabet words."""
         token = unicodedata.normalize("NFKD", token)
         token = "".join([
@@ -148,41 +155,98 @@ class TextNormalizer:
 
         number_token = self.number_token(money)
         if token.lstrip("(\"'").startswith("$") and number_token:
-            return (number_token + " DOLLARS").split()
+            return [(number_token + " DOLLARS").split()]
 
         for sym, rep in _SYMBOL.items():
             token = token.replace(sym, rep)
 
         # try the token whole before splitting it
         bare = token.strip("(){}[]\"'.,;:!?")
-        spoken = self.number_token(bare)
-        if spoken is not None:
-            return spoken.split()
+        readings = self.number_readings(bare)
+        if len(readings) > 0:
+            return [
+                r.split()
+                for r in readings
+            ]
 
-        out = []
+        piece_options: list[list[list[str]]] = []
         # split on anything that is non-alphanumeric;
         # makes "24-316" and "U.S.C." pronounceable
         for piece in re.split(r"[^A-Za-z0-9']+", token):
             if not piece:
                 continue
 
-            spoken = self.number_token(piece)
-            if spoken is not None:
-                out.extend(spoken.split())
+            readings = self.number_readings(piece)
+            if len(readings) > 0:
+                piece_options.append([
+                    r.split()
+                    for r in readings
+                ])
                 continue
 
             if any(c.isdigit() for c in piece):
                 # mixed like "1983a" or "401k": read the digit runs out, keep letter runs.
+                words = []
                 for run in re.findall(r"\d+|[A-Za-z']+", piece):
-                    spoken = self.number_token(run)
-                    out.extend((spoken or digits(run) if run[0].isdigit() else run.upper()).split())
+                    if run[0].isdigit():
+                        spoken = self.number_token(run)
+                        if spoken is None:
+                            spoken = digits(run)
+                        words.extend(spoken.split())
+                    else:
+                        words.append(run.upper())
+                piece_options.append([words])
                 continue
 
             word = "".join(c for c in piece.upper() if c in VOCAB_CHARS).strip("'")
             if word:
-                out.append(word)
+                piece_options.append([[word]])
 
-        return out
+        return self._combine(piece_options)
+
+    def _combine(self, piece_options: list[list[list[str]]]) -> list[list[str]]:
+        ambiguous = [
+            options
+            for options in piece_options
+            if len(options) > 1
+        ]
+        if len(ambiguous) > 1:
+            # several ambiguous numbers in one token: too many combinations, keep defaults
+            piece_options = [
+                options[:1]
+                for options in piece_options
+            ]
+
+        readings: list[list[str]] = [[]]
+        for options in piece_options:
+            readings = [
+                done + option
+                for done in readings
+                for option in options
+            ]
+        return readings
+
+    def number_readings(self, token: str) -> list[str]:
+        """Candidate spoken forms of a number token, most likely first; empty if not a number."""
+        default = self.number_token(token)
+        if default is None:
+            return []
+
+        readings = [default]
+        t = token.replace(",", "")
+        is_year = re.fullmatch(r"\d{4}", t) is not None and 1100 <= int(t) <= 2099
+        if re.fullmatch(r"\d{3,4}", t) is not None and not is_year:
+            candidates = [pairs(t), digits(t)]
+            if len(t) == 4 and int(t[:2]) % 10 != 0:
+                lo = int(t[2:])
+                hundreds = cardinal(int(t[:2])) + " HUNDRED"
+                if lo > 0:
+                    hundreds = hundreds + " " + cardinal(lo)
+                candidates.append(hundreds)
+            for candidate in candidates:
+                if candidate not in readings:
+                    readings.append(candidate)
+        return readings
 
     def number_token(self, token: str) -> str | None:
         t = token.replace(",", "")

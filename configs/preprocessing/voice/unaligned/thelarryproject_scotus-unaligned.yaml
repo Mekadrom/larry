@@ -1,66 +1,44 @@
 preprocessor:
   inputs:
-    - name: default_batch_size
-      value: 8
-    - name: provenance_columns
-      value:
-        - term
-        - docket
+    default_batch_size: 8
+    provenance_columns:
+      - term
+      - docket
 
 dataset:
   config: LarrySCOTUSManifestDatasetConfig
   overrides:
-    - name: cache_dir
-      value: /home/zadar/.cache/larry/intermediates/voice/unaligned/thelarryproject_scotus-unaligned/
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/unaligned/thelarryproject_scotus-unaligned/
 
 pipeline:
   - name: UrlBytesMapper
     config: UrlBytesMapperConfig
     inputs:
-      - name: busy_wait
-        value: 1.0
-      - name: num_proc
-        value: 1
-      - name: batch_size
-        value: 8
-      - name: writer_batch_size
-        value: 8
-      - name: input_column
-        value: pdf_url
-      - name: output_column
-        value: pdf_bytes
-      - name: filter_null_outputs
-        value: true
-      - name: validate_starts_with
-        value: "%PDF-"
-      - name: keep_input
-        value: true
+      busy_wait: 1.0
+      num_proc: 1
+      batch_size: 8
+      writer_batch_size: 8
+      input_column: pdf_url
+      output_column: pdf_bytes
+      filter_null_outputs: true
+      validate_starts_with: "%PDF-"
+      keep_input: true
   - name: UrlAudioMapper
     config: UrlAudioMapperConfig
     inputs:
-      - name: busy_wait
-        value: 1.0
-      - name: num_proc
-        value: 1
-      - name: batch_size
-        value: 8
-      - name: writer_batch_size
-        value: 8
-      - name: input_column
-        value: mp3_url
-      - name: filter_null_outputs
-        value: true
+      busy_wait: 1.0
+      num_proc: 1
+      batch_size: 8
+      writer_batch_size: 8
+      input_column: mp3_url
+      filter_null_outputs: true
   - name: AudioDurationMapper
     config: AudioDurationMapperConfig
     inputs:
-      - name: batch_size
-        value: 8
-      - name: writer_batch_size
-        value: 8
+      batch_size: 8
+      writer_batch_size: 8
   - name: SCOTUSTranscriptPdfTextMapper
     config: SCOTUSTranscriptPdfTextMapperConfig
     inputs:
-      - name: batch_size
-        value: 8
-      - name: writer_batch_size
-        value: 8
+      batch_size: 8
+      writer_batch_size: 8

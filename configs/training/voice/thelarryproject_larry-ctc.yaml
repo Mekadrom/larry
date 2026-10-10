@@ -1,0 +1,39 @@
+training:
+  metricsBackend: tensorboard
+
+model:
+  name: SpeechTokenizerModel
+  config: SpeechTokenizerModelConfig
+
+trainer:
+  name: SmokeTestLLMTrainer
+  config: SmokeTestLLMTrainerConfig
+  overrides:
+    num_epochs: 1
+    viz_steps: 1000
+    dataset_config:
+      sample_rate: 16000
+      max_batch_seconds: 400
+      pool_size: 20000
+      train_sources:
+        - path: "parquet"
+          index_path: "/home/zadar/.cache/larry/datasets/voice/index/mythicinfinity_libriheavy-index/"
+          source_path: "/home/zadar/.cache/larry/datasets/voice/normalized/mythicinfinity_libriheavy-normalized/"
+          weight: 0.70
+        - path: "parquet"
+          index_path: "/home/zadar/.cache/larry/datasets/voice/index/thelarryproject_scotus-index/"
+          source_path: "/home/zadar/.cache/larry/datasets/voice/aligned/thelarryproject_scotus-aligned/"
+          weight: 0.12
+        - path: "parquet"
+          index_path: "/home/zadar/.cache/larry/datasets/voice/index/thelarrypropject_cv27-index/"
+          source_path: "/home/zadar/.cache/larry/datasets/voice/normalized/thelarrypropject_cv27-normalized/"
+          weight: 0.13
+        - path: "parquet"
+          index_path: "/home/zadar/.cache/larry/datasets/voice/index/thelarryproject_vctk-index/"
+          source_path: "/home/zadar/.cache/larry/datasets/voice/normalized/thelarryproject_vctk-normalized/"
+          weight: 0.05
+      eval_sources:
+        - path: "parquet"
+          index_path: "/home/zadar/.cache/larry/datasets/voice/index/mythicinfinity_libriheavy-index/"
+          source_path: "/home/zadar/.cache/larry/datasets/voice/normalized/mythicinfinity_libriheavy-normalized/"
+          split: validation
