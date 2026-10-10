@@ -33,12 +33,16 @@ pipeline:
         text_normalized: text_original
         file: id
         speaker: speaker_id
+  - name: RowIndexAssigningPreprocessor
+    config: RowIndexAssigningPreprocessorConfig
+  - name: AudioDurationColumnPruner
+    config: AudioDurationColumnPrunerConfig
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForASR
   - name: CTCScoreMapper
     config: CTCScoreMapperConfig
     inputs:
       text_column: text_original
-  - name: RowIndexAssigningPreprocessor
-    config: RowIndexAssigningPreprocessorConfig
   - name: ColumnValuesPruner
     config: ColumnValuesPrunerConfig
     inputs:
@@ -46,7 +50,3 @@ pipeline:
         min_value: -4
       op: "in_range"
       input_column: "ctc_mismatch"
-  - name: AudioDurationColumnPruner
-    config: AudioDurationColumnPrunerConfig
-  - name: AudioQualityPruner
-    config: AudioQualityPrunerConfigForASR

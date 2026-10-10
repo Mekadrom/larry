@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import json
 import logging
@@ -73,6 +74,8 @@ class Pipeline:
         dataset_provider_type = DatasetProvider.REGISTRY.resolve(dataset_provider_type_name)
         self.dataset_provider = dataset_provider_type(dataset_provider_config)
 
+        self.provenance = self._build_provenance(copy.deepcopy(self.config.provenance))
+
         pipeline_configs = definition.get("pipeline", None)
         if pipeline_configs:
             self.pipeline = self._build_mapper_pipeline(pipeline_configs)
@@ -107,31 +110,32 @@ class Pipeline:
                 f"using preprocessor_config={preprocessor_config}"
             )
 
-            self.provenance = self._build_provenance(dict(self.config.provenance))
-
             pipeline.append(preprocessor_type(self.provenance.id_columns, preprocessor_config))
 
         return pipeline
 
     def _build_provenance(self, p_dict: dict[str, Any]) -> Provenance:
-        if not p_dict.get("ancestry", None):
-            p_dict["ancestry"] = {}
+        ancestry = p_dict.get("ancestry")
+        if ancestry is None:
+            ancestry = {}
 
-        if not p_dict.get("ancestry", {}).get("datasets", None):
-            p_dict["ancestry"]["datasets"] = []
+        datasets = ancestry.get("datasets")
+        if datasets is None:
+            datasets = []
+        datasets = list(datasets)
 
-        if not p_dict.get("ancestry", {}).get("models", None):
-            p_dict["ancestry"]["models"] = []
+        models = ancestry.get("models")
+        if models is None:
+            models = []
+        models = list(models)
 
-        if self.dataset_provider.config.path not in ("parquet", "csv", "json", "tsv"):
-            p_dict["ancestry"]["datasets"].append(self.dataset_provider.config.path)
+        path = self.dataset_provider.config.path
+        if path not in ("parquet", "csv", "json", "tsv") and path not in datasets:
+            datasets.append(path)
 
-        # since the dataset provider is where this dataset came from, it is the direct ancestor. ancestors of those
-        # datasets will be able to crawled by a script that has yet to be made
-        for k, v in p_dict["ancestry"].items():
-            p_dict["ancestry"].setdefault(k, []).extend(v)
-
-        return Provenance.new_provenance(p_dict)
+        new_dict = dict(p_dict)
+        new_dict["ancestry"] = {**ancestry, "datasets": datasets, "models": models}
+        return Provenance.new_provenance(new_dict)
 
     def run(self) -> None:
         """Runs preprocessing."""
