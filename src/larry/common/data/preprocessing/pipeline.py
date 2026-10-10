@@ -109,16 +109,18 @@ class Pipeline:
 
             p_dict = dict(self.config.provenance)
 
-            p_datasets = []
-            if self.dataset_provider.config.path not in ("parquet", "csv", "json", "tsv"):
-                p_datasets.append(self.dataset_provider.config.path)
-
-            p_dict.setdefault("ancestry", {})
+            p_dict.setdefault("ancestry", {
+                "datasets": [],
+                "models": [],
+            })
 
             # since the dataset provider is where this dataset came from, it is the direct ancestor. ancestors of those
             # datasets will be able to crawled by a script that has yet to be made
             for k, v in p_dict["ancestry"].items():
                 p_dict["ancestry"].setdefault(k, []).extend(v)
+
+            if self.dataset_provider.config.path not in ("parquet", "csv", "json", "tsv"):
+                p_dict["ancestry"]["datasets"].append(self.dataset_provider.config.path)
 
             self.provenance = Provenance.new_provenance(p_dict)
 
