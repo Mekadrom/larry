@@ -94,16 +94,12 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
 
     def preprocess_dataset(self, dataset):
         self.remove_columns = list(features_of(dataset).keys())
-        return dataset.map(
-            self.preprocess_batch,
-            features=self.preprocessing_features(dataset),
-            **self.map_kwargs()
-        )
+        return super().preprocess_dataset(dataset)
 
     def _lazy_get_aligner(self) -> Aligner:
         key = repr(self.config.aligner_config)
         if key not in _ALIGNERS:
-            _ALIGNERS[key] = Aligner(self.config.aligner_config)
+            _ALIGNERS[key] = Aligner(self.config.aligner_config, device=f"cuda:{self.device_index}")
         return _ALIGNERS[key]
 
     def _lazy_get_normalizer(self) -> TextNormalizer:
@@ -211,7 +207,7 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
     def _lazy_get_aligner(self) -> Aligner:
         key = repr(self.config.aligner_config)
         if key not in _ALIGNERS:
-            _ALIGNERS[key] = Aligner(self.config.aligner_config)
+            _ALIGNERS[key] = Aligner(self.config.aligner_config, device=f"cuda:{self.device_index}")
         return _ALIGNERS[key]
 
     def _lazy_get_normalizer(self) -> TextNormalizer:
@@ -244,10 +240,14 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
         if len(group) > 0:
             self._score_group(aligner, normalizer, group, audios, texts, scores, normalized)
 
-        return {
+        result: dict[str, Any] = {
             self.config.score_output_column: scores,
-            self.config.text_output_column: normalized,
         }
+        text_output_column = self.config.text_output_column
+        if text_output_column is not None:
+            result[text_output_column] = normalized
+
+        return result
 
     def _score_group(
             self,

@@ -96,6 +96,7 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
             else:
                 source = load_dataset(
                     config.source_path,
+                    name=config.source_name,
                     split=config.source_split,
                     revision=config.source_revision,
                 )

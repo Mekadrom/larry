@@ -12,8 +12,9 @@ from larry.text.tokenizer.text_tokenizer import TextTokenizer
 @dataclasses.dataclass(kw_only=True)
 class SpeechSourceConfig:
     name: str
-    index_path: str  # HF repo or local dir: rows with id, duration, text, speaker (+ row pointer)
-    source_path: str | None = None  # None: the index carries the audio itself
+    index_path: str  # huggingface repo or local dir: rows with id, duration_s, text_original, speaker_id, etc.
+    source_path: str | None = None
+    source_name: str | None = None
     source_revision: str | None = None
     split: str = "train"
     source_split: str = "train"
@@ -36,9 +37,9 @@ class SpeechMixtureConfig:
 class WeightedBucketBatchSampler(Sampler[list[int]]):
     def __init__(
             self,
-            source_ids: torch.Tensor,  # [N] int, which source each index row belongs to
-            durations: torch.Tensor,  # [N] float seconds
-            weights: list[float],  # per source id, share of audio time
+            source_ids: torch.Tensor,
+            durations: torch.Tensor,
+            weights: list[float],
             max_batch_seconds: float,
             pool_size: int,
             seed: int,

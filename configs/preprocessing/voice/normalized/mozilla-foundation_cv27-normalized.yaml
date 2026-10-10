@@ -2,7 +2,7 @@ preprocessor:
   inputs:
     provenance:
       id_columns:
-        - path
+        - id
         - client_id
         - sentence_id
 
@@ -13,17 +13,18 @@ dataset:
     cache_dir: /home/zadar/.cache/larry/intermediates/voice/normalized/mozilla-foundation_cv27-normalized/
 
 pipeline:
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: "audio_no_decode"
   - name: ColumnRenamingPreprocessor
     config: ColumnRenamingPreprocessorConfig
     inputs:
       column_name_mappings:
         audio_duration: duration_s
         sentence: text_original
-  - name: ColumnCastingPreprocessor
-    config: ColumnCastingPreprocessorConfig
-    inputs:
-      column_casts:
-        audio: "audio_no_decode"
+        path: id
   - name: CTCScoreMapper
     config: CTCScoreMapperConfig
     inputs:

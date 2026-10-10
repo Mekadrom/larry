@@ -10,7 +10,7 @@ from jsonpath_ng import JSONPath
 
 from larry.common.config.data.preprocessing.preprocessor_configs import RemoveColumnsPreprocessorConfig, \
     NestedExtractionPreprocessorConfig, PreprocessorConfig, ColumnCastingPreprocessorConfig, \
-    ColumnRenamingPreprocessorConfig
+    ColumnRenamingPreprocessorConfig, RowIndexAssigningPreprocessorConfig
 from larry.common.data.utils import features_of
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
@@ -134,6 +134,8 @@ class ColumnCastingPreprocessor(Preprocessor[ColumnCastingPreprocessorConfig]):
                 dataset = dataset.cast_column(k, Audio(decode=False))
             elif v == "audio_decode":
                 dataset = dataset.cast_column(k, Audio(decode=True))
+            elif v is None:
+                dataset = dataset.remove_columns(k)
             else:
                 dataset = dataset.cast_column(k, Value(v))
         return dataset
@@ -145,4 +147,21 @@ class ColumnRenamingPreprocessor(Preprocessor[ColumnRenamingPreprocessorConfig])
             raise ValueError(f"column_name_mappings must be specified for {self.__class__.__name__}")
 
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
-        return dataset.rename_columns(self.config.column_name_mappings)
+        for k, v in self.config.column_name_mappings.items():
+            if v is None:
+                dataset = dataset.remove_columns(k)
+            else:
+                dataset = dataset.rename_column(k, v)
+        return dataset
+
+
+class RowIndexAssigningPreprocessor(Preprocessor[RowIndexAssigningPreprocessorConfig]):
+    def validate(self) -> None:
+        if not self.config.output_column:
+            raise ValueError(f"output_column must be specified for {self.__class__.__name__}")
+
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        return dataset.map(
+            lambda _, idx: {self.config.output_column: idx},
+            with_indices=True,
+        )

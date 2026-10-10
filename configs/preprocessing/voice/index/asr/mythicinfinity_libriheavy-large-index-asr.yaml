@@ -1,0 +1,47 @@
+preprocessor:
+  inputs:
+    provenance:
+      id_columns:
+        - id
+        - speaker_id
+        - librivox_book_id
+
+dataset:
+  config: DatasetConfig
+  overrides:
+    path: mythicinfinity/libriheavy
+    name: large
+    split: train
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/index/asr/mythicinfinity_libriheavy-large-index-asr/
+
+pipeline:
+  - name: RowIndexAssigningPreprocessor
+    config: RowIndexAssigningPreprocessorConfig
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: "audio_no_decode"
+        text_transcription: ~
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      column_name_mappings:
+        audio_duration: duration_s
+  - name: AudioDurationColumnPruner
+    config: AudioDurationColumnPrunerConfig
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForASR
+  - name: CTCScoreMapper
+    config: CTCScoreMapperConfig
+    inputs:
+      text_column: text_original
+      remove_columns:
+        - audio
+  - name: ColumnValuesPruner
+    config: ColumnValuesPrunerConfig
+    inputs:
+      input_column: ctc_mismatch
+      op: "in_range"
+      op_config:
+        min_value: -4

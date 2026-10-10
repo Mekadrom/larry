@@ -107,26 +107,31 @@ class Pipeline:
                 f"using preprocessor_config={preprocessor_config}"
             )
 
-            p_dict = dict(self.config.provenance)
-
-            p_dict.setdefault("ancestry", {
-                "datasets": [],
-                "models": [],
-            })
-
-            # since the dataset provider is where this dataset came from, it is the direct ancestor. ancestors of those
-            # datasets will be able to crawled by a script that has yet to be made
-            for k, v in p_dict["ancestry"].items():
-                p_dict["ancestry"].setdefault(k, []).extend(v)
-
-            if self.dataset_provider.config.path not in ("parquet", "csv", "json", "tsv"):
-                p_dict["ancestry"]["datasets"].append(self.dataset_provider.config.path)
-
-            self.provenance = Provenance.new_provenance(p_dict)
+            self.provenance = self._build_provenance(dict(self.config.provenance))
 
             pipeline.append(preprocessor_type(self.provenance.id_columns, preprocessor_config))
 
         return pipeline
+
+    def _build_provenance(self, p_dict: dict[str, Any]) -> Provenance:
+        if not p_dict.get("ancestry", None):
+            p_dict["ancestry"] = {}
+
+        if not p_dict.get("ancestry", {}).get("datasets", None):
+            p_dict["ancestry"]["datasets"] = []
+
+        if not p_dict.get("ancestry", {}).get("models", None):
+            p_dict["ancestry"]["models"] = []
+
+        if self.dataset_provider.config.path not in ("parquet", "csv", "json", "tsv"):
+            p_dict["ancestry"]["datasets"].append(self.dataset_provider.config.path)
+
+        # since the dataset provider is where this dataset came from, it is the direct ancestor. ancestors of those
+        # datasets will be able to crawled by a script that has yet to be made
+        for k, v in p_dict["ancestry"].items():
+            p_dict["ancestry"].setdefault(k, []).extend(v)
+
+        return Provenance.new_provenance(p_dict)
 
     def run(self) -> None:
         """Runs preprocessing."""

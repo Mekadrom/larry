@@ -12,15 +12,15 @@ preprocessor:
 dataset:
   config: LarrySCOTUSUnalignedDatasetConfig
   overrides:
-    cache_dir: /home/zadar/.cache/larry/intermediates/voice/unaligned/thelarryproject_scotus-aligned/
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/aligned/thelarryproject_scotus-aligned/
 
 pipeline:
   - name: SCOTUSSpeechSegmentationAligningMapper
     config: SCOTUSSpeechSegmentationAligningMapperConfig
     inputs:
-      num_proc: 4
+      num_proc: 9
       batch_size: 1
-      writer_batch_size: 8
+      writer_batch_size: 4
       copy_columns:
         - term
         - docket

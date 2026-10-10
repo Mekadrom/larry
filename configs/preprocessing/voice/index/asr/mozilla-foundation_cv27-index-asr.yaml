@@ -1,0 +1,44 @@
+preprocessor:
+  inputs:
+    provenance:
+      id_columns:
+        - id
+        - client_id
+        - sentence_id
+
+dataset:
+  config: DatasetConfig
+  overrides:
+    path: parquet
+    name: ~
+    split: train
+    data_dir: /home/zadar/.cache/larry/datasets/voice/normalized/mozilla-foundation_cv27-normalized/
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/index/asr/mozilla-foundation_cv27-index-asr/
+
+pipeline:
+  - name: RowIndexAssigningPreprocessor
+    config: RowIndexAssigningPreprocessorConfig
+  - name: ColumnValuesPruner
+    config: ColumnValuesPrunerConfig
+    inputs:
+      op_config:
+        values:
+          - "0"
+      op: "matches"
+      input_column: "down_votes"
+  - name: ColumnValuesPruner
+    config: ColumnValuesPrunerConfig
+    inputs:
+      op_config:
+        min_value: -4
+      op: "in_range"
+      input_column: "ctc_mismatch"
+  - name: AudioDurationColumnPruner
+    config: AudioDurationColumnPrunerConfig
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForASR
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_mappings:
+        audio: ~

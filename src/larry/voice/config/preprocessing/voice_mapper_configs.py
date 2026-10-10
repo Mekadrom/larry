@@ -68,7 +68,7 @@ class CTCScoreMapperConfig(VoiceMapperConfig):
     duration_column: str = "duration_s"
 
     score_output_column: str = "ctc_mismatch"
-    text_output_column: str = "text_normalized"
+    text_output_column: str | None = "text_normalized"
 
     max_batch_seconds: float = 400.0
 

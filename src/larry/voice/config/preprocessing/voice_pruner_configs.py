@@ -1,7 +1,7 @@
 import dataclasses
 
 from larry.common.config.data.preprocessing.pruner_configs import PrunerConfig
-from larry.voice.config.preprocessing.voice_configs import VoiceConfig, AlignerConfig
+from larry.voice.config.preprocessing.voice_configs import VoiceConfig
 
 
 @dataclasses.dataclass(kw_only=True)

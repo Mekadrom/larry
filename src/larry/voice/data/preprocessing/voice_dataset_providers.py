@@ -46,7 +46,7 @@ class CommonVoiceMediaCachedDatasetProvider(MediaCachedDatasetProvider[CommonVoi
     def transform_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         batch = super().transform_batch(batch)
         batch.update({
-            "audio_duration": [self._get_audio_duration(p, a) for p, a in zip(batch["path"], batch["audio"])]
+            "duration_s": [self._get_audio_duration(p, a) for p, a in zip(batch["path"], batch["audio"])]
         })
         return batch
 

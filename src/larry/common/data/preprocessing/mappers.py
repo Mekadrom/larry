@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import requests
+import torch.cuda
 from datasets import Dataset, Features, DatasetDict
 from datasets.features.features import FeatureType, Value
 
@@ -20,6 +21,7 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
     def __init__(self, provenance_columns: list[str], config: C) -> None:
         super().__init__(provenance_columns, config)
         self.remove_columns = self.config.remove_columns
+        self.device_index = 0
 
     def map_kwargs(self) -> dict[str, Any]:
         return dict(
@@ -33,10 +35,18 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
 
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         return dataset.map(
-            self.preprocess_batch,
+            self._preprocess_batch,
             features=self.preprocessing_features(dataset),
+            with_rank=True,
             **self.map_kwargs()
         )
+
+    def _preprocess_batch(self, batch: dict[str, list[Any]], rank: int | None) -> dict[str, list[Any]]:
+        if rank is not None:
+            n_devices = torch.cuda.device_count()
+            if n_devices > 0:
+                self.device_index = rank % n_devices
+        return self.preprocess_batch(batch)
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         ...
