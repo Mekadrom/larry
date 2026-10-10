@@ -1,7 +1,8 @@
 preprocessor:
   inputs:
-    provenance_columns:
-      - example_id
+    provenance:
+      id_columns:
+        - example_id
 
 dataset:
   config: GoogleDOCCIMediaCachedDatasetConfig

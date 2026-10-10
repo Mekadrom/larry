@@ -1,11 +1,13 @@
 preprocessor:
   inputs:
     default_batch_size: 8
-    provenance_columns:
-      - term
-      - docket
-    provenance_overrides:
-      aligner_model_id: "facebook/wav2vec2-large-960h-lv60-self"
+    provenance:
+      id_columns:
+        - term
+        - docket
+      ancestry:
+        models:
+          - "facebook/wav2vec2-large-960h-lv60-self"
 
 dataset:
   config: LarrySCOTUSUnalignedDatasetConfig

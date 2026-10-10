@@ -1,8 +1,9 @@
 preprocessor:
   inputs:
-    provenance_columns:
-      - term
-      - docket
+    provenance:
+      id_columns:
+        - term
+        - docket
 
 dataset:
   config: SCOTUSManifestCachedDatasetConfig

@@ -1,8 +1,9 @@
 preprocessor:
   inputs:
-    provenance_columns:
-      - speaker
-      - file
+    provenance:
+      id_columns:
+        - speaker
+        - file
 
 dataset:
   config: DatasetConfig

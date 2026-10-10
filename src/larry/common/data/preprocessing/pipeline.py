@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import logging
 import math
@@ -12,7 +13,7 @@ import torch
 from datasets import Dataset, DatasetDict
 
 from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig
-from larry.common.config.data.preprocessing.pipeline_config import PipelineConfig
+from larry.common.config.data.preprocessing.pipeline_config import PipelineConfig, Provenance
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
 from larry.common.data.dataset_providers import DatasetProvider
 from larry.common.data.preprocessing.preprocessors import Preprocessor
@@ -25,6 +26,7 @@ class Pipeline:
     output_dir: Path
     dataset_provider: DatasetProvider
     pipeline: list[Preprocessor]
+    provenance: Provenance
 
     def __init__(self, config_file: Path, output_dir: Path, clean: bool = False) -> None:
         """Instantiates a ``Runner`` and the configs specified for this preprocessing pipeline run."""
@@ -105,7 +107,22 @@ class Pipeline:
                 f"using preprocessor_config={preprocessor_config}"
             )
 
-            pipeline.append(preprocessor_type(self.config.provenance_columns, preprocessor_config))
+            p_dict = dict(self.config.provenance)
+
+            p_datasets = []
+            if self.dataset_provider.config.path not in ("parquet", "csv", "json", "tsv"):
+                p_datasets.append(self.dataset_provider.config.path)
+
+            p_dict.setdefault("ancestry", {})
+
+            # since the dataset provider is where this dataset came from, it is the direct ancestor. ancestors of those
+            # datasets will be able to crawled by a script that has yet to be made
+            for k, v in p_dict["ancestry"].items():
+                p_dict["ancestry"].setdefault(k, []).extend(v)
+
+            self.provenance = Provenance.new_provenance(p_dict)
+
+            pipeline.append(preprocessor_type(self.provenance.id_columns, preprocessor_config))
 
         return pipeline
 
@@ -175,31 +192,5 @@ class Pipeline:
 
     def _compile_and_save_provenance(self) -> None:
         """Saves a separate json file that records the sources of this saved dataset."""
-        provenance = {
-            "provenanceColumns": self.config.provenance_columns,
-            "produced_on": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
 
-        repo_state = git_utils.git_info()
-        if repo_state is not None:
-            provenance.update({
-                "git_commit": repo_state.git_commit,
-                "git_is_dirty": repo_state.git_dirty,
-            })
-        else:
-            provenance.update({
-                "git_commit": "not a git repo",
-                "git_is_dirty": "not a git repo"
-            })
-
-        if self.dataset_provider.config.path not in ("parquet", "csv", "json", "tsv"):
-            # since the dataset provider is where this dataset came from, it is the direct ancestor. ancestors of those
-            # datasets will be able to crawled by a script that has yet to be made
-            provenance.update({
-                "ancestry": self.dataset_provider.config.path
-            })
-
-        for n, v in self.config.provenance_overrides.items():
-            provenance[n] = v
-
-        (self.output_dir / "provenance.json").write_text(json.dumps(provenance, indent="\t"))
+        (self.output_dir / "provenance.json").write_text(json.dumps(dataclasses.asdict(self.provenance), indent="\t"))

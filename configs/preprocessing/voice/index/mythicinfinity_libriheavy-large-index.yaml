@@ -1,8 +1,9 @@
 preprocessor:
   inputs:
-    provenance_columns:
-      - librivox_book_id
-      - speaker_id
+    provenance:
+      id_columns:
+        - librivox_book_id
+        - speaker_id
 
 dataset:
   config: DatasetConfig

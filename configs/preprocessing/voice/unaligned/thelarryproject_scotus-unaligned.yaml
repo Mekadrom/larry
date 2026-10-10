@@ -1,9 +1,10 @@
 preprocessor:
   inputs:
     default_batch_size: 8
-    provenance_columns:
-      - term
-      - docket
+    provenance:
+      id_columns:
+        - term
+        - docket
 
 dataset:
   config: LarrySCOTUSManifestDatasetConfig

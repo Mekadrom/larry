@@ -1,9 +1,10 @@
 preprocessor:
   inputs:
-    provenance_columns:
-      - path
-      - client_id
-      - sentence_id
+    provenance:
+      id_columns:
+        - path
+        - client_id
+        - sentence_id
 
 dataset:
   config: CommonVoiceDatasetConfig
