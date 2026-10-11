@@ -34,8 +34,10 @@ class Pruner[C: PrunerConfig = PrunerConfig](Preprocessor[C]):
             keep.append(self._keep_example(row))
         return keep
 
-    def _keep_example(self, example: dict[str, Any]) -> bool:
-        return (example is None and self.config.prune_nulls) or self.keep_example(example)
+    def _keep_example(self, example: dict[str, Any] | None) -> bool:
+        if example is None:
+            return not self.config.prune_nulls
+        return self.keep_example(example)
 
     def keep_example(self, example: dict[str, Any]) -> bool:
         ...

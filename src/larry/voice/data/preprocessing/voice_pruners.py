@@ -16,7 +16,7 @@ class VoicePruner[C: VoicePrunerConfig = VoicePrunerConfig](Pruner[C]):
 class AudioDurationColumnPruner(VoicePruner[AudioDurationColumnPrunerConfig]):
     def keep_example(self, example: dict[str, Any]) -> bool:
         val = cast(float, example[self.config.input_columns[0]])
-        return val < self.config.min_duration or val > self.config.max_duration
+        return self.config.min_duration <= val <= self.config.max_duration
 
 
 class AudioQualityPruner(VoicePruner[AudioQualityPrunerConfig]):
@@ -39,9 +39,9 @@ class AudioQualityPruner(VoicePruner[AudioQualityPrunerConfig]):
         snr_db = (speech_level - noise_floor).item()
         clip_frac = (waveform.abs() >= 0.999).float().mean().item()
 
-        prune_rms_dbfs = rms_dbfs < self.config.min_rms_dbfs
-        prune_active_ratio = active_ratio < self.config.min_active_speech_ratio
-        prune_snr = snr_db < self.config.min_snr
-        prune_clip_frac = clip_frac > self.config.max_clipping_portion
+        prune_rms_dbfs = rms_dbfs >= self.config.min_rms_dbfs
+        prune_active_ratio = active_ratio >= self.config.min_active_speech_ratio
+        prune_snr = snr_db >= self.config.min_snr
+        prune_clip_frac = clip_frac <= self.config.max_clipping_portion
 
-        return any([prune_rms_dbfs, prune_active_ratio, prune_snr, prune_clip_frac])
+        return all([prune_rms_dbfs, prune_active_ratio, prune_snr, prune_clip_frac])
