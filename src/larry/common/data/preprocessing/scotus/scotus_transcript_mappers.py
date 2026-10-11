@@ -4,6 +4,7 @@ from typing import Any
 from datasets import Dataset, DatasetDict
 from datasets.features.features import Value, Features
 
+from larry.common.data.preprocessing import pipeline
 from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.common.data.utils import features_of
 from larry.text.config.preprocessing.text_mapper_configs import SCOTUSTranscriptPdfTextMapperConfig
@@ -51,8 +52,8 @@ _LABEL_FIXES_ANY: dict[str, str] = {
 
 
 class SCOTUSTranscriptPdfTextMapper(SingleColumnMapper[bytes, str, SCOTUSTranscriptPdfTextMapperConfig]):
-    def __init__(self, provenance_columns, config):
-        super().__init__(provenance_columns, config)
+    def __init__(self, pl: pipeline.Pipeline, config: SCOTUSTranscriptPdfTextMapperConfig):
+        super().__init__(pl, config)
         self.remove_columns = [c for c in self.remove_columns if c != self.config.input_column]
 
     def validate(self) -> None:

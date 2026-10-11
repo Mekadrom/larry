@@ -5,9 +5,6 @@ preprocessor:
       id_columns:
         - term
         - docket
-      ancestry:
-        models:
-          - "facebook/wav2vec2-large-960h-lv60-self"
 
 dataset:
   config: DefaultDatasetConfig

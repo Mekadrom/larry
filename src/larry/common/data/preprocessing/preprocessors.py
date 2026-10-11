@@ -11,6 +11,7 @@ from jsonpath_ng import JSONPath
 from larry.common.config.data.preprocessing.preprocessor_configs import RemoveColumnsPreprocessorConfig, \
     NestedExtractionPreprocessorConfig, PreprocessorConfig, ColumnCastingPreprocessorConfig, \
     ColumnRenamingPreprocessorConfig, RowIndexAssigningPreprocessorConfig
+from larry.common.data.preprocessing import pipeline
 from larry.common.data.utils import features_of
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
@@ -21,11 +22,12 @@ class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
 
     _config: C
 
-    def __init__(self, provenance_columns: list[str], config: C) -> None:
-        self.provenance_columns = provenance_columns
+    def __init__(self, pl: pipeline.Pipeline, config: C) -> None:
+        self.pl = pl
         self._config = config
         self.validate()
         self.log = logging.getLogger(type(self).__name__)
+        self.mutate_provenance()
 
     @property
     def config(self) -> C:
@@ -39,13 +41,16 @@ class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         ...
 
+    def mutate_provenance(self) -> None:
+        ...
+
     def __call__(self, batch: dict) -> dict:
         """A warning."""
         raise NotImplementedError("don't do this")
 
     def provenance_string(self, batch: dict[str, list[Any]], index: int) -> str:
         column_values = {}
-        for c in self.provenance_columns:
+        for c in self.pl.provenance.id_columns:
             column_values[c] = batch[c][index]
         strs = []
         for c, v in column_values.items():
@@ -63,8 +68,8 @@ class RemoveColumnsPreprocessor(Preprocessor[RemoveColumnsPreprocessorConfig]):
 
 
 class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConfig]):
-    def __init__(self, provenance_columns: list[str], config: NestedExtractionPreprocessorConfig) -> None:
-        super().__init__(provenance_columns, config)
+    def __init__(self, pl: pipeline.Pipeline, config: NestedExtractionPreprocessorConfig) -> None:
+        super().__init__(pl, config)
         self.parsed_queries = {
             mapping["outputColumn"]: jsonpath_ng.parse(mapping["jsonPath"])
             for mapping in self.config.json_path_to_output_column_mappings

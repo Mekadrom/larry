@@ -13,6 +13,7 @@ from torchaudio import transforms
 from torchcodec.decoders import AudioDecoder
 from torchcodec.encoders import AudioEncoder
 
+from larry.common.data.preprocessing import pipeline
 from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper, Mapper
 from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedAudio
@@ -67,8 +68,8 @@ class AudioDurationMapper(SingleColumnMapper[EncodedAudio | None, float | None, 
 class SpeechSegmentationAligningMapper[
 C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConfig
 ](Mapper[C], ABC):
-    def __init__(self, provenance_columns: list[str], config: C) -> None:
-        super().__init__(provenance_columns, config)
+    def __init__(self, pl: pipeline.Pipeline, config: C) -> None:
+        super().__init__(pl, config)
         self.output_columns = [
             "audio",
             "text_original",
@@ -83,6 +84,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         self.stage_pattern = None
         if self.config.stage_direction_pattern:
             self.stage_pattern = re.compile(self.config.stage_direction_pattern)
+
 
     def validate(self) -> None:
         if self.config.audio_column is None:
@@ -194,6 +196,9 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
             "ctc_mismatch": Value("float64"),
         })
 
+    def mutate_provenance(self) -> None:
+        self.pl.provenance.ancestry.models.append(self.config.aligner_config.model_id)
+
 
 class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
     def validate(self) -> None:
@@ -288,10 +293,13 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
         features[self.config.text_output_column] = Value("string")
         return features
 
+    def mutate_provenance(self) -> None:
+        self.pl.provenance.ancestry.models.append(self.config.aligner_config.model_id)
+
 
 class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):
-    def __init__(self, provenance_columns: list[str], config: MelExtractingMapperConfig) -> None:
-        super().__init__(provenance_columns, config)
+    def __init__(self, pl: pipeline.Pipeline, config: MelExtractingMapperConfig) -> None:
+        super().__init__(pl, config)
         self.transform = transforms.MelSpectrogram(
             n_fft=config.n_fft,
             hop_length=config.hop_length,

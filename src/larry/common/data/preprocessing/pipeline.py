@@ -76,7 +76,6 @@ class Pipeline:
         self.dataset_provider = dataset_provider_type(dataset_provider_config)
 
         self.provenance = self._build_provenance(copy.deepcopy(self.config.provenance))
-        self._compile_and_save_provenance()
         self.provenance_only = provenance_only
 
         pipeline_configs = definition.get("pipeline", None)
@@ -113,7 +112,7 @@ class Pipeline:
                 f"using preprocessor_config={preprocessor_config}"
             )
 
-            pipeline.append(preprocessor_type(self.provenance.id_columns, preprocessor_config))
+            pipeline.append(preprocessor_type(self, preprocessor_config))
 
         return pipeline
 
@@ -155,6 +154,7 @@ class Pipeline:
 
         if self.provenance_only:
             self.log.warning("--provenance_only passed; will skip preprocessing.")
+            self._compile_and_save_provenance()
             return
 
         self.log.info("Initializing dataset...")
@@ -170,6 +170,9 @@ class Pipeline:
             self._preprocess_and_save_shards(dataset)
         else:
             raise TypeError(f"expected some kind of Dataset, got {type(dataset).__name__}")
+
+        # save after preprocessing is finished because pipeline steps may mutate provenance information
+        self._compile_and_save_provenance()
 
         self.log.info("Dataset saved to disk.")
 

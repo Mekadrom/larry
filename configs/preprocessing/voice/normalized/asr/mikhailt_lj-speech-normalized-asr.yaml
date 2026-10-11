@@ -23,9 +23,10 @@ pipeline:
     config: ColumnRenamingPreprocessorConfig
     inputs:
       column_name_mappings:
-        duration: duration_s
         normalized_text: text_original
         file: id
+  - name: AudioDurationMapper
+    config: AudioDurationMapperConfig
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
   - name: AudioQualityPruner

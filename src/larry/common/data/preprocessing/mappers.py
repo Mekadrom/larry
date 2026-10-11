@@ -13,13 +13,14 @@ from datasets.features.features import FeatureType, Value
 
 from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, ValueOverrideMapperConfig, \
     MapperConfig, UrlMapperConfig, UrlBytesMapperConfig
+from larry.common.data.preprocessing import pipeline
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 from larry.common.data.utils import features_of
 
 
 class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
-    def __init__(self, provenance_columns: list[str], config: C) -> None:
-        super().__init__(provenance_columns, config)
+    def __init__(self, pl: pipeline.Pipeline, config: C) -> None:
+        super().__init__(pl, config)
         self.remove_columns = self.config.remove_columns
         self.device_index = 0
 
@@ -57,8 +58,8 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
 
 
 class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperConfig](Mapper[C], ABC):
-    def __init__(self, provenance_columns: list[str], config: C) -> None:
-        super().__init__(provenance_columns, config)
+    def __init__(self, pl: pipeline.Pipeline, config: C) -> None:
+        super().__init__(pl, config)
         self.remove_columns = list(self.config.remove_columns)
         if not self.config.keep_input and self.config.input_column != self.config.output_column:
             self.remove_columns.append(self.config.input_column)
@@ -152,8 +153,8 @@ _SESSIONS: dict[str, requests.Session] = {}
 
 
 class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str, O | None, C], ABC):
-    def __init__(self, provenance_columns: list[str], config: C) -> None:
-        super().__init__(provenance_columns, config)
+    def __init__(self, pl: pipeline.Pipeline, config: C) -> None:
+        super().__init__(pl, config)
         if self.config.download_cache_dir is not None:
             self.download_cache_dir = Path(self.config.download_cache_dir).expanduser().resolve()
             os.makedirs(self.download_cache_dir, exist_ok=True)
