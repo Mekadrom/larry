@@ -4,6 +4,7 @@ from collections import Counter
 import pytest
 from datasets import Dataset, DatasetDict
 
+from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.common.config.data.preprocessing.preprocessor_configs import NestedExtractionPreprocessorConfig
 from larry.common.data.preprocessing.preprocessors import NestedExtractionPreprocessor
 
@@ -59,7 +60,19 @@ def test_nested_extraction_extracts(
         dataset: Dataset | DatasetDict,
         config: NestedExtractionPreprocessorConfig
 ) -> None:
-    sut = NestedExtractionPreprocessor(config)
+    sut = NestedExtractionPreprocessor(
+        Provenance(
+            id_columns=[],
+            git_commit="",
+            git_is_dirty=None,
+            produced_on="bruh",
+            ancestry=ProvenanceAncestry(
+                datasets=[],
+                models=[],
+            ),
+        ),
+        config
+    )
 
     dataset = sut.preprocess_dataset(dataset)
 

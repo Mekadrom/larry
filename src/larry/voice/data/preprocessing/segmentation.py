@@ -14,7 +14,7 @@ class Segment:
     text: str
     text_normalized: str
     speaker_id: str
-    ctc_mismatch: float
+    avg_word_score: float
     start_s: float
     end_s: float
 
@@ -160,7 +160,7 @@ class Segmenter:
             text=" ".join(ftr.tokens[t] for t in piece),
             text_normalized=" ".join(w for t in piece for w in self.stream.words_by_token[t]),
             speaker_id=ftr.speakers[piece[0]],
-            ctc_mismatch=score,
+            avg_word_score=score,
             start_s=start_s,
             end_s=end_s,
         )

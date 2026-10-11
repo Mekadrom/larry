@@ -6,7 +6,7 @@ from datasets.features.features import FeatureType
 from transformers import AutoTokenizer
 
 from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
-from larry.common.data.preprocessing import pipeline
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
 from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
     UrlTextMapperConfig
@@ -33,8 +33,8 @@ class UrlTextMapper(UrlMapper[str, UrlTextMapperConfig], TextMapper[str, str | N
 
 # noinspection PyTypeChecker
 class TextTokenizingMapper(TextMapper[list[str], torch.Tensor | None, TextTokenizingMapperConfig]):
-    def __init__(self, pl: pipeline.Pipeline, config: TextTokenizingMapperConfig) -> None:
-        super().__init__(pl, config)
+    def __init__(self, provenance: Provenance, config: TextTokenizingMapperConfig) -> None:
+        super().__init__(provenance, config)
         # noinspection PyNoneFunctionAssignment
         self.tokenizer = AutoTokenizer.from_pretrained(self.config.tokenizer)
         self.log.info(f"Using tokenizer with vocab_size={len(self.tokenizer)}")

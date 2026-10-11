@@ -8,10 +8,10 @@ import jsonpath_ng
 from datasets import Dataset, Features, Value, DatasetDict, Audio
 from jsonpath_ng import JSONPath
 
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.data.preprocessing.preprocessor_configs import RemoveColumnsPreprocessorConfig, \
     NestedExtractionPreprocessorConfig, PreprocessorConfig, ColumnCastingPreprocessorConfig, \
     ColumnRenamingPreprocessorConfig, RowIndexAssigningPreprocessorConfig
-from larry.common.data.preprocessing import pipeline
 from larry.common.data.utils import features_of
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
@@ -22,8 +22,8 @@ class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
 
     _config: C
 
-    def __init__(self, pl: pipeline.Pipeline, config: C) -> None:
-        self.pl = pl
+    def __init__(self, provenance: Provenance, config: C) -> None:
+        self.provenance = provenance
         self._config = config
         self.validate()
         self.log = logging.getLogger(type(self).__name__)
@@ -50,7 +50,7 @@ class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
 
     def provenance_string(self, batch: dict[str, list[Any]], index: int) -> str:
         column_values = {}
-        for c in self.pl.provenance.id_columns:
+        for c in self.provenance.id_columns:
             column_values[c] = batch[c][index]
         strs = []
         for c, v in column_values.items():
@@ -68,8 +68,8 @@ class RemoveColumnsPreprocessor(Preprocessor[RemoveColumnsPreprocessorConfig]):
 
 
 class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConfig]):
-    def __init__(self, pl: pipeline.Pipeline, config: NestedExtractionPreprocessorConfig) -> None:
-        super().__init__(pl, config)
+    def __init__(self, provenance: Provenance, config: NestedExtractionPreprocessorConfig) -> None:
+        super().__init__(provenance, config)
         self.parsed_queries = {
             mapping["outputColumn"]: jsonpath_ng.parse(mapping["jsonPath"])
             for mapping in self.config.json_path_to_output_column_mappings

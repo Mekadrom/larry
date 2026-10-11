@@ -53,8 +53,23 @@ _SYMBOL = {
     "°": " DEGREES ",
 }
 _ROMAN = re.compile(r"(X{0,3})(IX|IV|V?I{0,3})")
+_ROMAN_HEAD = re.compile(r"^([IVX]+)(?![A-Za-z])(.*)$")
 _ROMAN_TRIGGERS = {"ARTICLE", "TITLE", "WAR", "SCHEDULE", "PHASE"}
 _ROMAN_VALUES = {"I": 1, "V": 5, "X": 10}
+
+_ABBREVIATIONS_NO_PERIOD = {"MR", "MRS", "V"}
+_ABBREVIATIONS: dict[str, list[str]] = {
+    "MR": ["MISTER"],
+    "MRS": ["MISSUS"],
+    "MS": ["MIZ", "MISS"],
+    "DR": ["DOCTOR", "DRIVE"],
+    "ST": ["SAINT", "STREET"],
+    "LT": ["LIEUTENANT"],
+    "JR": ["JUNIOR"],
+    "GEN": ["GENERAL"],
+    "V": ["VERSUS", "V"],
+    "VS": ["VERSUS", "V"],
+}
 
 
 def cardinal(n):
@@ -151,6 +166,10 @@ class TextNormalizer:
         if roman is not None:
             return roman
 
+        abbreviations = self._abbreviation_readings(token)
+        if abbreviations is not None:
+            return abbreviations
+
         token = unicodedata.normalize("NFKD", token)
         token = "".join([
             c
@@ -213,22 +232,48 @@ class TextNormalizer:
 
         return self._combine(piece_options)
 
+    def _abbreviation_readings(self, token: str) -> list[list[str]] | None:
+        core = token.lstrip("(\"'").rstrip(",;:!?)\"'")
+        has_period = core.endswith(".")
+        key = core.rstrip(".").upper()
+        if key not in _ABBREVIATIONS:
+            return None
+        if not has_period and key not in _ABBREVIATIONS_NO_PERIOD:
+            return None
+        return [
+            [word]
+            for word in _ABBREVIATIONS[key]
+        ]
+
     def _roman_readings(self, token: str, prev_token: str | None) -> list[list[str]] | None:
         if prev_token is None:
             return None
         core = token.strip(".,;:!?()\"'")
-        if len(core) == 0 or _ROMAN.fullmatch(core) is None:
+        m = _ROMAN_HEAD.match(core)
+        if m is None or _ROMAN.fullmatch(m.group(1)) is None:
             return None
+        numeral = m.group(1)
+        rest = m.group(2)
         prev = prev_token.strip(".,;:!?()\"'")
-        value = roman_value(core)
+        value = roman_value(numeral)
         if prev.upper() in _ROMAN_TRIGGERS:
-            return [cardinal(value).split()]
-        if len(core) >= 2 and prev[:1].isupper():
-            return [
+            readings = [cardinal(value).split()]
+        elif len(numeral) >= 2 and prev[:1].isupper():
+            readings = [
                 cardinal(value).split(),
                 ["THE"] + ordinal(value).split(),
             ]
-        return None
+        else:
+            return None
+
+        if rest.upper() == "'S":
+            for reading in readings:
+                reading[-1] += "'S"
+            return readings
+
+        if rest == "":
+            return readings
+        return self._combine([readings, self.normalize_token(rest)])
 
     def _combine(self, piece_options: list[list[list[str]]]) -> list[list[str]]:
         ambiguous = [

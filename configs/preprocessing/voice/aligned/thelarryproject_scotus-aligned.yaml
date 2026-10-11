@@ -10,6 +10,7 @@ dataset:
   config: DefaultDatasetConfig
   overrides:
     path: thelarryproject/scotus-unaligned
+    split: "train[:20]"
     cache_dir: /home/zadar/.cache/larry/intermediates/voice/aligned/thelarryproject_scotus-aligned/
 
 pipeline:

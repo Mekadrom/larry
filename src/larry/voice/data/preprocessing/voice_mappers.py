@@ -13,7 +13,7 @@ from torchaudio import transforms
 from torchcodec.decoders import AudioDecoder
 from torchcodec.encoders import AudioEncoder
 
-from larry.common.data.preprocessing import pipeline
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper, Mapper
 from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedAudio
@@ -68,8 +68,8 @@ class AudioDurationMapper(SingleColumnMapper[EncodedAudio | None, float | None, 
 class SpeechSegmentationAligningMapper[
 C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConfig
 ](Mapper[C], ABC):
-    def __init__(self, pl: pipeline.Pipeline, config: C) -> None:
-        super().__init__(pl, config)
+    def __init__(self, provenance: Provenance, config: C) -> None:
+        super().__init__(provenance, config)
         self.output_columns = [
             "audio",
             "text_original",
@@ -78,7 +78,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
             "start_s",
             "end_s",
             "speaker_id",
-            "ctc_mismatch"
+            "avg_word_score",
         ]
 
         self.stage_pattern = None
@@ -161,7 +161,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
                 batch_results["start_s"].append(round(seg.start_s, 3))
                 batch_results["end_s"].append(round(seg.end_s, 3))
                 batch_results["speaker_id"].append(seg.speaker_id)
-                batch_results["ctc_mismatch"].append(seg.ctc_mismatch)
+                batch_results["avg_word_score"].append(seg.avg_word_score)
 
             for k in self.config.copy_columns:
                 batch_results[k].extend([batch[k][i]] * len(segments))
@@ -193,11 +193,11 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
             "start_s": Value("float64"),
             "end_s": Value("float64"),
             "speaker_id": Value("string"),
-            "ctc_mismatch": Value("float64"),
+            "avg_word_score": Value("float64"),
         })
 
     def mutate_provenance(self) -> None:
-        self.pl.provenance.ancestry.models.append(self.config.aligner_config.model_id)
+        self.provenance.ancestry.models.append(self.config.aligner_config.model_id)
 
 
 class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
@@ -294,12 +294,12 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
         return features
 
     def mutate_provenance(self) -> None:
-        self.pl.provenance.ancestry.models.append(self.config.aligner_config.model_id)
+        self.provenance.ancestry.models.append(self.config.aligner_config.model_id)
 
 
 class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):
-    def __init__(self, pl: pipeline.Pipeline, config: MelExtractingMapperConfig) -> None:
-        super().__init__(pl, config)
+    def __init__(self, provenance: Provenance, config: MelExtractingMapperConfig) -> None:
+        super().__init__(provenance, config)
         self.transform = transforms.MelSpectrogram(
             n_fft=config.n_fft,
             hop_length=config.hop_length,

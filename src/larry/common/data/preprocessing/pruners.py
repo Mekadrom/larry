@@ -3,8 +3,8 @@ from typing import Any, assert_never
 
 from datasets import Dataset, DatasetDict
 
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.data.preprocessing.pruner_configs import ColumnValuesPrunerConfig, PrunerConfig
-from larry.common.data.preprocessing import pipeline
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 
 
@@ -48,8 +48,8 @@ class Pruner[C: PrunerConfig = PrunerConfig](Preprocessor[C]):
 
 
 class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
-    def __init__(self, pl: pipeline.Pipeline, config: ColumnValuesPrunerConfig):
-        super().__init__(pl, config)
+    def __init__(self, provenance: Provenance, config: ColumnValuesPrunerConfig):
+        super().__init__(provenance, config)
         op_name = self.config.op
         match op_name:
             case "matches":
@@ -72,6 +72,8 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
 
     @classmethod
     def op_matches(cls, op_config: dict[str, Any], example: Any) -> bool:
+        if example is None:
+            return False
         containing: bool = op_config.get("containing", False)
         case_sensitive: bool = op_config.get("case_sensitive", True)
         strip: bool = op_config.get("strip", True)
@@ -89,7 +91,7 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
             allowed_str = str(allowed_value)
 
             if strip:
-                allowed_str = allowed_str.lower()
+                allowed_str = allowed_str.strip()
 
             if not case_sensitive:
                 allowed_str = allowed_str.lower()
@@ -101,6 +103,8 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
 
     @classmethod
     def op_nmatches(cls, op_config: dict[str, Any], example: Any) -> bool:
+        if example is None:
+            return False
         return not cls.op_matches(op_config, example)
 
     @classmethod

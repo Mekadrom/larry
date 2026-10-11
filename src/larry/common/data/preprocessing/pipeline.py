@@ -6,7 +6,6 @@ import math
 import os
 import shutil
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,7 @@ from larry.common.config.data.preprocessing.preprocessor_configs import Preproce
 from larry.common.data.dataset_providers import DatasetProvider
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 from larry.common.data.utils import save_parquet_shards, split_by_fractions
-from larry.common.utils import load_yaml_config, git_utils
+from larry.common.utils import load_yaml_config
 
 
 class Pipeline:
@@ -112,7 +111,7 @@ class Pipeline:
                 f"using preprocessor_config={preprocessor_config}"
             )
 
-            pipeline.append(preprocessor_type(self, preprocessor_config))
+            pipeline.append(preprocessor_type(self.provenance, preprocessor_config))
 
         return pipeline
 

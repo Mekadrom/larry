@@ -4,58 +4,70 @@ from typing import Any
 import pytest
 from datasets import Dataset
 
+from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.common.config.data.preprocessing.pruner_configs import ColumnValuesPrunerConfig
 from larry.common.data.preprocessing.pruners import ColumnValuesPruner
 
 
 @pytest.mark.parametrize(
-    ("op_config", "values", "example"),
+    ("op_config", "example"),
     [
-        ({"containing": True, "case_sensitive": False}, ["SA", "ND", "NC"], "CC-BY-SA"),
-        ({"containing": True, "case_sensitive": False}, ["SA", "ND", "NC"], "CC-BY-ND"),
-        ({"containing": True, "case_sensitive": False}, ["SA", "ND", "NC"], "CC-BY-NC"),
-        ({"containing": True, "case_sensitive": False}, ["SA", "ND", "NC"], "cc-by-sa"),
-        ({"containing": True, "case_sensitive": False}, ["sa", "nd", "nc"], "CC-BY-ND"),
-        ({"case_sensitive": False}, ["success", "partial_success"], "SUCCESS"),
-        ({"containing": True, "case_sensitive": False}, ["SUCCESS"], "partial_success"),
-        ({}, ["success", "partial_success"], "success"),
-        ({}, [None, ""], None),
-        ({}, [None, ""], ""),
-        ({}, [None, ""], "   \t\n"),
+        ({"containing": True, "case_sensitive": False, "values": ["SA", "ND", "NC"]}, "CC-BY-SA"),
+        ({"containing": True, "case_sensitive": False, "values": ["SA", "ND", "NC"]}, "CC-BY-ND"),
+        ({"containing": True, "case_sensitive": False, "values": ["SA", "ND", "NC"]}, "CC-BY-NC"),
+        ({"containing": True, "case_sensitive": False, "values": ["SA", "ND", "NC"]}, "cc-by-sa"),
+        ({"containing": True, "case_sensitive": False, "values": ["sa", "nd", "nc"]}, "CC-BY-ND"),
+        ({"case_sensitive": False, "values": ["success", "partial_success"]}, "SUCCESS"),
+        ({"containing": True, "case_sensitive": False, "values": ["SUCCESS"]}, "partial_success"),
+        ({"values": ["success", "partial_success"]}, "success"),
+        ({"values": [None, ""]}, ""),
+        ({"values": [None, ""]}, "   \t\n"),
     ]
 )
-def test_op_in_returns_true(op_config: dict[str, Any], values: list[Any | None], example: str) -> None:
-    assert ColumnValuesPruner.op_matches(op_config, values, example)
+def test_op_in_returns_true(op_config: dict[str, Any], example: str) -> None:
+    assert ColumnValuesPruner.op_matches(op_config, example)
 
 
 @pytest.mark.parametrize(
-    ("op_config", "values", "example"),
+    ("op_config", "example"),
     [
-        ({"containing": True, "case_sensitive": False}, ["SA", "ND", "NC"], "CC-BY-4.0"),
-        ({"containing": True, "case_sensitive": False}, ["SA", "ND", "NC"], "PD"),
-        ({"containing": True, "case_sensitive": False}, ["SA", "ND", "NC"], "CC0"),
-        ({"containing": True}, ["SA", "ND", "NC"], "cc-by-sa"),
-        ({"containing": True}, ["PARTIAL_SUCCESS"], "SUCCESS"),
-        ({}, ["PARTIAL_SUCCESS"], "SUCCESS"),
-        ({}, ["SA", "ND", "NC"], "sa"),
+        ({"containing": True, "case_sensitive": False, "values": ["SA", "ND", "NC"]}, "CC-BY-4.0"),
+        ({"containing": True, "case_sensitive": False, "values": ["SA", "ND", "NC"]}, "PD"),
+        ({"containing": True, "case_sensitive": False, "values": ["SA", "ND", "NC"]}, "CC0"),
+        ({"containing": True, "values": ["SA", "ND", "NC"]}, "cc-by-sa"),
+        ({"containing": True, "values": ["PARTIAL_SUCCESS"]}, "SUCCESS"),
+        ({"values": ["PARTIAL_SUCCESS"]}, "SUCCESS"),
+        ({"values": ["SA", "ND", "NC"]}, "sa"),
+        ({"values": [None, ""]}, None),
     ]
 )
-def test_op_in_returns_false(op_config: dict[str, Any], values: list[Any | None], example: str) -> None:
-    assert not ColumnValuesPruner.op_matches(op_config, values, example)
+def test_op_in_returns_false(op_config: dict[str, Any], example: str) -> None:
+    assert not ColumnValuesPruner.op_matches(op_config, example)
 
 
 def test_column_values_pruning_status() -> None:
     config = ColumnValuesPrunerConfig(
-        values=["success"],
-        op="nmatches",
-        input_column="status",
+        input_columns=["status"],
+        op="matches",
         op_config={
             "containing": True,
-            "case_sensitive": False
-        }
+            "case_sensitive": False,
+            "values": ["success"],
+        },
+        cache_results=False,
+        num_proc=1,
     )
 
-    sut = ColumnValuesPruner(config)
+    sut = ColumnValuesPruner(Provenance(
+        id_columns=[],
+        git_commit="",
+        git_is_dirty=None,
+        produced_on="bruh",
+        ancestry=ProvenanceAncestry(
+            datasets=[],
+            models=[],
+        ),
+    ), config)
 
     dataset = Dataset.from_dict(
         {
@@ -81,16 +93,27 @@ def test_column_values_pruning_status() -> None:
 
 def test_column_values_pruning() -> None:
     config = ColumnValuesPrunerConfig(
-        values=["SA", "NC", "ND"],
-        op="matches",
-        input_column="exif_copyright",
+        op="nmatches",
+        input_columns=["exif_copyright"],
         op_config={
             "containing": True,
-            "case_sensitive": False
-        }
+            "case_sensitive": False,
+            "values": ["SA", "NC", "ND"],
+        },
+        cache_results=False,
+        num_proc=1,
     )
 
-    sut = ColumnValuesPruner(config)
+    sut = ColumnValuesPruner(Provenance(
+        id_columns=[],
+        git_commit="",
+        git_is_dirty=None,
+        produced_on="bruh",
+        ancestry=ProvenanceAncestry(
+            datasets=[],
+            models=[],
+        ),
+    ), config)
 
     dataset = Dataset.from_dict(
         {

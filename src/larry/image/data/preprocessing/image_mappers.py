@@ -1,5 +1,4 @@
 import io
-import time
 
 import datasets
 import torch
@@ -9,7 +8,7 @@ from datasets.features.features import FeatureType
 from torchvision import transforms
 from torchvision.io import encode_jpeg, decode_image, ImageReadMode
 
-from larry.common.data.preprocessing import pipeline
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
 from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedImage
@@ -38,8 +37,8 @@ class UrlImageMapper(
 
 
 class ImageResizingMapper(ImageMapper[EncodedImage | None, EncodedImage | None, ImageResizingMapperConfig]):
-    def __init__(self, pl: pipeline.Pipeline, config: ImageResizingMapperConfig) -> None:
-        super().__init__(pl, config)
+    def __init__(self, provenance: Provenance, config: ImageResizingMapperConfig) -> None:
+        super().__init__(provenance, config)
 
         transform = []
         if self.config.pad_to_equal:
