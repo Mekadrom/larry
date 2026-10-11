@@ -4,7 +4,7 @@ from datetime import date
 
 from larry.voice.config.preprocessing.voice_configs import SCOTUSTranscriptConfig
 from larry.voice.data.preprocessing import transcript
-from larry.voice.data.preprocessing.transcript import Transcript
+from larry.voice.data.preprocessing.transcript import Transcript, Turn
 
 # a speaker label with an explicit title prefix. the prefix is always all-caps in a label and mixed case in speech
 # ("Mr.", "Justice"), which makes it safe to detect mid-line. surnames may contain non-ascii letters ("AGUIÑAGA"),
@@ -189,6 +189,10 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
 
         self.flush_turn(speaker, speech_buffer, buf_line)
         self.load_appearances()
+        self.fix_sandwiched_advocates({
+            ("19-292", "Mr. Chief -- Mr. Chief Justice --"),
+            ("19-465", "Yes, I would.")
+        })
 
     def load_appearances(self) -> None:
         started = False
@@ -314,6 +318,36 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
             if text:
                 self.turns.append(transcript.Turn(speaker=speaker, text=text, line_start=buffer_line))
 
+    def fix_sandwiched_advocates(self, exceptions: set[tuple[str, str]]) -> None:
+        advocate_indices = [
+            i
+            for i, turn in enumerate(self.turns)
+            if self.resolve_speaker(turn.speaker)[1] == "advocate"
+        ]
+        for k in range(1, len(advocate_indices) - 1):
+            prev_turn = self.turns[advocate_indices[k - 1]]
+            turn = self.turns[advocate_indices[k]]
+
+            excepted = any(
+                docket == self.docket and turn.text.strip().startswith(prefix)
+                for docket, prefix in exceptions
+            )
+            if excepted:
+                continue
+
+            next_turn = self.turns[advocate_indices[k + 1]]
+            prev_key = self.resolve_speaker(prev_turn.speaker)[0]
+            key = self.resolve_speaker(turn.speaker)[0]
+            next_key = self.resolve_speaker(next_turn.speaker)[0]
+            if prev_key != next_key or key == prev_key:
+                continue
+            if (self.docket, turn.text.strip()[:40]) in exceptions:
+                continue
+            self.log.info(
+                f"{self.docket}: reattributing {turn.speaker!r} -> {prev_turn.speaker!r}: {turn.text[:60]!r}"
+            )
+            turn.speaker = prev_turn.speaker
+
     def resolve_speaker(self, speaker_raw: str) -> tuple[str, str]:
         up = speaker_raw.strip().rstrip(":").strip().upper()
         if not up:
@@ -324,8 +358,11 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
             if chief:
                 return f"scotus:{chief}", "justice"
 
-        if up in ("UNIDENTIFIED", "THE COURT"):
+        if up == "UNIDENTIFIED":
             return f"scotus:{self.docket}:{up}", "unknown"
+
+        if up == "THE COURT":
+            return f"scotus:unknown", "unknown"
 
         surname = up.split()[-1].strip(".,")
         if _BENCH_TITLE.match(up):

@@ -26,7 +26,7 @@ ZERO_ROWS = {
                 WHERE audio.bytes IS NULL
                    OR text_original IS NULL
                    OR speaker_id IS NULL
-                   OR avg_word_score IS NULL""",
+                   OR ctc_mismatch IS NULL""",
     "bad_times": """SELECT docket, start_s, end_s, duration_s
                     FROM seg
                     WHERE end_s <= start_s
@@ -58,6 +58,49 @@ ZERO_ROWS = {
                             AND NOT s.speaker_id LIKE 'scotus:adv:%'
                             AND NOT regexp_matches(s.speaker_id, '^scotus:\\d')
                             AND b.name IS NULL""",
+    "unresolved_speaker_id": """
+                             WITH allowed(speaker_id)
+                                      AS (VALUES ('scotus:unknown')
+                                 )
+                             SELECT s.speaker_id,
+                                    s.docket,
+                                    count(*)                    AS n_segments,
+                                    round(sum(s.duration_s), 1) AS seconds
+                             FROM seg s ANTI JOIN allowed a
+                             ON a.speaker_id = s.speaker_id
+                             WHERE s.speaker_id IS NOT NULL
+                               AND NOT regexp_matches(s.speaker_id
+                                 , '^scotus:(CHIEF|JUSTICE|adv:)')
+                             GROUP BY s.speaker_id, s.docket
+                             ORDER BY n_segments DESC;
+                             """,
+    "wrong_attributions": """
+                          WITH adv AS (SELECT docket,
+                                              start_s,
+                                              speaker_id,
+                                              text_original,
+                                              lag(speaker_id) OVER w AS prev_adv, lead(speaker_id) OVER w AS next_adv
+                                       FROM seg
+                                       WHERE speaker_id LIKE 'scotus:adv:%'
+                                       WINDOW w AS (PARTITION BY docket ORDER BY start_s)),
+                               allowed(docket, text_prefix) AS (VALUES ('19-292', 'Mr. Chief -- Mr. Chief Justice --'),
+                                                                       ('19-465', 'Yes, I would.'))
+                          SELECT a.docket,
+                                 a.start_s,
+                                 a.speaker_id,
+                                 a.prev_adv AS surrounding,
+                                 a.text_original
+                          FROM adv a
+                          WHERE a.prev_adv = a.next_adv
+                            AND a.speaker_id != a.prev_adv
+  AND NOT EXISTS (
+      SELECT 1
+      FROM allowed w
+      WHERE w.docket = a.docket
+        AND starts_with(a.text_original, w.text_prefix)
+  )
+                          ORDER BY a.docket, a.start_s;
+                          """,
     # timing
     "time_travel": """
                    SELECT docket, start_s, prev_end

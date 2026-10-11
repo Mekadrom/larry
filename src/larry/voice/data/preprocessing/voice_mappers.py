@@ -77,7 +77,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
             "start_s",
             "end_s",
             "speaker_id",
-            "avg_word_score"
+            "ctc_mismatch"
         ]
 
         self.stage_pattern = None
@@ -159,7 +159,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
                 batch_results["start_s"].append(round(seg.start_s, 3))
                 batch_results["end_s"].append(round(seg.end_s, 3))
                 batch_results["speaker_id"].append(seg.speaker_id)
-                batch_results["avg_word_score"].append(seg.avg_word_score)
+                batch_results["ctc_mismatch"].append(seg.ctc_mismatch)
 
             for k in self.config.copy_columns:
                 batch_results[k].extend([batch[k][i]] * len(segments))
@@ -191,7 +191,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
             "start_s": Value("float64"),
             "end_s": Value("float64"),
             "speaker_id": Value("string"),
-            "avg_word_score": Value("float64"),
+            "ctc_mismatch": Value("float64"),
         })
 
 
@@ -241,7 +241,7 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
             self._score_group(aligner, normalizer, group, audios, texts, scores, normalized)
 
         result: dict[str, Any] = {
-            self.config.score_output_column: scores,
+            self.config.output_column: scores,
         }
         text_output_column = self.config.text_output_column
         if text_output_column is not None:
@@ -285,7 +285,7 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
         for column in self.remove_columns:
             features.pop(column, None)
         features[self.config.output_column] = Value("float64")
-        features["text_normalized"] = Value("string")
+        features[self.config.text_output_column] = Value("string")
         return features
 
 

@@ -4,35 +4,30 @@ preprocessor:
       id_columns:
         - id
         - speaker_id
+        - librivox_book_id
 
 dataset:
   config: DefaultDatasetConfig
   overrides:
-    path: MikhailT/hifi-tts
-    name: all
-    split: ~
-    cache_dir: /home/zadar/.cache/larry/intermediates/voice/normalized/asr/mikhailt_hifi-tts-all-normalized-asr/
+    path: mythicinfinity/libriheavy
+    name: test_clean_large
+    split: train
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/index/asr/mythicinfinity_libriheavy-test_clean_large-index-asr/
 
 pipeline:
+  - name: RowIndexAssigningPreprocessor
+    config: RowIndexAssigningPreprocessorConfig
   - name: ColumnCastingPreprocessor
     config: ColumnCastingPreprocessorConfig
     inputs:
       column_casts:
         audio: "audio_no_decode"
-        # removes:
-        #   - text (normalized lowercase text)
-        #   - text_no_preprocessing (original text from gutenberg)
-        text: ~
-        text_no_preprocessing: ~
+        text_transcription: ~
   - name: ColumnRenamingPreprocessor
     config: ColumnRenamingPreprocessorConfig
     inputs:
       column_name_mappings:
-        duration: duration_s
-        # the text_normalized column looks the most like what we want as input to the CTCScoreMapper
-        text_normalized: text_original
-        file: id
-        speaker: speaker_id
+        audio_duration: duration_s
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
   - name: AudioQualityPruner
@@ -41,10 +36,12 @@ pipeline:
     config: CTCScoreMapperConfig
     inputs:
       text_column: text_original
+      remove_columns:
+        - audio
   - name: ColumnValuesPruner
     config: ColumnValuesPrunerConfig
     inputs:
+      input_column: ctc_mismatch
+      op: "in_range"
       op_config:
         min_value: -4
-      op: "in_range"
-      input_column: "ctc_mismatch"

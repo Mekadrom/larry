@@ -32,6 +32,11 @@ class DatasetConfig(Registrable, root=True):
 
 
 @dataclasses.dataclass(kw_only=True)
+class DefaultDatasetConfig(DatasetConfig):
+    ...
+
+
+@dataclasses.dataclass(kw_only=True)
 class CachedDatasetConfig(DatasetConfig, ABC):
     path: str = "parquet"
 

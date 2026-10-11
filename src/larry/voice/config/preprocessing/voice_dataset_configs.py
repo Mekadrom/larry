@@ -19,23 +19,6 @@ class VoiceDatasetConfig:
 
 
 @dataclasses.dataclass(kw_only=True)
-class MythicInfinityLibriHeavyDatasetConfig(DatasetConfig, VoiceDatasetConfig):
-    """https://huggingface.co/datasets/mythicinfinity/libriheavy"""
-
-    path: str = "mythicinfinity/libriheavy"
-    name: str | None = "large"
-
-
-@dataclasses.dataclass(kw_only=True)
-class MikhailTHifiTTSDatasetConfig(DatasetConfig, VoiceDatasetConfig):
-    """https://huggingface.co/datasets/MikhailT/hifi-tts"""
-
-    path: str = "MikhailT/hifi-tts"
-    name: str | None = "all"
-    split: str | Split | list[str] | list[Split] | None = None
-
-
-@dataclasses.dataclass(kw_only=True)
 class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
     """https://mozilladatacollective.com/datasets/cmu5jplf300nwmh07iqvk9leo"""
 
@@ -103,17 +86,3 @@ class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig)
     sleep: float = 1.0
 
     terms: str = "2010-2025"
-
-
-@dataclasses.dataclass(kw_only=True)
-class LarrySCOTUSManifestDatasetConfig(DatasetConfig, VoiceDatasetConfig):
-    """https://huggingface.co/datasets/thelarryproject/scotus-manifest"""
-
-    path: str = "thelarryproject/scotus-manifest"
-
-
-@dataclasses.dataclass(kw_only=True)
-class LarrySCOTUSUnalignedDatasetConfig(DatasetConfig, VoiceDatasetConfig):
-    """https://huggingface.co/datasets/thelarryproject/scotus-unaligned"""
-
-    path: str = "thelarryproject/scotus-unaligned"

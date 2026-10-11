@@ -10,8 +10,9 @@ preprocessor:
           - "facebook/wav2vec2-large-960h-lv60-self"
 
 dataset:
-  config: LarrySCOTUSUnalignedDatasetConfig
+  config: DefaultDatasetConfig
   overrides:
+    path: thelarryproject/scotus-unaligned
     cache_dir: /home/zadar/.cache/larry/intermediates/voice/aligned/thelarryproject_scotus-aligned/
 
 pipeline:
@@ -28,3 +29,12 @@ pipeline:
         - date_argued
         - pdf_url
         - page_url
+  - name: SpeakerValidationSplittingPreprocessor
+    config: SpeakerValidationSplittingPreprocessorConfig
+    inputs:
+      mode: matching
+      matching_values:
+        - "scotus:adv:GLEN GIFFORD"
+        - "scotus:adv:WILLIAM BROCKMAN"
+        - "scotus:adv:SAMUEL ISSACHAROFF"
+        - "scotus:adv:TERESA SACHS"

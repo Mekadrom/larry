@@ -86,6 +86,9 @@ class ColumnValuesPruner(Pruner[Any, ColumnValuesPrunerConfig]):
 
     @classmethod
     def op_in_range(cls, op_config: dict[str, Any], example: Any) -> bool:
+        if example is None:
+            return False
+
         min_value: float | None = op_config.get("min_value", None)
         max_value: float | None = op_config.get("max_value", None)
 
@@ -99,4 +102,6 @@ class ColumnValuesPruner(Pruner[Any, ColumnValuesPrunerConfig]):
 
     @classmethod
     def op_nin_range(cls, op_config: dict[str, Any], example: Any) -> bool:
+        if example is None:
+            return False
         return not cls.op_in_range(op_config, example)

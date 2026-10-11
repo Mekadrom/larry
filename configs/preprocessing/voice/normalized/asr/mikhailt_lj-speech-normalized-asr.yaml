@@ -5,12 +5,12 @@ preprocessor:
         - id
 
 dataset:
-  config: DatasetConfig
+  config: DefaultDatasetConfig
   overrides:
     path: MikhailT/lj-speech
-    name: ~
-    split: full
-    cache_dir: /home/zadar/.cache/larry/intermediates/voice/index/asr/mikhailt_lj-speech-index-asr/
+    name: full
+    split: ~
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/normalized/asr/mikhailt_lj-speech-normalized-asr/
 
 pipeline:
   - name: ColumnCastingPreprocessor
@@ -18,21 +18,14 @@ pipeline:
     inputs:
       column_casts:
         audio: "audio_no_decode"
-        # removes:
-        #   - text (normalized lowercase text)
-        #   - text_no_preprocessing (original text from gutenberg)
-        text: ~
-        text_no_preprocessing: ~
+        spoken_text: ~
   - name: ColumnRenamingPreprocessor
     config: ColumnRenamingPreprocessorConfig
     inputs:
       column_name_mappings:
         duration: duration_s
-        # the text_normalized column looks the most like what we want as input to the CTCScoreMapper
         normalized_text: text_original
         file: id
-  - name: RowIndexAssigningPreprocessor
-    config: RowIndexAssigningPreprocessorConfig
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
   - name: AudioQualityPruner

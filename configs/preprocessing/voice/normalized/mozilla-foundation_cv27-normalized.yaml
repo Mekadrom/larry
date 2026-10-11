@@ -3,7 +3,7 @@ preprocessor:
     provenance:
       id_columns:
         - id
-        - client_id
+        - speaker_id
         - sentence_id
 
 dataset:
@@ -25,6 +25,7 @@ pipeline:
         audio_duration: duration_s
         sentence: text_original
         path: id
+        client_id: speaker_id
   - name: CTCScoreMapper
     config: CTCScoreMapperConfig
     inputs:

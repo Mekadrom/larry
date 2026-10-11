@@ -25,6 +25,22 @@ _LABEL_FIXES: dict[tuple[str, str], str] = {
     ("17-988", "Mr. SOTOMAYOR"): "JUSTICE SOTOMAYOR",
     ("22-800", "JUSTICE PRELOGAR"): "GENERAL PRELOGAR",
     ("11-551", "JUSTICE PHILLIPS"): "JUSTICE KENNEDY",
+    ("23-583", "MR. DEGER SEN"): "SAMIR DEGER-SEN",
+    ("15-5040", "MS. EISENSTEIN"): "RONALD EISENBERG",
+    ("24-416", "MS. ROSE"): "ERICA ROSS",
+    ("15-109", "MR. RAMIREZ"): "ROMAN MARTINEZ",
+    ("23-909", "MR. REIGN"): "ERIC FEIGIN",
+    ("11-889", "MR. CLEMENT"): "CHARLES ROTHFELD",
+    ("24-297", "MS. WILSON"): "SARAH HARRIS",
+    ("23-477", "MR. DAVIE"): "MATTHEW RICE",
+    ("12-930", "MR. MITCHELL"): "MARK FLEMING",
+    ("15-927", "MS. SULLIVAN"): "SETH WAXMAN",
+    ("12-416", "MR. KATZ"): "JEFFREY WEINBERGER",
+    ("14-844", "MR. KIMBERLY"): "ANTHONY SHELLEY",
+    ("14-844", "MR. SULLIVAN"): "NICOLE SAHARSKY",
+    ("10-6", "MS. BLATT"): "TED CRUZ",
+    ("13-9972", "MR. KELLER"): "SHANNON O'CONNOR",
+    ("10-879", "MS. SMITH"): "SARAH HARRINGTON",
 }
 _TITLE_FIX = re.compile(r"^(M\s?RS?|MS)(?:\s*\.\s*|\s+)(?=\S)", re.I)
 _LABEL_FIXES_ANY: dict[str, str] = {

@@ -1,4 +1,5 @@
 import dataclasses
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -54,6 +55,7 @@ class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=
     body_lines: list[str]
 
     def __init__(self, config: C) -> None:
+        self.log = logging.getLogger(type(self).__name__)
         self._config = config
         self.turns = []
         self.appearances = {}

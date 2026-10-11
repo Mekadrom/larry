@@ -7,11 +7,11 @@ preprocessor:
         - sentence_id
 
 dataset:
-  config: DatasetConfig
+  config: DefaultDatasetConfig
   overrides:
     path: parquet
     name: ~
-    split: train
+    split: ~
     data_dir: /home/zadar/.cache/larry/datasets/voice/normalized/mozilla-foundation_cv27-normalized/
     cache_dir: /home/zadar/.cache/larry/intermediates/voice/index/asr/mozilla-foundation_cv27-index-asr/
 
@@ -40,5 +40,5 @@ pipeline:
   - name: ColumnCastingPreprocessor
     config: ColumnCastingPreprocessorConfig
     inputs:
-      column_mappings:
+      column_casts:
         audio: ~

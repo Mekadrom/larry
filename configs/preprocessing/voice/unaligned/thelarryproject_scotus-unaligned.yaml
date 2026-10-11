@@ -7,8 +7,9 @@ preprocessor:
         - docket
 
 dataset:
-  config: LarrySCOTUSManifestDatasetConfig
+  config: DefaultDatasetConfig
   overrides:
+    path: thelarryproject/scotus-manifest
     cache_dir: /home/zadar/.cache/larry/intermediates/voice/unaligned/thelarryproject_scotus-unaligned/
 
 pipeline:

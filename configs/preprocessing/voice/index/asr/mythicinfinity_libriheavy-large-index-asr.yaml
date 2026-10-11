@@ -7,7 +7,7 @@ preprocessor:
         - librivox_book_id
 
 dataset:
-  config: DatasetConfig
+  config: DefaultDatasetConfig
   overrides:
     path: mythicinfinity/libriheavy
     name: large
