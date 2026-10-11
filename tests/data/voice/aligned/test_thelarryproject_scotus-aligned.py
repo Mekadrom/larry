@@ -15,6 +15,16 @@ def con():
     c = duckdb.connect()
     c.execute(f"CREATE VIEW seg AS SELECT * FROM read_parquet('{root}/**/*.parquet')")
     c.execute("CREATE TABLE bench (name VARCHAR, start_date DATE, end_date DATE)")
+    c.execute(f"""
+              CREATE
+              OR REPLACE VIEW seg_train AS
+              SELECT *
+              FROM '{root}/train/*.parquet';
+              CREATE
+              OR REPLACE VIEW seg_val AS
+              SELECT *
+              FROM '{root}/validation/*.parquet';
+              """)
     c.executemany("INSERT INTO bench VALUES (?, ?, ?)", scotus_transcript._BENCH)
     return c
 
@@ -114,6 +124,12 @@ ZERO_ROWS = {
                    FROM (SELECT docket, start_s, lag(end_s) OVER (PARTITION BY docket ORDER BY start_s) AS prev_end
                          FROM seg)
                    WHERE prev_end - start_s > 0.25""",
+    # validation <-> test leakage
+    "validation_test_leakage": """
+                               SELECT DISTINCT v.speaker_id
+                               FROM seg_val v
+                                        JOIN seg_train t ON t.speaker_id = v.speaker_id;
+                               """,
 }
 
 

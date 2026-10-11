@@ -31,12 +31,3 @@ pipeline:
     inputs:
       num_proc: 12
       text_column: text_original
-  - name: SpeakerValidationSplittingPreprocessor
-    config: SpeakerValidationSplittingPreprocessorConfig
-    inputs:
-      mode: matching
-      matching_values:
-        - "scotus:adv:GLEN GIFFORD"
-        - "scotus:adv:WILLIAM BROCKMAN"
-        - "scotus:adv:MORGAN RATNER"
-        - "scotus:adv:TERESA SACHS"
