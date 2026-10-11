@@ -19,14 +19,15 @@ def save_parquet_shards(
         parent_dir: Path,
         parquet_target_size_mb: float,
         prefix: str,
-        num_workers: int = 8
+        writer_batch_size: int,
+        num_workers: int = 8,
 ) -> None:
     parquet_dir = parent_dir / prefix
     parquet_dir.mkdir(parents=True, exist_ok=True)
 
     # noinspection PyProtectedMember
     if ds._indices is not None:
-        ds = ds.flatten_indices(num_proc=num_workers)
+        ds = ds.flatten_indices(num_proc=num_workers, writer_batch_size=writer_batch_size)
 
     num_shards = int(max(1, min(len(ds), ds.data.nbytes // (parquet_target_size_mb * 1024 ** 2))))
 
@@ -41,10 +42,7 @@ def save_parquet_shards(
     (parent_dir / f"{prefix}.parquets.complete").touch(exist_ok=True)
 
 
-def split_by_fractions(dataset: Dataset, batch_size: int, fractions: Mapping[str, float],
-                       seed: int = 42) -> DatasetDict:
-    dataset = dataset.with_format("arrow").shuffle(seed=seed)
-
+def split_by_fractions(dataset: Dataset, fractions: Mapping[str, float]) -> DatasetDict:
     n = len(dataset)
 
     # eg for fractions like {"train": 0.98, "val": 0.01, "test": 0.01} produces an array of [0.0, 0.98, 0.99, 1.00]

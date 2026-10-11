@@ -3,8 +3,8 @@ preprocessor:
     provenance:
       id_columns:
         - id
-        - chapter_id
         - speaker_id
+        - chapter_id
 
 dataset:
   config: DefaultDatasetConfig
@@ -30,7 +30,6 @@ pipeline:
     config: ColumnRenamingPreprocessorConfig
     inputs:
       column_name_mappings:
-        duration: duration_s
         text: text_original
   - name: CTCScoreMapper
     config: CTCScoreMapperConfig

@@ -15,7 +15,7 @@ pipeline:
   - name: ValueOverrideMapper
     config: ValueOverrideMapperConfig
     inputs:
-      mappings_in:
+      mappings_config:
         # the page for the reargument of Johnson v. United States points to the original argument's transcripts;
         # these mappings adjust for this singular case
         - input_column: "docket"

@@ -17,7 +17,6 @@ class PreprocessorConfig(Registrable, root=True):
 
 @dataclasses.dataclass(kw_only=True)
 class RemoveColumnsPreprocessorConfig(PreprocessorConfig):
-    input_column: str
     remove_columns: list[str] = dataclasses.field(default_factory=list)
 
 

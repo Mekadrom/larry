@@ -58,7 +58,7 @@ _ARGUMENT_OF_NAME = re.compile(
     r"^(?:(?:ORAL|REBUTTAL|REDIRECT|CONTINUED|FURTHER)\s+)*ARGUMENT\s+(?:OF|BY)\s+(.+?)\s*(?:,\s*ESQ\.?|ON\s+BEHALF\b|$)"
 )
 
-_BENCH = [
+_BENCH: list[tuple[str, date, date | None]] = [
     ("CHIEF JUSTICE ROBERTS", date(2005, 9, 29), None),
     ("JUSTICE SCALIA", date(1986, 9, 26), date(2016, 2, 13)),
     ("JUSTICE KENNEDY", date(1988, 2, 18), date(2018, 7, 31)),

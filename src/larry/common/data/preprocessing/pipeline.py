@@ -202,7 +202,7 @@ class Pipeline:
                 raise
 
         if self.fractions and not isinstance(dataset, DatasetDict):
-            dataset = split_by_fractions(dataset, self.config.default_batch_size, self.fractions, seed=self.config.seed)
+            dataset = split_by_fractions(dataset, self.fractions)
 
         if isinstance(dataset, DatasetDict):
             for split_name, split_dataset in dataset.items():
@@ -211,12 +211,20 @@ class Pipeline:
                     split_dataset,
                     self.output_dir,
                     self.config.parquet_size_mb,
-                    prefix = split_name
+                    prefix=split_name,
+                    writer_batch_size=self.config.default_batch_size,
                 )
         else:
-            save_parquet_shards(dataset, self.output_dir, self.config.parquet_size_mb, prefix="train")
+            save_parquet_shards(
+                dataset,
+                self.output_dir,
+                self.config.parquet_size_mb,
+                prefix="train",
+                writer_batch_size=self.config.default_batch_size,
+            )
 
     def _compile_and_save_provenance(self) -> None:
         """Saves a separate json file that records the sources of this saved dataset."""
 
+        self.provenance.populate_mutables()
         (self.output_dir / "provenance.json").write_text(json.dumps(dataclasses.asdict(self.provenance), indent="\t"))

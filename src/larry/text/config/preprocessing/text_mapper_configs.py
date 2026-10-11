@@ -1,22 +1,11 @@
 import dataclasses
 
-from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig, \
+    MapperConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class TextMapperConfig(SingleColumnMapperConfig):
-    input_column: str = "text"
-    output_column: str = "text"
-
-
-class CTCTextNormalizingMapperConfig(TextMapperConfig):
-    input_column: str = "text_original"
-    output_column: str = "text_normalized"
-    keep_input: bool = True
-
-
-@dataclasses.dataclass(kw_only=True)
-class UrlTextMapperConfig(UrlMapperConfig, TextMapperConfig):
+class UrlTextMapperConfig(UrlMapperConfig, SingleColumnMapperConfig):
     input_column: str = "url"
     output_column: str = "text"
 
@@ -24,17 +13,25 @@ class UrlTextMapperConfig(UrlMapperConfig, TextMapperConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class SCOTUSTranscriptPdfTextMapperConfig(SingleColumnMapperConfig):
-    input_column: str = "pdf_bytes"
+class SCOTUSTranscriptPdfTextMapperConfig(MapperConfig):
+    pdf_bytes_column: str = "pdf_bytes"
     docket_column: str = "docket"
     date_argued_column: str = "date_argued"
-    output_column: str = "transcript"
-    reattributions_column: str = "reattributions"
+
+    transcript_output_column: str = "transcript"
+    reattributions_output_column: str = "reattributions"
+
+    def required_input_columns(self) -> list[str]:
+        return [self.pdf_bytes_column, self.docket_column, self.date_argued_column]
+
+    def required_output_columns(self) -> list[str]:
+        return [self.transcript_output_column, self.reattributions_output_column]
 
 
 @dataclasses.dataclass(kw_only=True)
-class TextTokenizingMapperConfig(TextMapperConfig):
+class TextTokenizingMapperConfig(SingleColumnMapperConfig):
     tokenizer: str
+    input_column: str = "text"
     output_column: str = "input_ids"
 
 

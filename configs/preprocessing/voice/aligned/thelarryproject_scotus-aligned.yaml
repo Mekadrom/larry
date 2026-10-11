@@ -21,7 +21,6 @@ pipeline:
       writer_batch_size: 4
       copy_columns:
         - term
-        - docket
         - case_name
         - date_argued
         - pdf_url

@@ -4,15 +4,16 @@ preprocessor:
       id_columns:
         - id
         - speaker_id
-        - librivox_book_id
+        - chapter_id
 
 dataset:
   config: DefaultDatasetConfig
   overrides:
-    path: mythicinfinity/libriheavy
-    name: large
-    split: train
-    cache_dir: /home/zadar/.cache/larry/intermediates/voice/index/asr/mythicinfinity_libriheavy-large-index-asr/
+    path: parquet
+    name: ~
+    split: ~
+    data_dir: /home/zadar/.cache/larry/datasets/voice/normalized/asr/openslr_librispeech-asr-normalized-asr-validation/
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/index/asr/openslr_librispeech-asr-normalized-asr-validation/
 
 pipeline:
   - name: RowIndexAssigningPreprocessor
@@ -22,18 +23,14 @@ pipeline:
     inputs:
       column_casts:
         audio: "audio_no_decode"
-        text_transcription: ~
-  - name: ColumnRenamingPreprocessor
-    config: ColumnRenamingPreprocessorConfig
-    inputs:
-      column_name_mappings:
-        audio_duration: duration_s
   - name: ColumnValuesPruner
     config: ASRCTCMismatchColumnValuesPrunerConfig
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
   - name: AudioQualityPruner
     config: AudioQualityPrunerConfigForASR
+  - name: RemoveColumnsPreprocessor
+    config: RemoveColumnsPreprocessorConfig
     inputs:
       remove_columns:
         - audio

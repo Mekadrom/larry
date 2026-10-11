@@ -24,7 +24,6 @@ pipeline:
       output_column: pdf_bytes
       filter_null_outputs: true
       validate_starts_with: "%PDF-"
-      keep_input: true
   - name: UrlAudioMapper
     config: UrlAudioMapperConfig
     inputs:

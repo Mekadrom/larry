@@ -1,24 +1,23 @@
 import io
 import re
 from abc import abstractmethod, ABC
+from collections.abc import Callable
 from typing import Any
 
 import av
-import numpy as np
-import torch
-import torchaudio
-from datasets import Array2D, Dataset, DatasetDict, Audio, concatenate_datasets
+from datasets import Dataset, Audio, DatasetDict
 from datasets.features.features import FeatureType, Value, Features
-from torchaudio import transforms
 from torchcodec.decoders import AudioDecoder
 from torchcodec.encoders import AudioEncoder
 
+from larry.common.config.data.preprocessing.mapper_configs import MapperConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
-from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper, Mapper
+from larry.common.data.preprocessing.mappers import UrlMapper, Mapper, SingleColumnMapper
 from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedAudio
-from larry.voice.config.preprocessing.voice_mapper_configs import MelExtractingMapperConfig, \
-    VoiceMapperConfig, UrlAudioMapperConfig, AudioDurationMapperConfig, SpeechSegmentationAligningMapperConfig, \
+from larry.voice.config.preprocessing.voice_configs import AlignerConfig
+from larry.voice.config.preprocessing.voice_mapper_configs import UrlAudioMapperConfig, AudioDurationMapperConfig, \
+    SpeechSegmentationAligningMapperConfig, \
     CTCScoreMapperConfig
 from larry.voice.data.preprocessing.alignment import LongAlignment, TokenTimeline, Aligner
 from larry.voice.data.preprocessing.normalization import TextNormalizer
@@ -30,15 +29,21 @@ _ALIGNERS: dict[str, Aligner] = {}
 _NORMALIZERS: dict[str, TextNormalizer] = {}
 
 
-class VoiceMapper[I, O, C: VoiceMapperConfig = VoiceMapperConfig](SingleColumnMapper[I, O, C]):
-    def output_feature(self) -> FeatureType | None:
-        return Audio(decode=False)
+def _lazy_get_aligner(aligner_config: AlignerConfig, device_index: int) -> Aligner:
+    key = repr(aligner_config)
+    if key not in _ALIGNERS:
+        _ALIGNERS[key] = Aligner(aligner_config, device=f"cuda:{device_index}")
+    return _ALIGNERS[key]
 
 
-class UrlAudioMapper(
-    UrlMapper[EncodedAudio, UrlAudioMapperConfig],
-    VoiceMapper[str, EncodedAudio | None, UrlAudioMapperConfig]
-):
+def _lazy_get_normalizer(config: MapperConfig, make_normalizer: Callable[[], TextNormalizer]) -> TextNormalizer:
+    key = repr(config)
+    if key not in _NORMALIZERS:
+        _NORMALIZERS[key] = make_normalizer()
+    return _NORMALIZERS[key]
+
+
+class UrlAudioMapper(UrlMapper[EncodedAudio, UrlAudioMapperConfig]):
     def user_agent(self) -> str:
         return "larry-audio-downloader/1.0 (dataset research; contact via github.com/Mekadrom)"
 
@@ -50,6 +55,9 @@ class UrlAudioMapper(
         head = decoder.get_samples_played_in_range(0.0, 1.0)
         if head.data.shape[-1] == 0:
             raise ValueError(f"no decodable audio at start of {example}")
+
+    def output_feature(self) -> FeatureType | None:
+        return Audio(decode=False)
 
 
 class AudioDurationMapper(SingleColumnMapper[EncodedAudio | None, float | None, AudioDurationMapperConfig]):
@@ -70,44 +78,22 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
 ](Mapper[C], ABC):
     def __init__(self, provenance: Provenance, config: C) -> None:
         super().__init__(provenance, config)
-        self.output_columns = [
-            "audio",
-            "text_original",
-            "text_normalized",
-            "duration_s",
-            "start_s",
-            "end_s",
-            "speaker_id",
-            "avg_word_score",
-        ]
-
         self.stage_pattern = None
         if self.config.stage_direction_pattern:
             self.stage_pattern = re.compile(self.config.stage_direction_pattern)
 
     def validate(self) -> None:
-        if self.config.audio_column is None:
-            raise ValueError(f"audio_column must be specified for {self.__class__.__name__}")
-        if self.config.text_column is None:
-            raise ValueError(f"text_column must be specified for {self.__class__.__name__}")
+        super().validate()
         if self.config.sample_rate != self.config.aligner_config.sample_rate:
             raise ValueError("sample_rate must match aligner_config.sample_rate")
 
-    def preprocess_dataset(self, dataset):
-        self.remove_columns = list(features_of(dataset).keys())
-        return super().preprocess_dataset(dataset)
-
-    def _lazy_get_aligner(self) -> Aligner:
-        key = repr(self.config.aligner_config)
-        if key not in _ALIGNERS:
-            _ALIGNERS[key] = Aligner(self.config.aligner_config, device=f"cuda:{self.device_index}")
-        return _ALIGNERS[key]
-
-    def _lazy_get_normalizer(self) -> TextNormalizer:
-        key = repr(self.config)
-        if key not in _NORMALIZERS:
-            _NORMALIZERS[key] = self.make_normalizer()
-        return _NORMALIZERS[key]
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        return dataset.map(
+            self._preprocess_batch,
+            with_rank=True,
+            features=self.output_features(dataset),
+            **{**self.map_kwargs(), "remove_columns": list(features_of(dataset).keys())},
+        )
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         batch_results = {k: [] for k in self.config.copy_columns + self.output_columns}
@@ -115,8 +101,8 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         audios = batch[self.config.audio_column]
         texts = batch[self.config.text_column]
 
-        aligner = self._lazy_get_aligner()
-        normalizer = self._lazy_get_normalizer()
+        aligner = _lazy_get_aligner(self.config.aligner_config, self.device_index)
+        normalizer = _lazy_get_normalizer(self.config, self.make_normalizer)
 
         for i, (audio, text) in enumerate(zip(audios, texts)):
             waveform = bytes_to_waveforms(audio["bytes"], self.config.sample_rate)[0]
@@ -153,7 +139,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
                     seg.audio.unsqueeze(0).cpu().float(),
                     sample_rate=self.config.sample_rate
                 ).to_tensor(format="flac")
-                batch_results["audio"].append({"bytes": flac.numpy().tobytes(), "path": None})
+                batch_results[self.config.audio_output_column].append({"bytes": flac.numpy().tobytes(), "path": None})
                 batch_results["text_original"].append(seg.text)
                 batch_results["text_normalized"].append(seg.text_normalized)
                 batch_results["duration_s"].append(round(seg.end_s - seg.start_s, 3))
@@ -173,15 +159,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         tr.load_appearances()
         return tr
 
-    @abstractmethod
-    def make_normalizer(self) -> TextNormalizer:
-        ...
-
-    @abstractmethod
-    def new_transcript(self, turns: list[Turn], batch: dict[str, list[Any]], index: int) -> Transcript:
-        ...
-
-    def preprocessing_features(self, dataset):
+    def output_features(self, dataset):
         src = features_of(dataset).copy()
         return Features({
             **{c: src[c] for c in self.config.copy_columns},
@@ -198,9 +176,18 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
     def mutate_provenance(self) -> None:
         self.provenance.ancestry.models.append(self.config.aligner_config.model_id)
 
+    @abstractmethod
+    def make_normalizer(self) -> TextNormalizer:
+        ...
+
+    @abstractmethod
+    def new_transcript(self, turns: list[Turn], batch: dict[str, list[Any]], index: int) -> Transcript:
+        ...
+
 
 class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
     def validate(self) -> None:
+        super().validate()
         if not self.config.audio_column:
             raise ValueError(f"audio_column must be specified for {self.__class__.__name__}")
         if not self.config.text_column:
@@ -208,43 +195,9 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
         if not self.config.duration_column:
             raise ValueError(f"duration_column must be specified for {self.__class__.__name__}")
 
-    def _lazy_get_aligner(self) -> Aligner:
-        key = repr(self.config.aligner_config)
-        if key not in _ALIGNERS:
-            _ALIGNERS[key] = Aligner(self.config.aligner_config, device=f"cuda:{self.device_index}")
-        return _ALIGNERS[key]
-
-    def _lazy_get_normalizer(self) -> TextNormalizer:
-        key = repr(self.config)
-        if key not in _NORMALIZERS:
-            _NORMALIZERS[key] = TextNormalizer()
-        return _NORMALIZERS[key]
-
-    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
-        if isinstance(dataset, DatasetDict):
-            return DatasetDict({
-                split: self._score(split_ds)
-                for split, split_ds in dataset.items()
-            })
-        return self._score(dataset)
-
-    def _score(self, ds: Dataset) -> Dataset:
-        outputs = [c for c in (self.config.output_column, self.config.text_output_column) if c]
-        scores = ds.map(
-            self._preprocess_batch,
-            with_rank=True,
-            features=Features({
-                self.config.output_column: Value("float64"),
-                **({self.config.text_output_column: Value("string")} if self.config.text_output_column else {}),
-            }),
-            **{**self.map_kwargs(), "remove_columns": ds.column_names},
-        )
-        drop = [c for c in ds.column_names if c in outputs or c in self.remove_columns]
-        return concatenate_datasets([ds.remove_columns(drop), scores], axis=1)
-
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
-        aligner = self._lazy_get_aligner()
-        normalizer = self._lazy_get_normalizer()
+        aligner = _lazy_get_aligner(self.config.aligner_config, self.device_index)
+        normalizer = _lazy_get_normalizer(self.config, self.make_normalizer)
 
         audios = batch[self.config.audio_column]
         texts = batch[self.config.text_column]
@@ -267,13 +220,16 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
             self._score_group(aligner, normalizer, group, audios, texts, scores, normalized)
 
         result: dict[str, Any] = {
-            self.config.output_column: scores,
+            self.config.ctc_mismatch_output_column: scores,
         }
         text_output_column = self.config.text_output_column
         if text_output_column is not None:
             result[text_output_column] = normalized
 
         return result
+
+    def make_normalizer(self) -> TextNormalizer:
+        return TextNormalizer()
 
     def _score_group(
             self,
@@ -311,40 +267,10 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
     def mutate_provenance(self) -> None:
         self.provenance.ancestry.models.append(self.config.aligner_config.model_id)
 
-
-class MelExtractingMapper(VoiceMapper[EncodedAudio, np.ndarray | None, MelExtractingMapperConfig]):
-    def __init__(self, provenance: Provenance, config: MelExtractingMapperConfig) -> None:
-        super().__init__(provenance, config)
-        self.transform = transforms.MelSpectrogram(
-            n_fft=config.n_fft,
-            hop_length=config.hop_length,
-            f_min=config.f_min,
-            f_max=config.f_max,
-            n_mels=config.n_mels,
-            power=config.power,
-            norm="slaney",
-            mel_scale="slaney"
-        )
-
-    def output_feature(self) -> FeatureType | None:
-        return Array2D(shape=(None, self.config.n_mels), dtype=self.config.audio_dtype)
-
-    def preprocess_example(self, example: EncodedAudio) -> np.ndarray | None:
-        waveform = bytes_to_waveforms(example["bytes"], self.config.sample_rate)
-
-        waveform = self._remove_mains_hum(waveform)
-
-        log_mel = torch.log(self.transform(waveform).clamp(min=1e-5))
-
-        return log_mel.T.contiguous().to(getattr(torch, self.config.audio_dtype)).numpy()
-
-    def _remove_mains_hum(self, waveform, frequencies=None):
-        """Remove mains hum and harmonics."""
-        if frequencies is None:
-            frequencies = [60, 120, 180, 240]
-
-        for freq in frequencies:
-            waveform = torchaudio.functional.bandreject_biquad(
-                waveform, self.config.sample_rate, central_freq=freq, Q=30.0
-            )
-        return waveform
+    def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        if self.config.text_output_column is not None:
+            return Features({
+                self.config.ctc_mismatch_output_column: Value("float64"),
+                self.config.text_output_column: Value("string"),
+            })
+        return Features({self.config.ctc_mismatch_output_column: Value("float64")})

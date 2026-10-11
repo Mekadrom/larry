@@ -6,8 +6,13 @@ from larry.voice.config.preprocessing.voice_mapper_configs import SpeechSegmenta
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSSpeechSegmentationAligningMapperConfig(SpeechSegmentationAligningMapperConfig):
     text_column: str = "transcript"
-    docket_column: str = "docket"
-    date_argued_column: str = "date_argued"
     pdf_bytes_column: str = "pdf_bytes"
+    date_argued_column: str = "date_argued"
+    docket_column: str = "docket"
+
+    def required_input_columns(self) -> list[str]:
+        return super().required_input_columns() + [
+            self.pdf_bytes_column, self.date_argued_column, self.docket_column
+        ]
 
     stage_direction_pattern: str | None = r"(?i)\((?:laughter|pause|nods|indicating|inaudible|crosstalk)[^)]*\)"

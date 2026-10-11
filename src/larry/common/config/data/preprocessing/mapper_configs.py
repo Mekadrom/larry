@@ -4,17 +4,43 @@ from typing import Any
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
 
 
+def _resolve(name: str, configured: list[str], required: list[str]) -> list[str]:
+    if not configured:
+        return list(dict.fromkeys(required))
+    missing = [c for c in required if c not in configured]
+    if missing:
+        raise ValueError(f"{name}={configured} does not include {missing}")
+    return list(dict.fromkeys(configured))
+
+
 @dataclasses.dataclass(kw_only=True)
 class MapperConfig(PreprocessorConfig):
+    filter_null_outputs: bool = False
     remove_columns: list[str] = dataclasses.field(default_factory=list)
+    input_columns: list[str] = dataclasses.field(default_factory=list)
+    output_columns: list[str] = dataclasses.field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.input_columns = _resolve("input_columns", self.input_columns, self.required_input_columns())
+        self.output_columns = _resolve("output_columns", self.output_columns, self.required_output_columns())
+
+    def required_input_columns(self) -> list[str]:
+        return []
+
+    def required_output_columns(self) -> list[str]:
+        return []
 
 
 @dataclasses.dataclass(kw_only=True)
 class SingleColumnMapperConfig(MapperConfig):
     input_column: str
     output_column: str
-    filter_null_outputs: bool = False
-    keep_input: bool = False
+
+    def required_input_columns(self) -> list[str]:
+        return [self.input_column]
+
+    def required_output_columns(self) -> list[str]:
+        return [self.output_column]
 
 
 @dataclasses.dataclass
@@ -27,14 +53,20 @@ class ValueOverride:
 
 @dataclasses.dataclass(kw_only=True)
 class ValueOverrideMapperConfig(MapperConfig):
-    mappings_in: list[dict[str, Any]]
+    mappings_config: list[dict[str, Any]]
 
     @property
     def mappings(self) -> list[ValueOverride]:
         return [
             ValueOverride(m["input_column"], m["input_column_value"], m["output_column"], m["output_column_value"])
-            for m in self.mappings_in
+            for m in self.mappings_config
         ]
+
+    def required_input_columns(self) -> list[str]:
+        return list(dict.fromkeys(c for m in self.mappings for c in (m.input_column, m.output_column)))
+
+    def required_output_columns(self) -> list[str]:
+        return list(dict.fromkeys(m.output_column for m in self.mappings))
 
 
 @dataclasses.dataclass(kw_only=True)

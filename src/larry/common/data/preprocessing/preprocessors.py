@@ -29,24 +29,16 @@ class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
         self.log = logging.getLogger(type(self).__name__)
         self.mutate_provenance()
 
+    def __call__(self, batch: dict) -> dict:
+        """A warning."""
+        raise NotImplementedError("don't do this")
+
     @property
     def config(self) -> C:
         return self._config
 
-    @abstractmethod
-    def validate(self) -> None:
-        ...
-
-    @abstractmethod
-    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
-        ...
-
     def mutate_provenance(self) -> None:
         ...
-
-    def __call__(self, batch: dict) -> dict:
-        """A warning."""
-        raise NotImplementedError("don't do this")
 
     def provenance_string(self, batch: dict[str, list[Any]], index: int) -> str:
         column_values = {}
@@ -56,6 +48,14 @@ class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
         for c, v in column_values.items():
             strs.append(f"{c}={v}")
         return f"{{{', '.join(strs)}}}"
+
+    @abstractmethod
+    def validate(self) -> None:
+        ...
+
+    @abstractmethod
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        ...
 
 
 class RemoveColumnsPreprocessor(Preprocessor[RemoveColumnsPreprocessorConfig]):

@@ -5,8 +5,7 @@ from datasets import Dataset, DatasetDict
 from datasets.features.features import Value, Features
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
-from larry.common.data.preprocessing.mappers import SingleColumnMapper
-from larry.common.data.utils import features_of
+from larry.common.data.preprocessing.mappers import Mapper
 from larry.text.config.preprocessing.text_mapper_configs import SCOTUSTranscriptPdfTextMapperConfig
 from larry.voice.config.preprocessing.scotus.scotus_mapper_configs import SCOTUSSpeechSegmentationAligningMapperConfig
 from larry.voice.config.preprocessing.voice_configs import SCOTUSTranscriptConfig
@@ -51,22 +50,12 @@ _LABEL_FIXES_ANY: dict[str, str] = {
 }
 
 
-class SCOTUSTranscriptPdfTextMapper(SingleColumnMapper[bytes, str, SCOTUSTranscriptPdfTextMapperConfig]):
-    def __init__(self, provenance: Provenance, config: SCOTUSTranscriptPdfTextMapperConfig):
-        super().__init__(provenance, config)
-        self.remove_columns = [c for c in self.remove_columns if c != self.config.input_column]
-
-    def validate(self) -> None:
-        if not self.config.input_column:
-            raise ValueError(f"input_column must be specified for {self.__class__.__name__}")
-        if not self.config.output_column:
-            raise ValueError(f"output_column must be specified for {self.__class__.__name__}")
-
+class SCOTUSTranscriptPdfTextMapper(Mapper[SCOTUSTranscriptPdfTextMapperConfig]):
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         transcripts = []
         reattributions = []
         for pdf_bytes, docket, date_argued in zip(
-                batch[self.config.input_column],
+                batch[self.config.pdf_bytes_column],
                 batch[self.config.docket_column],
                 batch[self.config.date_argued_column]
         ):
@@ -83,8 +72,8 @@ class SCOTUSTranscriptPdfTextMapper(SingleColumnMapper[bytes, str, SCOTUSTranscr
 
             transcripts.append("\n".join(speaker_normalized_turns))
         return {
-            self.config.output_column: transcripts,
-            self.config.reattributions_column: [
+            self.config.transcript_output_column: transcripts,
+            self.config.reattributions_output_column: [
                 [
                     {"before": before, "after": after, "text": text}
                     for before, after, text in reattrs
@@ -93,21 +82,15 @@ class SCOTUSTranscriptPdfTextMapper(SingleColumnMapper[bytes, str, SCOTUSTranscr
             ],
         }
 
-    def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
-        features = super().preprocessing_features(dataset)
-        if features is None:
-            features = features_of(dataset).copy()
-        for column in self.remove_columns:
-            features.pop(column, None)
-        features.update({
-            self.config.output_column: Value("string"),
-            self.config.reattributions_column: [{
+    def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        return Features({
+            self.config.transcript_output_column: Value("string"),
+            self.config.reattributions_output_column: [{
                 "before": Value("string"),
                 "after": Value("string"),
                 "text": Value("string"),
             }]
         })
-        return features
 
 
 class SCOTUSSpeechSegmentationAligningMapper(

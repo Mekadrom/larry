@@ -148,7 +148,8 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
                 split_ds,
                 self.parquet_dir,
                 self.config.cached_parquet_size_mb,
-                prefix=split
+                prefix=split,
+                writer_batch_size=self.config.batch_size
             )
 
             leftover = [f["filename"] for f in split_ds.cache_files]
