@@ -20,6 +20,7 @@ class Turn:
     speaker: str
     text: str
     line_start: int
+    section: int = 0
 
 
 @dataclasses.dataclass

@@ -32,6 +32,20 @@ ZERO_ROWS = {
                          WHERE regexp_matches(line, '^CHIEF JUSTICE [A-Z]+:')
                            AND NOT line LIKE 'CHIEF JUSTICE ROBERTS:%'""",
     "triple_dash": "SELECT docket, line FROM lines WHERE line LIKE '%---%'",
+    "exceptions_intact": """
+                         WITH expected(docket, line_prefix) AS (VALUES ('19-292',
+                                                                        'MS. TAIBLESON: Mr. Chief -- Mr. Chief Justice --'),
+                                                                       ('19-292',
+                                                                        'MS. CORKRAN: Oh, thank you, Your Honor.'),
+                                                                       ('19-465', 'MR. LESSIG: Yes, I would.'),
+                                                                       ('22-721',
+                                                                        'MR. SIMPSON: I''m ready to jump in.'))
+                         SELECT e.docket, e.line_prefix
+                         FROM expected e
+                         WHERE NOT EXISTS (SELECT 1
+                                           FROM lines l
+                                           WHERE l.docket = e.docket
+                                             AND starts_with(l.line, e.line_prefix))""",
 }
 
 

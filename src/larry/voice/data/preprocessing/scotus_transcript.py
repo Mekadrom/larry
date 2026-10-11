@@ -133,7 +133,9 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
         speaker = None
         speech_buffer = []
         buf_line = start
+        buf_section = 0
         paren = None
+        section = 0
 
         for i in range(start + 1, end):
             text = self.body_lines[i]
@@ -161,13 +163,15 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
                 continue
 
             if self._looks_like_heading(text):
+                if self._looks_like_oral_argument_heading(text):
+                    section += 1
                 continue
 
             # check if we're starting a new speaker dialog
             speaker_label_match = self._match_title_or_speaker_label(text)
             if speaker_label_match:
                 # new speaker's turn, flush the previous speaker's turn
-                self.flush_turn(speaker, speech_buffer, buf_line)
+                self.flush_turn(speaker, speech_buffer, buf_line, buf_section)
                 speech_buffer = []
 
                 # get the real speaker label without extra whitespace
@@ -179,19 +183,22 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
                     speech_buffer.append(rest)
 
                 buf_line = i
+                buf_section = section
                 continue
 
             if speaker is None:
                 speaker = "UNIDENTIFIED"
                 buf_line = i
+                buf_section = section
 
             speech_buffer.append(text)
 
-        self.flush_turn(speaker, speech_buffer, buf_line)
+        self.flush_turn(speaker, speech_buffer, buf_line, buf_section)
         self.load_appearances()
         self.reattributions = self.fix_sandwiched_advocates({
             ("19-292", "Mr. Chief -- Mr. Chief Justice --"),
-            ("19-465", "Yes, I would.")
+            ("19-465", "Yes, I would."),
+            ("22-721", "I'm ready to jump in."),
         })
 
     def load_appearances(self) -> None:
@@ -282,6 +289,9 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
         ]
         return len(letters) >= 4 and len(text.split()) >= 2
 
+    def _looks_like_oral_argument_heading(self, text: str) -> bool:
+        return "ARGUMENT" in text
+
     def _match_title_or_speaker_label(self, text: str) -> re.Match | None:
         match = _TITLED.match(text)
         if match is None:
@@ -308,7 +318,7 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
 
         return sum(c.isupper() for c in letters) / len(letters) >= upper_ratio
 
-    def flush_turn(self, speaker: str | None, buffer: list[str], buffer_line: int) -> None:
+    def flush_turn(self, speaker: str | None, buffer: list[str], buffer_line: int, section: int) -> None:
         if speaker is not None and buffer:
             # normalize whitespace
             text = re.sub(r"\s+", " ", " ".join(buffer)).strip()
@@ -316,7 +326,12 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
             text = re.sub(r"(?<=\s)-$", "--", text)
             text = re.sub(r"(?<=[^\s-])-$", " --", text)
             if text:
-                self.turns.append(transcript.Turn(speaker=speaker, text=text, line_start=buffer_line))
+                self.turns.append(transcript.Turn(
+                    speaker=speaker,
+                    text=text,
+                    line_start=buffer_line,
+                    section=section,
+                ))
 
     def fix_sandwiched_advocates(self, exceptions: set[tuple[str, str]]) -> list[tuple[str, str, str]]:
         advocate_indices = [
@@ -334,6 +349,14 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
                 continue
 
             next_turn = self.turns[advocate_indices[k + 1]]
+
+            same_section = (
+                    prev_turn.section == turn.section
+                    and next_turn.section == turn.section
+            )
+            if not same_section:
+                continue
+
             prev_key = self.resolve_speaker(prev_turn.speaker)[0]
             key = self.resolve_speaker(turn.speaker)[0]
             next_key = self.resolve_speaker(next_turn.speaker)[0]
