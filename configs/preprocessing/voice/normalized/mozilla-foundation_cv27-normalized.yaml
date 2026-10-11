@@ -22,7 +22,6 @@ pipeline:
     config: ColumnRenamingPreprocessorConfig
     inputs:
       column_name_mappings:
-        audio_duration: duration_s
         sentence: text_original
         path: id
         client_id: speaker_id

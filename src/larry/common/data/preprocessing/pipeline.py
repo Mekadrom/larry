@@ -208,11 +208,7 @@ class Pipeline:
             for split_name, split_dataset in dataset.items():
                 split_name = str(split_name)
                 save_parquet_shards(
-                    split_dataset.map(
-                        batched=True,
-                        batch_size=self.config.default_batch_size,
-                        writer_batch_size=self.config.default_batch_size
-                    ),
+                    split_dataset,
                     self.output_dir,
                     self.config.parquet_size_mb,
                     prefix = split_name

@@ -7,7 +7,7 @@ import av
 import numpy as np
 import torch
 import torchaudio
-from datasets import Array2D, Dataset, DatasetDict, Audio
+from datasets import Array2D, Dataset, DatasetDict, Audio, concatenate_datasets
 from datasets.features.features import FeatureType, Value, Features
 from torchaudio import transforms
 from torchcodec.decoders import AudioDecoder
@@ -85,7 +85,6 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         if self.config.stage_direction_pattern:
             self.stage_pattern = re.compile(self.config.stage_direction_pattern)
 
-
     def validate(self) -> None:
         if self.config.audio_column is None:
             raise ValueError(f"audio_column must be specified for {self.__class__.__name__}")
@@ -134,9 +133,9 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
 
             stream = TokenStream.from_transcript(self.make_transcript(turns, batch, i), normalizer)
             result = LongAlignment(self.config, aligner, emissions, stream.words).run()
-            if stream.choose_readings(aligner, emissions, result.spans, self.config.reading_margin_seconds):
+            if stream.choose_readings(aligner, emissions.cpu(), result.spans, self.config.reading_margin_seconds):
                 stream.rebuild()
-                result = LongAlignment(self.config, aligner, emissions, stream.words).run()
+                result = LongAlignment(self.config, aligner, emissions, stream.words).run(result)
             timeline = TokenTimeline(stream.fold(result.spans), stream.ftr.groups)
             timeline.fill_gaps()
 
@@ -221,6 +220,28 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
             _NORMALIZERS[key] = TextNormalizer()
         return _NORMALIZERS[key]
 
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        if isinstance(dataset, DatasetDict):
+            return DatasetDict({
+                split: self._score(split_ds)
+                for split, split_ds in dataset.items()
+            })
+        return self._score(dataset)
+
+    def _score(self, ds: Dataset) -> Dataset:
+        outputs = [c for c in (self.config.output_column, self.config.text_output_column) if c]
+        scores = ds.map(
+            self._preprocess_batch,
+            with_rank=True,
+            features=Features({
+                self.config.output_column: Value("float64"),
+                **({self.config.text_output_column: Value("string")} if self.config.text_output_column else {}),
+            }),
+            **{**self.map_kwargs(), "remove_columns": ds.column_names},
+        )
+        drop = [c for c in ds.column_names if c in outputs or c in self.remove_columns]
+        return concatenate_datasets([ds.remove_columns(drop), scores], axis=1)
+
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         aligner = self._lazy_get_aligner()
         normalizer = self._lazy_get_normalizer()
@@ -278,20 +299,14 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
             if len(tokens.words) == 0:
                 continue
 
-            tokens.choose_readings_whole(aligner, emission)
+            results = tokens.choose_readings_whole(aligner, emission)
             normalized[i] = " ".join(tokens.words)
-            targets, _ = aligner.get_targets_owners(tokens.words)
-            scores[i] = aligner.mismatch_score(emission, targets)
-
-    def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
-        features = super().preprocessing_features(dataset)
-        if not features:
-            features = features_of(dataset).copy()
-        for column in self.remove_columns:
-            features.pop(column, None)
-        features[self.config.output_column] = Value("float64")
-        features[self.config.text_output_column] = Value("string")
-        return features
+            if results and results[-1] is not None:
+                forced = results[-1]
+            else:
+                forced = aligner.path_score(emission, tokens.words)
+            if forced is not None:
+                scores[i] = aligner.mismatch_score(emission, forced)
 
     def mutate_provenance(self) -> None:
         self.provenance.ancestry.models.append(self.config.aligner_config.model_id)

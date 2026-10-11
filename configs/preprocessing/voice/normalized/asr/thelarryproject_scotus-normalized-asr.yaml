@@ -20,16 +20,10 @@ pipeline:
         audio: "audio_no_decode"
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
+  - name: ColumnValuesPruner
+    config: ASRCTCMismatchColumnValuesPrunerConfig
   - name: AudioQualityPruner
     config: AudioQualityPrunerConfigForASR
-  - name: ColumnValuesPruner
-    config: ColumnValuesPrunerConfig
-    inputs:
-      input_columns:
-        - ctc_mismatch
-      op: "in_range"
-      op_config:
-        max_value: 1
   - name: SpeakerValidationSplittingPreprocessor
     config: SpeakerValidationSplittingPreprocessorConfig
     inputs:

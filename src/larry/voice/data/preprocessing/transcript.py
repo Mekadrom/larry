@@ -194,7 +194,8 @@ class NormalizedTokens:
 
         return changed
 
-    def choose_readings_whole(self, aligner: Aligner, emissions: torch.Tensor) -> None:
+    def choose_readings_whole(self, aligner: Aligner, emissions: torch.Tensor) -> list[float | None]:
+        results: list[float | None] = []
         for t, options in enumerate(self.readings):
             if len(options) < 2:
                 continue
@@ -210,9 +211,11 @@ class NormalizedTokens:
                 if best_score is None or score > best_score:
                     best = c
                     best_score = score
+            results.append(best_score)
 
             self.choice[t] = best
         self.rebuild()
+        return results
 
 
 class TokenStream(NormalizedTokens):

@@ -28,21 +28,12 @@ pipeline:
     inputs:
       column_name_mappings:
         audio_duration: duration_s
+  - name: ColumnValuesPruner
+    config: ASRCTCMismatchColumnValuesPrunerConfig
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
   - name: AudioQualityPruner
     config: AudioQualityPrunerConfigForASR
-  - name: CTCScoreMapper
-    config: CTCScoreMapperConfig
     inputs:
-      text_column: text_original
       remove_columns:
         - audio
-  - name: ColumnValuesPruner
-    config: ColumnValuesPrunerConfig
-    inputs:
-      input_columns:
-        - ctc_mismatch
-      op: "in_range"
-      op_config:
-        max_value: 1

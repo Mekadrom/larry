@@ -1,3 +1,4 @@
+import bisect
 import dataclasses
 import difflib
 import logging
@@ -251,7 +252,7 @@ class Aligner:
         mask = (positions[None, :] < lengths[:, None]).long().to(self.device)
 
         logits = self.model(x, attention_mask=mask).logits.float()
-        log_probs = torch.log_softmax(logits, dim=-1)
+        log_probs = torch.log_softmax(logits, dim=-1).cpu()
         # noinspection PyProtectedMember
         frame_counts = self.model._get_feat_extract_output_lengths(lengths)
 
@@ -259,21 +260,6 @@ class Aligner:
             log_probs[i, :int(frame_counts[i])]
             for i in range(len(waveforms))
         ]
-
-    def mismatch_score(self, emissions: torch.Tensor, targets: list[int]) -> float | None:
-        if len(targets) == 0:
-            return None
-
-        ctc_targets = torch.tensor([targets], dtype=torch.int32, device=emissions.device)
-        try:
-            _, scores = AF.forced_align(emissions.unsqueeze(0), ctc_targets, blank=self.blank)
-        except RuntimeError:
-            # more targets than frames
-            return None
-
-        free = emissions.max(dim=-1).values.sum()
-        forced = scores[0].sum()
-        return float(free - forced) / emissions.shape[0]
 
     def path_score(self, emissions: torch.Tensor, words: list[str]) -> float | None:
         """Log-prob of the best path forced through `words` over every frame of `emissions`."""
@@ -288,12 +274,17 @@ class Aligner:
             return None
         return float(scores[0].sum())
 
+    def mismatch_score(self, emissions: torch.Tensor, forced: float) -> float:
+        free = float(emissions.max(dim=-1).values.sum())
+        return (free - forced) / emissions.shape[0]
+
 
 @dataclasses.dataclass
 class LongAlignmentResult:
     spans: list[SpanScore | None]
     n_failed_words: int
     greedy_decode_score: float
+    hyp_words: list[tuple[str, int, int]]
 
 
 class LongAlignment:
@@ -309,7 +300,7 @@ class LongAlignment:
         self.emissions = emissions
         self.ref_words = ref_words
 
-    def run(self) -> LongAlignmentResult:
+    def run(self, reuse_result: LongAlignmentResult | None = None) -> LongAlignmentResult:
         block_seconds = self.config.block_seconds
         max_block_seconds = self.config.max_block_seconds
         slack_seconds = self.config.slack_seconds
@@ -320,7 +311,7 @@ class LongAlignment:
         max_block_frames = int(max_block_seconds / frame_seconds)
         slack = int(slack_seconds / frame_seconds)
 
-        hyp_words = self.aligner.greedy_words(self.emissions)
+        hyp_words = reuse_result.hyp_words if reuse_result else self.aligner.greedy_words(self.emissions)
         mblocks = self._match_blocks(hyp_words)
         anchors = self._choose_anchors(
             hyp_words,
@@ -330,9 +321,15 @@ class LongAlignment:
         )
 
         bounds = [(0, 0)] + anchors + [(len(self.ref_words), n_frames)]
-        blocks = [(bounds[i][0], bounds[i + 1][0], bounds[i][1], bounds[i + 1][1])
-                  for i in range(len(bounds) - 1)]
-        blocks = [b for b in blocks if b[1] > b[0] and b[3] > b[2]]
+        blocks = [
+            (bounds[i][0], bounds[i + 1][0], bounds[i][1], bounds[i + 1][1])
+            for i in range(len(bounds) - 1)
+        ]
+        blocks = [
+            b
+            for b in blocks
+            if b[1] > b[0] and b[3] > b[2]
+        ]
         blocks = self._split_long(blocks, max_block_frames)
 
         spans: list[SpanScore | None] = [None] * len(self.ref_words)
@@ -367,7 +364,7 @@ class LongAlignment:
             self.aligner.log.info(
                 f"poor score ({greedy_decode_score}): hyp_words={hyp_words[:30]}, ref_words={self.ref_words[:30]}")
 
-        return LongAlignmentResult(spans, int(failed_words), greedy_decode_score)
+        return LongAlignmentResult(spans, int(failed_words), greedy_decode_score, hyp_words=hyp_words)
 
     def _choose_anchors(
             self,
@@ -479,8 +476,9 @@ class TokenTimeline:
                         self.spans[k] = cur_time
                         continue
 
-                    prev = max((p for p in idx if p < k), default=None)
-                    nxt = min((p for p in idx if p > k), default=None)
+                    pos = bisect.bisect_left(idx, k)
+                    prev = idx[pos - 1] if pos > 0 else None
+                    nxt = idx[pos] if pos < len(idx) else None
 
                     start = None
                     end = None

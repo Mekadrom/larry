@@ -29,5 +29,4 @@ pipeline:
   - name: CTCScoreMapper
     config: CTCScoreMapperConfig
     inputs:
-      num_proc: 12
       text_column: text_original

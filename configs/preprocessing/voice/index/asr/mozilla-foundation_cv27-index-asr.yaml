@@ -21,19 +21,14 @@ pipeline:
   - name: ColumnValuesPruner
     config: ColumnValuesPrunerConfig
     inputs:
+      input_columns:
+        - down_votes
+      op: "matches"
       op_config:
         values:
           - 0
-      op: "matches"
-      input_column: "down_votes"
   - name: ColumnValuesPruner
-    config: ColumnValuesPrunerConfig
-    inputs:
-      input_columns:
-        - ctc_mismatch
-      op: "in_range"
-      op_config:
-        max_value: 1
+    config: ASRCTCMismatchColumnValuesPrunerConfig
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
   - name: AudioQualityPruner

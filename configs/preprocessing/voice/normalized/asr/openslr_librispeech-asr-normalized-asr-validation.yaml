@@ -31,4 +31,9 @@ pipeline:
     inputs:
       column_name_mappings:
         duration: duration_s
-        text: text_normalized
+        text: text_original
+  - name: CTCScoreMapper
+    config: CTCScoreMapperConfig
+    inputs:
+      num_proc: 4
+      text_column: text_original

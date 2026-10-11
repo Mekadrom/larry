@@ -12,7 +12,7 @@ class VoicePrunerConfig(VoiceConfig, PrunerConfig):
 @dataclasses.dataclass(kw_only=True)
 class AudioDurationColumnPrunerConfig(VoicePrunerConfig):
     input_columns: list[str] = dataclasses.field(default_factory=lambda: ["duration_s"])
-    max_duration: float = 20.0
+    max_duration: float = 25.0
     min_duration: float = 0.1
 
 

@@ -43,11 +43,7 @@ def save_parquet_shards(
 
 def split_by_fractions(dataset: Dataset, batch_size: int, fractions: Mapping[str, float],
                        seed: int = 42) -> DatasetDict:
-    dataset = dataset.with_format("arrow").shuffle(seed=seed).map(
-        batched=True,
-        batch_size=batch_size,
-        writer_batch_size=batch_size
-    )
+    dataset = dataset.with_format("arrow").shuffle(seed=seed)
 
     n = len(dataset)
 
