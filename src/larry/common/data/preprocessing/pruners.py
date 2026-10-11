@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, assert_never, cast
+from typing import Any, assert_never
 
 from datasets import Dataset, DatasetDict
 
@@ -8,7 +8,7 @@ from larry.common.data.preprocessing import pipeline
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 
 
-class Pruner[I, C: PrunerConfig = PrunerConfig](Preprocessor[C]):
+class Pruner[C: PrunerConfig = PrunerConfig](Preprocessor[C]):
     def validate(self) -> None:
         if not self.config.input_columns:
             raise ValueError(f"input_columns must be specified for {self.__class__.__name__}")
@@ -30,18 +30,18 @@ class Pruner[I, C: PrunerConfig = PrunerConfig](Preprocessor[C]):
         names = self.config.input_columns
         keep = []
         for values in zip(*columns):
-            row = cast(I, dict(zip(names, values)))
+            row = dict(zip(names, values))
             keep.append(self._keep_example(row))
         return keep
 
-    def _keep_example(self, example: I) -> bool:
+    def _keep_example(self, example: dict[str, Any]) -> bool:
         return (example is None and self.config.prune_nulls) or self.keep_example(example)
 
-    def keep_example(self, example: I) -> bool:
+    def keep_example(self, example: dict[str, Any]) -> bool:
         ...
 
 
-class ColumnValuesPruner(Pruner[Any, ColumnValuesPrunerConfig]):
+class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
     def __init__(self, pl: pipeline.Pipeline, config: ColumnValuesPrunerConfig):
         super().__init__(pl, config)
         op_name = self.config.op
@@ -58,11 +58,14 @@ class ColumnValuesPruner(Pruner[Any, ColumnValuesPrunerConfig]):
                 assert_never(op_name)
         self.op = partial(op, self.config.op_config)
 
-    def keep_example(self, example: Any) -> bool:
-        return self.op(example)
+    def keep_example(self, example: dict[str, Any]) -> bool:
+        results = [self.op(v) for v in example.values()]
+        if self.config.multiple_inputs_behavior == "all":
+            return all(results)
+        return any(results)
 
     @classmethod
-    def op_matches(cls, op_config: dict[str, Any], example: str) -> bool:
+    def op_matches(cls, op_config: dict[str, Any], example: Any) -> bool:
         containing: bool = op_config.get("containing", False)
         case_sensitive: bool = op_config.get("case_sensitive", True)
         strip: bool = op_config.get("strip", True)

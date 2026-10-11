@@ -1,27 +1,28 @@
+from typing import Any, cast
+
 import torch
 
 from larry.common.data.preprocessing.pruners import Pruner
 from larry.common.utils.types import EncodedAudio
 from larry.voice.config.preprocessing.voice_pruner_configs import AudioDurationColumnPrunerConfig, \
     AudioQualityPrunerConfig, VoicePrunerConfig
-from larry.voice.data.preprocessing.alignment import Aligner
 from larry.voice.utils import bytes_to_waveforms
 
-_ALIGNERS: dict[str, Aligner] = {}
 
-
-class VoicePruner[I, C: VoicePrunerConfig = VoicePrunerConfig](Pruner[I, C]):
+class VoicePruner[C: VoicePrunerConfig = VoicePrunerConfig](Pruner[C]):
     ...
 
 
-class AudioDurationColumnPruner(VoicePruner[int | float, AudioDurationColumnPrunerConfig]):
-    def keep_example(self, example: int | float) -> bool:
-        return example < self.config.min_duration or example > self.config.max_duration
+class AudioDurationColumnPruner(VoicePruner[AudioDurationColumnPrunerConfig]):
+    def keep_example(self, example: dict[str, Any]) -> bool:
+        val = cast(float, example[self.config.input_columns[0]])
+        return val < self.config.min_duration or val > self.config.max_duration
 
 
-class AudioQualityPruner(VoicePruner[EncodedAudio, AudioQualityPrunerConfig]):
-    def keep_example(self, example: EncodedAudio) -> bool:
-        waveform = bytes_to_waveforms(example["bytes"], self.config.sample_rate)
+class AudioQualityPruner(VoicePruner[AudioQualityPrunerConfig]):
+    def keep_example(self, example: dict[str, Any]) -> bool:
+        audio: EncodedAudio = example[self.config.input_columns[0]]
+        waveform = bytes_to_waveforms(audio["bytes"], self.config.sample_rate)
 
         frame, hop = int(0.025 * self.config.sample_rate), int(0.010 * self.config.sample_rate)
 

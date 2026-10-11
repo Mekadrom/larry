@@ -13,6 +13,7 @@ class PrunerConfig(PreprocessorConfig):
 @dataclasses.dataclass(kw_only=True)
 class ColumnValuesPrunerConfig(PrunerConfig):
     op: Literal["matches", "nmatches", "in_range", "nin_range"]
+    multiple_inputs_behavior: Literal["any", "all"] = "any"
     op_config: dict[str, Any] = dataclasses.field(default_factory=lambda: {
         "containing": False,
         "case_insensitive": True,
