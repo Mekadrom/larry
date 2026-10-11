@@ -26,7 +26,7 @@ ZERO_ROWS = {
                 WHERE audio.bytes IS NULL
                    OR text_original IS NULL
                    OR speaker_id IS NULL
-                   OR ctc_mismatch IS NULL""",
+                   OR avg_word_score IS NULL""",
     "bad_times": """SELECT docket, start_s, end_s, duration_s
                     FROM seg
                     WHERE end_s <= start_s

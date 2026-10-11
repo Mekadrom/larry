@@ -5,6 +5,7 @@ import torch
 
 from larry.voice.config.preprocessing.voice_mapper_configs import SpeechSegmentationAligningMapperConfig
 from larry.voice.data.preprocessing.alignment import TokenTimeline, SpanScore
+from larry.voice.data.preprocessing.normalization import ABBREVIATIONS
 from larry.voice.data.preprocessing.transcript import TokenStream
 
 
@@ -54,7 +55,7 @@ class Segmenter:
             gap = 0.0
             if prev is not None:
                 prev_span = spans[prev]
-                if prev_span:
+                if prev_span is not None:
                     gap = cur_span.start - prev_span.end
 
             pause = self.config.max_pause_seconds is not None and gap > self.config.max_pause_seconds
@@ -64,7 +65,7 @@ class Segmenter:
                 stops = [
                     k
                     for k, c in enumerate(cur)
-                    if tokens[c].endswith((".", "?", "!"))
+                    if self._is_sentence_end(tokens[c])
                 ]
 
                 if pause or not stops:
@@ -86,6 +87,19 @@ class Segmenter:
             pieces.append(cur)
 
         return pieces
+
+    def _is_sentence_end(self, token: str) -> bool:
+        core = token.rstrip("\"')")
+        if not core.endswith((".", "?", "!")):
+            return False
+        if core.endswith("."):
+            base = core.lstrip("(\"'").rstrip(".").upper()
+            if base in ABBREVIATIONS:
+                return False
+            # a single-letter initial: "John J. Smith", "D. John Sauer"
+            if len(base) == 1 and base.isalpha():
+                return False
+        return True
 
     def _make_segment(self, piece: list[int], waveform: torch.Tensor) -> Segment | None:
         spans = self.timeline.spans

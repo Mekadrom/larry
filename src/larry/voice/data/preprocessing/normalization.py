@@ -58,7 +58,7 @@ _ROMAN_TRIGGERS = {"ARTICLE", "TITLE", "WAR", "SCHEDULE", "PHASE"}
 _ROMAN_VALUES = {"I": 1, "V": 5, "X": 10}
 
 _ABBREVIATIONS_NO_PERIOD = {"MR", "MRS", "V"}
-_ABBREVIATIONS: dict[str, list[str]] = {
+ABBREVIATIONS: dict[str, list[str]] = {
     "MR": ["MISTER"],
     "MRS": ["MISSUS"],
     "MS": ["MIZ", "MISS"],
@@ -236,13 +236,13 @@ class TextNormalizer:
         core = token.lstrip("(\"'").rstrip(",;:!?)\"'")
         has_period = core.endswith(".")
         key = core.rstrip(".").upper()
-        if key not in _ABBREVIATIONS:
+        if key not in ABBREVIATIONS:
             return None
         if not has_period and key not in _ABBREVIATIONS_NO_PERIOD:
             return None
         return [
             [word]
-            for word in _ABBREVIATIONS[key]
+            for word in ABBREVIATIONS[key]
         ]
 
     def _roman_readings(self, token: str, prev_token: str | None) -> list[list[str]] | None:
