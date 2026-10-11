@@ -183,9 +183,20 @@ class Pipeline:
         for mapper in self.pipeline:
             try:
                 mapper.log.info(f"columns in: {dataset.column_names}")
-                before = len(dataset)
+
+                if isinstance(dataset, Dataset):
+                    before = len(dataset)
+                elif isinstance(dataset, DatasetDict):
+                    before = {k: len(d) for k, d in dataset.items()}
+
                 dataset = mapper.preprocess_dataset(dataset)
-                mapper.log.info(f"num_seen={before}, num_out={len(dataset)}")
+
+                if isinstance(dataset, Dataset):
+                    mapper.log.info(f"num_seen={before}, num_out={len(dataset)}")
+                elif isinstance(dataset, DatasetDict):
+                    log_dataset_dict = {k: len(d) for k, d in dataset.items()}
+                    mapper.log.info(f"num_seen={before}, num_out={log_dataset_dict}")
+
                 mapper.log.info(f"columns out: {dataset.column_names}")
             except:
                 mapper.log.critical(f"Error during _preprocess_and_save_shards in mapper={mapper}")
