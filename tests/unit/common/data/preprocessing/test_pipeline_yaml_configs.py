@@ -113,3 +113,27 @@ def test_mapper_column_lists_have_no_duplicates(path: str, index: int, step: dic
 
     assert len(set(config.input_columns)) == len(config.input_columns), config.input_columns
     assert len(set(config.output_columns)) == len(config.output_columns), config.output_columns
+
+
+def _row_replacing_steps() -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    steps = []
+    for path in YAML_FILES:
+        definition = load_yaml_config(path) or {}
+        for step in definition.get("pipeline") or []:
+            if "copy_columns" in (step.get("inputs") or {}):
+                steps.append((str(path.relative_to(CONFIG_ROOT)), definition, step))
+    return steps
+
+
+ROW_REPLACING_STEPS = _row_replacing_steps()
+
+
+@pytest.mark.parametrize(("path", "definition", "step"), ROW_REPLACING_STEPS, ids=[p for p, _, _ in ROW_REPLACING_STEPS])
+def test_row_replacing_steps_carry_the_provenance_id_columns(
+        path: str, definition: dict[str, Any], step: dict[str, Any]
+) -> None:
+    id_columns = (((definition.get("preprocessor") or {}).get("inputs") or {}).get("provenance") or {}).get("id_columns")
+
+    missing = [c for c in id_columns or [] if c not in step["inputs"]["copy_columns"]]
+
+    assert not missing, f"{step['name']} drops provenance id_columns {missing}"
