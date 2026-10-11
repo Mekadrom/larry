@@ -1,4 +1,3 @@
-import functools
 from typing import Any
 
 import torch
@@ -9,8 +8,7 @@ from transformers import AutoTokenizer
 from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig
 from larry.common.data.preprocessing.mappers import SingleColumnMapper, UrlMapper
 from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
-    UrlTextMapperConfig, CTCTextNormalizingMapperConfig
-from larry.voice.data.preprocessing.normalization import TextNormalizer
+    UrlTextMapperConfig
 
 
 class TextMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperConfig](SingleColumnMapper[I, O, C]):

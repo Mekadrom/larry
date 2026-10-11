@@ -147,7 +147,7 @@ class TextNormalizer:
     def normalize_token(self, token: str, prev_token: str | None = None) -> list[list[str]]:
         """One original token -> zero or more CTC-alphabet words."""
 
-        roman = self.roman_readings(token, prev_token)
+        roman = self._roman_readings(token, prev_token)
         if roman is not None:
             return roman
 
@@ -171,7 +171,7 @@ class TextNormalizer:
 
         # try the token whole before splitting it
         bare = token.strip("(){}[]\"'.,;:!?")
-        readings = self.number_readings(bare)
+        readings = self._number_readings(bare)
         if len(readings) > 0:
             return [
                 r.split()
@@ -185,7 +185,7 @@ class TextNormalizer:
             if not piece:
                 continue
 
-            readings = self.number_readings(piece)
+            readings = self._number_readings(piece)
             if len(readings) > 0:
                 piece_options.append([
                     r.split()
@@ -213,7 +213,7 @@ class TextNormalizer:
 
         return self._combine(piece_options)
 
-    def roman_readings(self, token: str, prev_token: str | None) -> list[list[str]] | None:
+    def _roman_readings(self, token: str, prev_token: str | None) -> list[list[str]] | None:
         if prev_token is None:
             return None
         core = token.strip(".,;:!?()\"'")
@@ -252,7 +252,7 @@ class TextNormalizer:
             ]
         return readings
 
-    def number_readings(self, token: str) -> list[str]:
+    def _number_readings(self, token: str) -> list[str]:
         """Candidate spoken forms of a number token, most likely first; empty if not a number."""
         default = self.number_token(token)
         if default is None:

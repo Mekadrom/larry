@@ -1,0 +1,34 @@
+preprocessor:
+  inputs:
+    provenance:
+      id_columns:
+        - id
+        - chapter_id
+        - speaker_id
+
+dataset:
+  config: DefaultDatasetConfig
+  overrides:
+    path: openslr/librispeech_asr
+    name: all
+    split: validation.clean+validation.other
+    cache_dir: /home/zadar/.cache/larry/intermediates/voice/normalized/asr/openslr_librispeech-asr-normalized-asr-validation/
+
+pipeline:
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: "audio_no_decode"
+        file: ~
+  - name: AudioDurationMapper
+    config: AudioDurationMapperConfig
+    inputs:
+      batch_size: 8
+      writer_batch_size: 8
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      column_name_mappings:
+        duration: duration_s
+        text: text_normalized
