@@ -48,4 +48,4 @@ pipeline:
         - ctc_mismatch
       op: "in_range"
       op_config:
-        min_value: -4
+        max_value: 1
