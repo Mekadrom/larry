@@ -29,6 +29,7 @@ class SCOTUSTranscriptPdfTextMapperConfig(SingleColumnMapperConfig):
     docket_column: str = "docket"
     date_argued_column: str = "date_argued"
     output_column: str = "transcript"
+    reattributions_column: str = "reattributions"
 
 
 @dataclasses.dataclass(kw_only=True)

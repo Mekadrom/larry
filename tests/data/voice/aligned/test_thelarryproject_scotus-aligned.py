@@ -101,6 +101,13 @@ ZERO_ROWS = {
   )
                           ORDER BY a.docket, a.start_s;
                           """,
+    "19-292_corkran": """
+                      SELECT docket, start_s, speaker_id, text_original
+                      FROM seg
+                      WHERE docket = '19-292'
+                        AND starts_with(text_original, 'Oh, thank you, Your Honor.')
+                        AND speaker_id != 'scotus:adv:KELSI CORKRAN';
+                      """,
     # timing
     "time_travel": """
                    SELECT docket, start_s, prev_end

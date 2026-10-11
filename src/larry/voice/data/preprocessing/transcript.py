@@ -50,6 +50,7 @@ class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=
 
     turns: list[Turn]
     appearances: dict[str, str]
+    reattributions: list[tuple[str, str, str]]
 
     raw_text: str
     body_lines: list[str]

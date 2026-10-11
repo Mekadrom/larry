@@ -25,22 +25,22 @@ _LABEL_FIXES: dict[tuple[str, str], str] = {
     ("17-988", "Mr. SOTOMAYOR"): "JUSTICE SOTOMAYOR",
     ("22-800", "JUSTICE PRELOGAR"): "GENERAL PRELOGAR",
     ("11-551", "JUSTICE PHILLIPS"): "JUSTICE KENNEDY",
-    ("23-583", "MR. DEGER SEN"): "SAMIR DEGER-SEN",
-    ("15-5040", "MS. EISENSTEIN"): "RONALD EISENBERG",
-    ("24-416", "MS. ROSE"): "ERICA ROSS",
-    ("15-109", "MR. RAMIREZ"): "ROMAN MARTINEZ",
-    ("23-909", "MR. REIGN"): "ERIC FEIGIN",
-    ("11-889", "MR. CLEMENT"): "CHARLES ROTHFELD",
-    ("24-297", "MS. WILSON"): "SARAH HARRIS",
-    ("23-477", "MR. DAVIE"): "MATTHEW RICE",
-    ("12-930", "MR. MITCHELL"): "MARK FLEMING",
-    ("15-927", "MS. SULLIVAN"): "SETH WAXMAN",
-    ("12-416", "MR. KATZ"): "JEFFREY WEINBERGER",
-    ("14-844", "MR. KIMBERLY"): "ANTHONY SHELLEY",
-    ("14-844", "MR. SULLIVAN"): "NICOLE SAHARSKY",
-    ("10-6", "MS. BLATT"): "TED CRUZ",
-    ("13-9972", "MR. KELLER"): "SHANNON O'CONNOR",
-    ("10-879", "MS. SMITH"): "SARAH HARRINGTON",
+    ("23-583", "MR. DEGER SEN"): "MR. DEGER-SEN",
+    ("15-5040", "MS. EISENSTEIN"): "MR. EISENBERG",
+    ("24-416", "MS. ROSE"): "MS. ROSS",
+    ("15-109", "MR. RAMIREZ"): "MR. MARTINEZ",
+    ("23-909", "MR. REIGN"): "MR. FEIGIN",
+    ("11-889", "MR. CLEMENT"): "MR. ROTHFELD",
+    ("24-297", "MS. WILSON"): "MS. HARRIS",
+    ("23-477", "MR. DAVIE"): "MR. RICE",
+    ("12-930", "MR. MITCHELL"): "MR. FLEMING",
+    ("15-927", "MS. SULLIVAN"): "MR. WAXMAN",
+    ("12-416", "MR. KATZ"): "MR. WEINBERGER",
+    ("14-844", "MR. KIMBERLY"): "MR. SHELLEY",
+    ("14-844", "MR. SULLIVAN"): "MS. SAHARSKY",
+    ("10-6", "MS. BLATT"): "MR. CRUZ",
+    ("13-9972", "MR. KELLER"): "MR. O'CONNOR",
+    ("10-879", "MS. SMITH"): "MS. HARRINGTON",
 }
 _TITLE_FIX = re.compile(r"^(M\s?RS?|MS)(?:\s*\.\s*|\s+)(?=\S)", re.I)
 _LABEL_FIXES_ANY: dict[str, str] = {
@@ -63,6 +63,7 @@ class SCOTUSTranscriptPdfTextMapper(SingleColumnMapper[bytes, str, SCOTUSTranscr
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         transcripts = []
+        reattributions = []
         for pdf_bytes, docket, date_argued in zip(
                 batch[self.config.input_column],
                 batch[self.config.docket_column],
@@ -70,6 +71,7 @@ class SCOTUSTranscriptPdfTextMapper(SingleColumnMapper[bytes, str, SCOTUSTranscr
         ):
             tr = scotus_transcript.SCOTUSTranscript(SCOTUSTranscriptConfig(), docket, date_argued)
             tr.parse_from_raw(pdf_bytes_to_text(pdf_bytes))
+            reattributions.append(tr.reattributions)
 
             speaker_normalized_turns = []
             for turn in tr.turns:
@@ -81,6 +83,13 @@ class SCOTUSTranscriptPdfTextMapper(SingleColumnMapper[bytes, str, SCOTUSTranscr
             transcripts.append("\n".join(speaker_normalized_turns))
         return {
             self.config.output_column: transcripts,
+            self.config.reattributions_column: [
+                [
+                    {"before": before, "after": after, "text": text}
+                    for before, after, text in reattrs
+                ]
+                for reattrs in reattributions
+            ],
         }
 
     def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
@@ -91,6 +100,11 @@ class SCOTUSTranscriptPdfTextMapper(SingleColumnMapper[bytes, str, SCOTUSTranscr
             features.pop(column, None)
         features.update({
             self.config.output_column: Value("string"),
+            self.config.reattributions_column: [{
+                "before": Value("string"),
+                "after": Value("string"),
+                "text": Value("string"),
+            }]
         })
         return features
 

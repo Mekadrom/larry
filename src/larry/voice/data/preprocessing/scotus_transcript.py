@@ -189,7 +189,7 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
 
         self.flush_turn(speaker, speech_buffer, buf_line)
         self.load_appearances()
-        self.fix_sandwiched_advocates({
+        self.reattributions = self.fix_sandwiched_advocates({
             ("19-292", "Mr. Chief -- Mr. Chief Justice --"),
             ("19-465", "Yes, I would.")
         })
@@ -318,21 +318,19 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
             if text:
                 self.turns.append(transcript.Turn(speaker=speaker, text=text, line_start=buffer_line))
 
-    def fix_sandwiched_advocates(self, exceptions: set[tuple[str, str]]) -> None:
+    def fix_sandwiched_advocates(self, exceptions: set[tuple[str, str]]) -> list[tuple[str, str, str]]:
         advocate_indices = [
             i
             for i, turn in enumerate(self.turns)
-            if self.resolve_speaker(turn.speaker)[1] == "advocate"
+            if self.resolve_speaker(turn.speaker)[1] == "advocate" and not self._is_excepted(turn, exceptions)
         ]
+
+        reattributions: list[tuple[str, str, str]] = []
         for k in range(1, len(advocate_indices) - 1):
             prev_turn = self.turns[advocate_indices[k - 1]]
             turn = self.turns[advocate_indices[k]]
 
-            excepted = any(
-                docket == self.docket and turn.text.strip().startswith(prefix)
-                for docket, prefix in exceptions
-            )
-            if excepted:
+            if self._is_excepted(turn, exceptions):
                 continue
 
             next_turn = self.turns[advocate_indices[k + 1]]
@@ -343,10 +341,18 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
                 continue
             if (self.docket, turn.text.strip()[:40]) in exceptions:
                 continue
-            self.log.info(
+            self.log.warning(
                 f"{self.docket}: reattributing {turn.speaker!r} -> {prev_turn.speaker!r}: {turn.text[:60]!r}"
             )
+            reattributions.append((turn.speaker, prev_turn.speaker, turn.text[:60]))
             turn.speaker = prev_turn.speaker
+        return reattributions
+
+    def _is_excepted(self, turn: Turn, exceptions: set[tuple[str, str]]) -> bool:
+        return any(
+            docket == self.docket and turn.text.strip().startswith(prefix)
+            for docket, prefix in exceptions
+        )
 
     def resolve_speaker(self, speaker_raw: str) -> tuple[str, str]:
         up = speaker_raw.strip().rstrip(":").strip().upper()
