@@ -23,7 +23,7 @@ pipeline:
     inputs:
       op_config:
         values:
-          - "0"
+          - 0
       op: "matches"
       input_column: "down_votes"
   - name: ColumnValuesPruner

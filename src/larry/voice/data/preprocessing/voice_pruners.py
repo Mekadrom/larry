@@ -22,7 +22,7 @@ class AudioDurationColumnPruner(VoicePruner[AudioDurationColumnPrunerConfig]):
 class AudioQualityPruner(VoicePruner[AudioQualityPrunerConfig]):
     def keep_example(self, example: dict[str, Any]) -> bool:
         audio: EncodedAudio = example[self.config.input_columns[0]]
-        waveform = bytes_to_waveforms(audio["bytes"], self.config.sample_rate)
+        waveform = bytes_to_waveforms(audio["bytes"], self.config.sample_rate)[0]
 
         frame, hop = int(0.025 * self.config.sample_rate), int(0.010 * self.config.sample_rate)
 

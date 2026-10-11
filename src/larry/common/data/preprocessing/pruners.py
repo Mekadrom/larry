@@ -34,8 +34,12 @@ class Pruner[C: PrunerConfig = PrunerConfig](Preprocessor[C]):
             keep.append(self._keep_example(row))
         return keep
 
-    def _keep_example(self, example: dict[str, Any] | None) -> bool:
-        if example is None:
+    def _keep_example(self, example: dict[str, Any]) -> bool:
+        has_null = any(
+            v is None
+            for v in example.values()
+        )
+        if has_null:
             return not self.config.prune_nulls
         return self.keep_example(example)
 
@@ -73,17 +77,26 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
         strip: bool = op_config.get("strip", True)
         values: list[Any | None] = op_config.get("values", [])
 
-        if strip and isinstance(example, str):
-            example = example.strip()
+        example_str = str(example)
 
-        if not case_sensitive and isinstance(example, str):
-            example = str(example).lower()
+        if strip:
+            example_str = example_str.strip()
+
+        if not case_sensitive:
+            example_str = example_str.lower()
 
         for allowed_value in values:
-            if isinstance(allowed_value, str) and not case_sensitive:
-                allowed_value = str(allowed_value).lower()
-            if example == allowed_value or (allowed_value is not None and (containing and allowed_value in example)):
+            allowed_str = str(allowed_value)
+
+            if strip:
+                allowed_str = allowed_str.lower()
+
+            if not case_sensitive:
+                allowed_str = allowed_str.lower()
+
+            if example_str == allowed_str or (allowed_str is not None and (containing and allowed_str in example_str)):
                 return True
+            
         return False
 
     @classmethod
