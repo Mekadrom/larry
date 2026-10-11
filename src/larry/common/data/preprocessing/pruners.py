@@ -96,7 +96,7 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
 
             if example_str == allowed_str or (allowed_str is not None and (containing and allowed_str in example_str)):
                 return True
-            
+
         return False
 
     @classmethod

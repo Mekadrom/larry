@@ -54,6 +54,9 @@ _SPEAKER = re.compile(r"^(?!RCRA:)([A-Z](?:[^\W\d_]|[.'&/ -]){1,43}):(?:\s+(.*))
 
 _APPEARANCES = re.compile(r"^APPEARANCES\s*:?\s*$", re.IGNORECASE)
 _APPEARANCE_NAME = re.compile(r"^((?:[^\W\d_]|[.'\- ]){4,60}?(?:,\s*(?:JR|SR|I{1,3}|IV)\.?)?),\s")
+_ARGUMENT_OF_NAME = re.compile(
+    r"^(?:(?:ORAL|REBUTTAL|REDIRECT|CONTINUED|FURTHER)\s+)*ARGUMENT\s+(?:OF|BY)\s+(.+?)\s*(?:,\s*ESQ\.?|ON\s+BEHALF\b|$)"
+)
 
 _BENCH = [
     ("CHIEF JUSTICE ROBERTS", date(2005, 9, 29), None),
@@ -219,6 +222,13 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
                 full = re.sub(r"\s+", " ", m.group(1)).strip()
                 for key in self._name_keys(full):
                     self.appearances.setdefault(key, full)
+        for ln in self.body_lines:
+            m = _ARGUMENT_OF_NAME.match(ln)
+            if m is None:
+                continue
+            full = re.sub(r"\s+", " ", m.group(1)).strip()
+            for key in self._name_keys(full):
+                self.appearances.setdefault(key, full)
 
     @staticmethod
     def _name_keys(full: str) -> set[str]:
