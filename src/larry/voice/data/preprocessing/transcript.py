@@ -126,9 +126,10 @@ class NormalizedTokens:
     def __init__(self, tokens: list[str], normalizer: TextNormalizer) -> None:
         self.tokens = tokens
         self.readings = [
-            normalizer.normalize_token(token)
-            for token in tokens
+            normalizer.normalize_token(token, prev_token)
+            for token, prev_token in zip(tokens, [None] + tokens)
         ]
+
         self.choice = [0] * len(self.readings)
         self.rebuild()
 

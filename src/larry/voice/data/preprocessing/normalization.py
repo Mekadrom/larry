@@ -1,6 +1,5 @@
 import re
 import unicodedata
-from abc import ABC
 
 VOCAB_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ'")
 
@@ -53,6 +52,9 @@ _SYMBOL = {
     "=": " EQUALS ",
     "°": " DEGREES ",
 }
+_ROMAN = re.compile(r"(X{0,3})(IX|IV|V?I{0,3})")
+_ROMAN_TRIGGERS = {"ARTICLE", "TITLE", "WAR", "SCHEDULE", "PHASE"}
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10}
 
 
 def cardinal(n):
@@ -129,19 +131,26 @@ def pairs(s: str) -> str:
     return head + " " + cardinal(lo)
 
 
-class TextNormalizer:
-    def normalize_stream(self, tokens: list[str]) -> tuple[list[str], list[int]]:
-        """(normalized words, owner index into `tokens` for each normalized word)."""
-        words = []
-        owner = []
-        for i, tok in enumerate(tokens):
-            for w in self.normalize_token(tok)[0]:
-                words.append(w)
-                owner.append(i)
-        return words, owner
+def roman_value(numeral: str) -> int:
+    total = 0
+    for i, symbol in enumerate(numeral):
+        value = _ROMAN_VALUES[symbol]
+        is_subtractive = i + 1 < len(numeral) and _ROMAN_VALUES[numeral[i + 1]] > value
+        if is_subtractive:
+            total -= value
+        else:
+            total += value
+    return total
 
-    def normalize_token(self, token: str) -> list[list[str]]:
+
+class TextNormalizer:
+    def normalize_token(self, token: str, prev_token: str | None = None) -> list[list[str]]:
         """One original token -> zero or more CTC-alphabet words."""
+
+        roman = self.roman_readings(token, prev_token)
+        if roman is not None:
+            return roman
+
         token = unicodedata.normalize("NFKD", token)
         token = "".join([
             c
@@ -203,6 +212,23 @@ class TextNormalizer:
                 piece_options.append([[word]])
 
         return self._combine(piece_options)
+
+    def roman_readings(self, token: str, prev_token: str | None) -> list[list[str]] | None:
+        if prev_token is None:
+            return None
+        core = token.strip(".,;:!?()\"'")
+        if len(core) == 0 or _ROMAN.fullmatch(core) is None:
+            return None
+        prev = prev_token.strip(".,;:!?()\"'")
+        value = roman_value(core)
+        if prev.upper() in _ROMAN_TRIGGERS:
+            return [cardinal(value).split()]
+        if len(core) >= 2 and prev[:1].isupper():
+            return [
+                cardinal(value).split(),
+                ["THE"] + ordinal(value).split(),
+            ]
+        return None
 
     def _combine(self, piece_options: list[list[list[str]]]) -> list[list[str]]:
         ambiguous = [
