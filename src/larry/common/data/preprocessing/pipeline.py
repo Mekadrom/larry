@@ -33,6 +33,7 @@ class Pipeline:
         """Instantiates a ``Runner`` and the configs specified for this preprocessing pipeline run."""
         self.log = logging.getLogger(__name__)
         self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
 
         self.log.info(f"Loading pipeline config from yaml config_file={config_file}")
         definition = load_yaml_config(config_file)
@@ -103,7 +104,7 @@ class Pipeline:
                 f"for preprocessor_type_name={preprocessor_type_name}"
             )
 
-            preprocessor_config_overrides = preprocessor_config.get("inputs", [])
+            preprocessor_config_overrides = preprocessor_config.get("inputs", {})
             self.log.info(f"Applying preprocessor_config_overrides={preprocessor_config_overrides}")
             preprocessor_config = preprocessor_config_type(**preprocessor_config_overrides)
 
@@ -162,7 +163,6 @@ class Pipeline:
 
         torch.set_num_threads(1)
 
-        os.makedirs(self.output_dir, exist_ok=True)
         if isinstance(dataset, DatasetDict):
             for _, split_ds in dataset.items():
                 self._preprocess_and_save_shards(split_ds)
