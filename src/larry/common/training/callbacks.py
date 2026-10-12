@@ -13,17 +13,6 @@ class TrainingCallback:
     def on_step_end(self, trainer: trainers.TrainerBase, train_loss: torch.Tensor, step: int) -> MetricDict | None:
         return None
 
-    def on_epoch_begin(self, trainer: trainers.TrainerBase, epoch: int) -> MetricDict | None:
-        return None
-
-    def on_epoch_end(
-            self,
-            trainer: trainers.TrainerBase,
-            eval_loss: torch.Tensor | None,
-            epoch: int
-    ) -> MetricDict | None:
-        return None
-
 
 class ModelInitLoggingCallback(TrainingCallback):
     def __init__(self) -> None:

@@ -174,7 +174,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         })
 
     def mutate_provenance(self) -> None:
-        self.provenance.ancestry.models.append(self.config.aligner_config.model_id)
+        self.provenance.ancestry.models.update(self.config.aligner_config.model_id)
 
     @abstractmethod
     def make_normalizer(self) -> TextNormalizer:
@@ -265,7 +265,7 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
                 scores[i] = aligner.mismatch_score(emission, forced)
 
     def mutate_provenance(self) -> None:
-        self.provenance.ancestry.models.append(self.config.aligner_config.model_id)
+        self.provenance.ancestry.models.update(self.config.aligner_config.model_id)
 
     def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
         if self.config.text_output_column is not None:

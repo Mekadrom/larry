@@ -12,7 +12,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 from larry.common.config.criteria.criterion_configs import TeacherForcedVocabularyCrossEntropyCriterionConfig
 from larry.common.criteria.criterion import Criterion
 from larry.common.criteria.teacher_forced_vocabulary_ce_criterion import TeacherForcedVocabularyCrossEntropyCriterion
-from larry.common.metrics.metrics import Metrics, AggregateMetricEntry, MetricDict
+from larry.common.metrics.metrics import Metrics, MetricDict
 from larry.common.training.trainers import LarryTrainer, VizCallback, StepOutput
 from larry.text.config.model.text_model_configs import SmokeTestLLMModelConfig
 from larry.text.config.training.text_trainer_configs import TextTrainerConfig, SmokeTestLLMTrainerConfig
@@ -63,7 +63,6 @@ class SmokeTestLLMTrainer(TextTrainer[SmokeTestLLM, SmokeTestLLMTrainerConfig]):
             resume_dir: str | None = None
     ) -> None:
         super().__init__(model, config, metrics, resume_dir=resume_dir)
-        self.tokens_seen = AggregateMetricEntry(tag="train/total_tokens", average_reduce="none")
 
     @staticmethod
     def build_token_stream(rows: list[list[int]], eos_id: int) -> np.ndarray:
@@ -77,12 +76,12 @@ class SmokeTestLLMTrainer(TextTrainer[SmokeTestLLM, SmokeTestLLMTrainerConfig]):
 
     def train_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
         if self.tokenizer is not None:
-            self.tokens_seen.add_((batch["input_ids"] != self.tokenizer.pad_token_id).sum().item())
+            self.count_tokens(int((batch["input_ids"] != self.tokenizer.pad_token_id).sum().item()))
         return self._forward_pass(batch)
 
     def on_step_end(self, train_loss: torch.Tensor, step: int) -> MetricDict:
         if step % self.config.logging_steps == 0:
-            self.metrics.add_scalar("train/loss_by_tokens", train_loss.item(), int(self.tokens_seen.value))
+            self.metrics.add_scalar("train/loss_by_tokens", train_loss.item(), self.sync_tokens_seen())
         return self._callback_func(lambda c: c.on_step_end, train_loss, step)
 
     def make_dataset_dict(self) -> Mapping[str, Dataset]:

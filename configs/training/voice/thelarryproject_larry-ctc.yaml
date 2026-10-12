@@ -6,35 +6,60 @@ model:
   config: SpeechTokenizerModelConfig
 
 trainer:
-  name: SmokeTestLLMTrainer
-  config: SmokeTestLLMTrainerConfig
+  name: SpeechTokenizerTrainer
+  config: SpeechTokenizerTrainerConfig
   overrides:
-    num_epochs: 1
+    tokenizer_model_path: ""
+    muon_last_layer_names:
+      - ctc_head.weight
+    max_steps: 100000
+    eval_steps: 2000
     viz_steps: 1000
     dataset_config:
       sample_rate: 16000
       max_batch_seconds: 400
-      pool_size: 20000
+      pool_size: 10000
       train_sources:
-        - path: "parquet"
-          index_path: "/home/zadar/.cache/larry/datasets/voice/index/mythicinfinity_libriheavy-index/"
-          source_path: "/home/zadar/.cache/larry/datasets/voice/normalized/mythicinfinity_libriheavy-normalized/"
+        - name: libriheavy-index-asr
+          index_path: /home/zadar/.cache/larry/datasets/voice/index/asr/mythicinfinity_libriheavy-large-index/
+          source_path: mythicinfinity/libriheavy
           source_name: large
-          weight: 0.70
-        - path: "parquet"
-          index_path: "/home/zadar/.cache/larry/datasets/voice/index/thelarrypropject_cv27-index/"
-          source_path: "/home/zadar/.cache/larry/datasets/voice/normalized/thelarrypropject_cv27-normalized/"
+          source_split: train
+          weight: 0.65
+        - name: cv27-index-asr
+          index_path: /home/zadar/.cache/larry/datasets/voice/index/asr/thelarryproject_cv27-index/
+          source_path: /home/zadar/.cache/larry/datasets/voice/normalized/asr/thelarrypropject_cv27-normalized/
           weight: 0.13
-        - path: "parquet"
-          index_path: "/home/zadar/.cache/larry/datasets/voice/index/thelarryproject_scotus-index/"
-          source_path: "/home/zadar/.cache/larry/datasets/voice/aligned/thelarryproject_scotus-aligned/"
+        - name: scotus-normalized-asr
+          index_path: /home/zadar/.cache/larry/datasets/voice/normalized/asr/thelarryproject_scotus-normalized-asr/
+          split: train
           weight: 0.12
-        - path: "parquet"
-          index_path: "/home/zadar/.cache/larry/datasets/voice/index/thelarryproject_vctk-index/"
-          source_path: "/home/zadar/.cache/larry/datasets/voice/normalized/thelarryproject_vctk-normalized/"
+        - name: vctk-normalized-asr
+          index_path: /home/zadar/.cache/larry/datasets/voice/normalized/asr/thelarryproject_vctk-normalized-asr/
+          weight: 0.05
+        - name: hifi-tts-all-normalized-asr
+          index_path: /home/zadar/.cache/larry/datasets/voice/normalized/asr/mikhailt_hifi-tts-all-normalized-asr/
+          weight: 0.05
+        - name: lj-speech-normalized-asr
+          index_path: /home/zadar/.cache/larry/datasets/voice/normalized/asr/mikhailt_lj-speech-normalized-asr/
           weight: 0.05
       eval_sources:
-        - path: "parquet"
-          index_path: "/home/zadar/.cache/larry/datasets/voice/index/mythicinfinity_libriheavy-index/"
-          source_path: "/home/zadar/.cache/larry/datasets/voice/normalized/mythicinfinity_libriheavy-normalized/"
+        - name: librispeech-asr-normalized-asr-validation
+          index_path: /home/zadar/.cache/larry/datasets/voice/normalized/asr/openslr_librispeech-asr-normalized-asr-validation/
+          weight: 0.13
+        - name: libriheavy-index-asr
+          index_path: /home/zadar/.cache/larry/datasets/voice/index/asr/mythicinfinity_libriheavy-test_clean_large-index/
+          source_path: mythicinfinity/libriheavy
+          source_name: test_clean_large
+          source_split: train
+          weight: 0.25
+        - name: libriheavy-index-asr
+          index_path: /home/zadar/.cache/larry/datasets/voice/index/asr/mythicinfinity_libriheavy-test_other_large-index/
+          source_path: mythicinfinity/libriheavy
+          source_name: test_other_large
+          source_split: train
+          weight: 0.25
+        - name: scotus-normalized-asr-validation
+          index_path: /home/zadar/.cache/larry/datasets/voice/normalized/asr/thelarryproject_scotus-normalized-asr/
           split: validation
+          weight: 0.12

@@ -7,13 +7,13 @@ from larry.common.utils import git_utils
 
 @dataclasses.dataclass(kw_only=True)
 class ProvenanceAncestry:
-    datasets: list[str]
-    models: list[str]
+    datasets: set[str]
+    models: set[str]
 
     @classmethod
     def new_ancestry(cls, dictionary: dict[str, Any]) -> Self:
-        datasets = dictionary.get("datasets", [])
-        models = dictionary.get("models", [])
+        datasets = dictionary.get("datasets", set())
+        models = dictionary.get("models", set())
         return cls(datasets=datasets, models=models)
 
 

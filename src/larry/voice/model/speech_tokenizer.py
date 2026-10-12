@@ -105,7 +105,10 @@ class LogMelFrontend(nn.Module):
 
     def forward(self, waveforms: torch.Tensor, lengths: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         with torch.autocast(device_type=waveforms.device.type, enabled=False):
-            mels = self.mel(waveforms.float()).clamp(min=1e-10).log()  # [B, n_mels, T]
+            mels = self.mel(waveforms.float()).clamp(min=1e-10).log10()  # [B, n_mels, T]
+            # whisper-style norm
+            mels = torch.maximum(mels, mels.amax(dim=(1, 2), keepdim=True) - 8.0)
+            mels = (mels + 4.0) / 4.0
         mel_lengths = lengths // self.hop_length + 1
         return mels, mel_lengths
 
@@ -115,6 +118,8 @@ class SpeechTokenizerModel(VoiceModel[SpeechTokenizerModelConfig]):
         super().__init__(config)
 
         encoder_config = dataclasses.replace(config, is_causal=False)
+
+        self.frontend = LogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
 
         self.encoder1 = SpeechEncoderPreBottleneck(encoder_config)
         self.fsq = FSQ(config.d_model, dims=config.fsq_dims, levels=config.fsq_levels)
@@ -126,8 +131,6 @@ class SpeechTokenizerModel(VoiceModel[SpeechTokenizerModelConfig]):
         self.encoder2_norm = nn.LayerNorm(config.d_model)
 
         self.ctc_head = nn.Linear(config.d_model, config.text_vocab_size + 1)
-
-        self.frontend = LogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
 
     def forward(self, waveforms: torch.Tensor, waveform_lengths: torch.Tensor) -> LarrySpeechTokenizerModelOutput:
         mels, mel_lengths = self.frontend(waveforms, waveform_lengths)

@@ -10,7 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 
 from larry.common.config.criteria.criterion_configs import CTCCriterionConfig
 from larry.common.criteria.criterion import Criterion
-from larry.common.metrics.metrics import Metrics, AggregateMetricEntry, MetricDict
+from larry.common.metrics.metrics import MetricDict
 from larry.common.training.trainers import LarryTrainer, VizCallback, StepOutput
 from larry.text.tokenizer.text_tokenizer import SentencePieceTokenizer, TextTokenizer
 from larry.voice.config.model.voice_model_configs import SpeechTokenizerModelConfig
@@ -31,23 +31,12 @@ class VoiceTrainer[M: VoiceModel, C: VoiceTrainerConfig = VoiceTrainerConfig](La
 class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerTrainerConfig]):
     model_config: SpeechTokenizerModelConfig
 
-    def __init__(
-            self,
-            model: SpeechTokenizerModel,
-            config: SpeechTokenizerTrainerConfig,
-            metrics: Metrics,
-            resume_dir: str | None = None
-    ) -> None:
-        self.train_sampler: WeightedBucketBatchSampler | None = None
-        super().__init__(model, config, metrics, resume_dir=resume_dir)
-        self.tokens_seen = AggregateMetricEntry(tag="train/total_tokens", average_reduce="none")
-
     @functools.cached_property
     def tokenizer(self) -> TextTokenizer:
         return SentencePieceTokenizer(self.config.tokenizer_model_path)
 
     def train_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
-        self.tokens_seen.add_(batch["target_lengths"].sum().item())
+        self.count_tokens(batch["n_target_tokens"])
         return self._forward_pass(batch)
 
     def _forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
@@ -57,7 +46,7 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
 
     def on_step_end(self, train_loss: torch.Tensor, step: int) -> MetricDict:
         if step % self.config.logging_steps == 0:
-            self.metrics.add_scalar("train/loss_by_tokens", train_loss.item(), int(self.tokens_seen.value))
+            self.metrics.add_scalar("train/loss_by_tokens", train_loss.item(), self.sync_tokens_seen())
         return self._callback_func(lambda c: c.on_step_end, train_loss, step)
 
     def make_viz_callback(self, viz_steps: int) -> VizCallback:
@@ -111,7 +100,7 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
             source.weight
             for source in self.config.mixture_config.train_sources
         ]
-        self.train_sampler = WeightedBucketBatchSampler(
+        sampler = WeightedBucketBatchSampler(
             source_ids,
             durations,
             weights,
@@ -121,7 +110,7 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
         )
         return DataLoader(
             train,
-            batch_sampler=self.train_sampler,
+            batch_sampler=sampler,
             collate_fn=self.make_collate_fn(),
             num_workers=self.config.num_dataloader_workers,
             persistent_workers=self.config.num_dataloader_workers > 0,
@@ -150,9 +139,3 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
 
     def make_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
         return SpeechCTCCollator(self.tokenizer)
-
-    def on_epoch_begin(self, epoch: int) -> MetricDict:
-        # don't rely on accelerate forwarding set_epoch through its batch-sampler wrapper
-        if self.train_sampler is not None:
-            self.train_sampler.set_epoch(epoch)
-        return super().on_epoch_begin(epoch)

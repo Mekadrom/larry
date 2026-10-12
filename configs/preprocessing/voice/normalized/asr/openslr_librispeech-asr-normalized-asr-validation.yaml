@@ -20,7 +20,7 @@ pipeline:
     inputs:
       column_casts:
         audio: "audio_no_decode"
-        file: ~
+        file: id
   - name: AudioDurationMapper
     config: AudioDurationMapperConfig
     inputs:

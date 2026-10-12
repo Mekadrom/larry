@@ -8,7 +8,7 @@ from torch import nn
 
 from larry.common.config.model.model_configs import AttentionModuleConfig, FSMNAttentionConfig
 from larry.common.model.kv_cache import KVCache
-from larry.common.optim.qk_clip import QKModule
+from larry.common.training.qk_clip import QKModule
 
 
 class LarryAttention(nn.Module, QKModule):

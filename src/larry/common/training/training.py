@@ -47,7 +47,7 @@ class Training:
         model_config_dict: dict[str, Any] = definition.get("model", {})
         model_type_name = model_config_dict.get("name")
 
-        trainer_config = self._build_trainer_config(trainer_config_dict)
+        self.trainer_config = self._build_trainer_config(trainer_config_dict)
         model_config = self._build_model_config(model_config_dict)
 
         state = PartialState()
@@ -57,10 +57,10 @@ class Training:
         model = model_type(model_config)
 
         trainer_type = trainers.TrainerBase.REGISTRY.resolve(trainer_type_name)
-        self.trainer = trainer_type(model, trainer_config, metrics, resume_dir=resume_dir)
+        self.trainer = trainer_type(model, self.trainer_config, metrics, resume_dir=resume_dir)
 
         self.log.info(f"trainer={self.trainer}")
-        self.log.info(f"trainer_config={trainer_config}")
+        self.log.info(f"trainer_config={self.trainer_config}")
 
     def _build_trainer_config(self, trainer_config_dict: dict[str, Any]) -> LarryTrainerConfig:
         trainer_config_type_name = trainer_config_dict.get("config")

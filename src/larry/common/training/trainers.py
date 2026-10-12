@@ -1,14 +1,13 @@
 import dataclasses
 import functools
 import logging
-import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sized
 from pathlib import Path
 from typing import Any, ClassVar, Self, cast, Concatenate
 
 import torch
-from accelerate import Accelerator, DataLoaderConfiguration
+from accelerate import Accelerator
 from accelerate.data_loader import DataLoaderShard
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
@@ -21,9 +20,10 @@ from tqdm import tqdm
 
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.common.criteria import criterion
+from larry.common.data.samplers import ResumableBatchSampler, ShuffledBatchSampler
 from larry.common.metrics.metrics import MetricDict, Metrics, ScalarMetricEntry
-from larry.common.optim.qk_clip import QKClipHandler, QKClipCallback
 from larry.common.training.callbacks import TrainingCallback, ModelInitLoggingCallback
+from larry.common.training.qk_clip import QKClipHandler, QKClipCallback
 from larry.common.training.training_model import LarryModel
 from larry.common.training.viz_callbacks import VizCallback
 from larry.common.utils import git_utils
@@ -65,7 +65,14 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         train_loader = self.make_train_dataloader(dataset_dict)
         eval_loader = self.make_eval_dataloader(dataset_dict)
 
-        self.total_steps = math.ceil(len(train_loader) / self.config.gradient_accumulation) * self.config.num_epochs
+        if not isinstance(train_loader.batch_sampler, ResumableBatchSampler):
+            raise TypeError(
+                f"the train dataloader's batch_sampler must be a ResumableBatchSampler, "
+                f"got {type(train_loader.batch_sampler).__name__}"
+            )
+        self.train_batch_sampler = train_loader.batch_sampler
+
+        self.total_steps = self.config.max_steps
 
         optimizers = self.make_optimizers(model)  # e.g. [muon, adamw]
         schedulers = [self.make_lr_scheduler(o) for o in optimizers]
@@ -73,7 +80,6 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         self.accelerator = Accelerator(
             mixed_precision=self.config.mixed_precision,
             gradient_accumulation_steps=self.config.gradient_accumulation,
-            dataloader_config=DataLoaderConfiguration(use_seedable_sampler=True),
         )
         self._model, self.train_loader, self.eval_loader, *rest = self.accelerator.prepare(
             model, train_loader, eval_loader, *optimizers, *schedulers
@@ -91,7 +97,11 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         self.log.info(f"self.schedulers={self.schedulers}")
 
         self.train_state = TrainState()
+        self._pending_tokens = 0
         self.load(resume_dir)
+        self.train_batch_sampler.start_at(
+            self.train_state.global_step * self.config.gradient_accumulation * self.accelerator.num_processes
+        )
 
         self.metrics = metrics
 
@@ -177,6 +187,15 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         if resume_dir:
             self.accelerator.load_state(resume_dir)
 
+    def count_tokens(self, n_tokens: int) -> None:
+        self._pending_tokens += n_tokens
+
+    def sync_tokens_seen(self) -> int:
+        pending = torch.tensor(self._pending_tokens, dtype=torch.long, device=self.accelerator.device)
+        self.train_state.tokens_seen += int(self.accelerator.reduce(pending, reduction="sum").item())
+        self._pending_tokens = 0
+        return self.train_state.tokens_seen
+
     def add_default_training_callbacks(self) -> None:
         if self.config.optimizer_name == "muon":
             self.training_callbacks.append(self._make_qk_clip_callback(self.model))
@@ -193,35 +212,22 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         ))
 
     def run(self) -> None:
-        steps_per_epoch = math.ceil(len(self.train_loader) / self.accelerator.gradient_accumulation_steps)
-        with tqdm(initial=self.train_state.global_step,
-                  total=steps_per_epoch * self.config.num_epochs,
-                  disable=not self.accelerator.is_local_main_process) as pbar:
-            for epoch in range(self.train_state.epoch, self.config.num_epochs):
-                self.train_state.epoch = epoch
-                self.train_loader.set_epoch(epoch)
-
-                self.on_epoch_begin(epoch)
-
-                self.train(pbar=pbar, skip_steps=self.train_state.step_in_epoch)
-                self.train_state.step_in_epoch = 0
-
-                eval_loss = None
-                if self.config.eval_steps is None:
-                    eval_loss = self.evaluate()
-
-                self.on_epoch_end(eval_loss, epoch)
+        with tqdm(
+                initial=self.train_state.global_step,
+                total=self.config.max_steps,
+                disable=not self.accelerator.is_local_main_process
+        ) as pbar:
+            self.train(pbar=pbar)
 
         self.save(self.train_state.global_step)
 
-    def train(self, pbar: tqdm, skip_steps: int) -> None:
+    def train(self, pbar: tqdm) -> None:
         self.model.train()
 
-        skip = skip_steps * self.accelerator.gradient_accumulation_steps
-        # noinspection PyTypeChecker
-        loader = self.accelerator.skip_first_batches(self.train_loader, skip) if skip else self.train_loader
+        for batch in self.train_loader:
+            if self.train_state.global_step >= self.config.max_steps:
+                break
 
-        for batch in loader:
             metrics_step = self.train_state.global_step
 
             step_metrics = MetricDict()
@@ -262,17 +268,15 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         self._step_open = False
         step_metrics.update(self.on_step_end(loss, step))
 
+        self.train_state.global_step += 1
+
         if step % self.config.save_steps == 0:
-            path = Path(self.metrics.log_dir).expanduser().resolve() / f"checkpoint-{step}"
-            self.accelerator.save_state(str(path))
+            self.sync_tokens_seen()
             self.save(step)
 
         if self.config.eval_steps is not None and step % self.config.eval_steps == 0:
             self.evaluate()
             self.model.train()
-
-        self.train_state.global_step += 1
-        self.train_state.step_in_epoch += 1
 
         return step_metrics
 
@@ -332,6 +336,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         return stats
 
     def save(self, step: int) -> None:
+        self.sync_tokens_seen()
         path = Path(self.metrics.log_dir).expanduser().resolve() / f"checkpoint-{step}"
         self.accelerator.save_state(str(path))
 
@@ -340,12 +345,6 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
     def on_step_end(self, train_loss: torch.Tensor, step: int) -> MetricDict:
         return self._callback_func(lambda c: c.on_step_end, train_loss, step)
-
-    def on_epoch_begin(self, epoch: int) -> MetricDict:
-        return self._callback_func(lambda c: c.on_epoch_begin, epoch)
-
-    def on_epoch_end(self, eval_loss: torch.Tensor | None, epoch: int) -> MetricDict:
-        return self._callback_func(lambda c: c.on_epoch_end, eval_loss, epoch)
 
     def _callback_func[**P](
             self,
@@ -400,9 +399,8 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
 class TrainState:
     def __init__(self) -> None:
-        self.epoch = 0
-        self.step_in_epoch = 0
         self.global_step = 0
+        self.tokens_seen = 0
 
     def state_dict(self) -> dict[str, Any]:
         return vars(self).copy()
@@ -418,11 +416,12 @@ class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Tr
         return load_dataset(**self.config.dataset_config)
 
     def make_train_dataloader(self, dataset: Mapping[str, Dataset]) -> DataLoader:
+        train = dataset["train"]
         return DataLoader(
-            dataset["train"],
-            shuffle=True,
-            batch_size=self.config.train_batch_size,
-            drop_last=True,
+            train,
+            batch_sampler=ShuffledBatchSampler(
+                len(cast(Sized, train)), self.config.train_batch_size, self.config.seed
+            ),
             collate_fn=self.make_collate_fn(),
             num_workers=self.config.num_dataloader_workers,
         )

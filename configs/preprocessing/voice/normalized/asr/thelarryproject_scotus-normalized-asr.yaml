@@ -13,6 +13,8 @@ dataset:
     cache_dir: /home/zadar/.cache/larry/intermediates/voice/normalized/asr/thelarryproject_scotus-normalized-asr/
 
 pipeline:
+  - name: RowIndexAssigningPreprocessor
+    config: RowIndexAssigningPreprocessorConfig
   - name: ColumnCastingPreprocessor
     config: ColumnCastingPreprocessorConfig
     inputs:
