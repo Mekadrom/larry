@@ -309,7 +309,7 @@ class CompositeIDMapper(Mapper[CompositeIDMapperConfig]):
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         input_columns = [batch[c] for c in self.config.input_columns]
         return {
-            self.config.id_column: [
+            self.config.id_output_column: [
                 ":".join(str(i) for i in example_inputs)
                 for example_inputs in zip(*input_columns)
             ]

@@ -6,9 +6,7 @@ from typing import Any
 from accelerate import PartialState
 from datasets.load import camelcase_to_snakecase
 
-from larry.common.config.model.model_configs import ModelConfig
-from larry.common.config.training import build_trainer_config
-from larry.common.config.training.trainer_configs import LarryTrainerConfig
+from larry.common.config.training import build_model_config, build_trainer_config
 from larry.common.config.training.training_config import TrainingConfig
 from larry.common.metrics.metrics import Metrics, WandBMetrics, TensorBoardMetrics, NoneMetrics
 from larry.common.training import trainers
@@ -49,7 +47,7 @@ class Training:
         model_type_name = model_config_dict.get("name")
 
         self.trainer_config = build_trainer_config(trainer_config_dict)
-        model_config = self._build_model_config(model_config_dict)
+        model_config = build_model_config(model_config_dict)
 
         state = PartialState()
         metrics = _metrics[metrics_backend](log_dir) if state.is_main_process else NoneMetrics(log_dir=log_dir)
@@ -62,20 +60,6 @@ class Training:
 
         self.log.info(f"trainer={self.trainer}")
         self.log.info(f"trainer_config={self.trainer_config}")
-
-    def _build_model_config(self, model_config_dict: dict[str, Any]) -> ModelConfig:
-        model_config_type_name = model_config_dict.get("config")
-        model_config_type = ModelConfig.REGISTRY.resolve(model_config_type_name)
-
-        self.log.info(f"Using model_config_type_name={model_config_type_name}.")
-
-        model_config_overrides = model_config_dict.get("overrides", [])
-        self.log.info(f"Applying trainer_config_overrides={model_config_overrides}")
-
-        model_config = model_config_type(
-            **{i["name"]: i["value"] for i in model_config_overrides}
-        )
-        return model_config
 
     def run(self) -> None:
         """Runs preprocessing."""

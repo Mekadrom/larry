@@ -30,3 +30,9 @@ pipeline:
     config: CTCScoreMapperConfig
     inputs:
       text_column: text_original
+  - name: CompositeIDMapper
+    config: CompositeIDMapperConfig
+    inputs:
+      input_columns:
+        - docket
+        - start_s

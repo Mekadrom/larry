@@ -97,3 +97,5 @@ add-modality = "buildscripts.add_modality:main"
 preprocessing = "larry.common.data.preprocessing:main"
 # uv run training --help
 training = "larry.common.training:main"
+# uv run tokenizer-training --help
+tokenizer-training = "larry.voice.training.tokenizer_training:main"

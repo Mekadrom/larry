@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 
 
 def main() -> None:
-    """Main entrypoint for preprocessing data."""
+    """Main entrypoint for training models."""
     argparser = argparse.ArgumentParser(
         prog="training",
         description="Super entrypoint for all dataset preprocessing; delegates to implementations of Preprocessor "

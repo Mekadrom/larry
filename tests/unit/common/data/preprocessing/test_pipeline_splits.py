@@ -3,7 +3,8 @@ from typing import Any
 
 import pytest
 import yaml
-from datasets import Dataset, load_dataset
+import pyarrow.parquet as pq
+from datasets import Dataset
 
 from larry.common.data.preprocessing.pipeline import Pipeline
 from larry.common.utils.init_helpers import import_submodules
@@ -46,7 +47,7 @@ def _pipeline(tmp_path: Path, source: Path, split: str | None, fractions: list[d
 
 def _saved(out: Path) -> dict[str, list[str]]:
     return {
-        d.name: sorted(load_dataset("parquet", data_files=str(d / "*.parquet"), split="train")["text_original"])
+        d.name: sorted(pq.read_table(sorted(d.glob("*.parquet")))["text_original"].to_pylist())
         for d in sorted(out.iterdir())
         if d.is_dir()
     }

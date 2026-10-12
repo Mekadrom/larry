@@ -91,10 +91,10 @@ class UrlBytesMapperConfig(UrlMapperConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class CompositeIDMapperConfig(MapperConfig):
-    id_column: str = "id"
+    id_output_column: str = "id"
 
     def required_input_columns(self) -> list[str]:
         return self.input_columns
 
     def required_output_columns(self) -> list[str]:
-        return [self.id_column]
+        return [self.id_output_column]
