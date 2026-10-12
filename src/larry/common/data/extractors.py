@@ -1,6 +1,7 @@
 import logging
 import os
 import tarfile
+import zipfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import cast, BinaryIO, ClassVar
@@ -53,12 +54,35 @@ class SingleFileExtractor(Extractor[SingleFileExtractorConfig]):
 
     @staticmethod
     def _extract_file(output_dir: Path, file_path: Path) -> None:
-        total = os.path.getsize(file_path)
-        with open(file_path, "rb") as stream:
-            with tqdm.wrapattr(
-                    stream, "read", total=total, unit="B", unit_scale=True, desc=str(file_path)) as pbar:
-                with tarfile.open(fileobj=cast(BinaryIO, pbar), mode="r|*") as tar:
-                    tar.extractall(output_dir)
+        name = file_path.name
+        if name.endswith((".tar", ".tar.gz", ".tgz", ".tar.xz", ".tar.bz2")):
+            total = os.path.getsize(file_path)
+            with open(file_path, "rb") as stream:
+                with tqdm.wrapattr(
+                        stream,
+                        "read",
+                        total=total,
+                        unit="B",
+                        unit_scale=True,
+                        desc=str(file_path)
+                ) as pbar:
+                    with tarfile.open(fileobj=cast(BinaryIO, pbar), mode="r|*") as tar:
+                        tar.extractall(output_dir)
+        elif name.endswith(".zip"):
+            with zipfile.ZipFile(file_path) as archive:
+                members = archive.infolist()
+                total = sum([m.file_size for m in members])
+                with tqdm(
+                        total=total,
+                        unit="B",
+                        unit_scale=True,
+                        desc=str(file_path)
+                ) as pbar:
+                    for member in members:
+                        archive.extract(member, output_dir)
+                        pbar.update(member.file_size)
+        else:
+            raise ValueError(f"unsupported archive type: {name}")
         file_path.with_name(f"{file_path.name}.extracted").touch(exist_ok=False)
 
 

@@ -1,6 +1,7 @@
 import csv
 from collections.abc import Mapping
 from pathlib import Path
+import re
 from typing import Any
 
 from datasets import Features, Value, Dataset
@@ -8,7 +9,7 @@ from torchcodec.decoders import AudioDecoder
 
 from larry.common.data.cached_dataset_providers import MediaCachedDatasetProvider, CachedDatasetProvider
 from larry.voice.config.preprocessing.voice_dataset_configs import CommonVoiceDatasetConfig, \
-    SCOTUSManifestCachedDatasetConfig
+    SCOTUSManifestCachedDatasetConfig, VCTKCachedDatasetProviderConfig
 
 
 class CommonVoiceMediaCachedDatasetProvider(MediaCachedDatasetProvider[CommonVoiceDatasetConfig]):
@@ -76,4 +77,42 @@ class SCOTUSManifestCachedDatasetProvider(CachedDatasetProvider[SCOTUSManifestCa
         return dataset
 
     def transform_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        return batch
+
+
+class VCTKCachedDatasetProvider(MediaCachedDatasetProvider[VCTKCachedDatasetProviderConfig]):
+    def __init__(self, config: VCTKCachedDatasetProviderConfig) -> None:
+        super().__init__(config)
+
+    @property
+    def load_input_data_files(self) -> Mapping[str, str]:
+        return {"train": str(self.download_extract_cache_dir / self.config.manifest_file_name)}
+
+    def load_secondary_data(self) -> None:
+        self._write_manifest()
+
+    def _write_manifest(self) -> None:
+        manifest = self.download_extract_cache_dir / self.config.manifest_file_name
+        if manifest.exists():
+            return
+        rows = []
+        for txt in sorted((self.download_extract_cache_dir / "txt").glob("*/*.txt")):
+            for suffix in ("mic1", "mic2"):
+                speaker = txt.parent.name
+                audio = (self.media_dir_path / speaker / f"{txt.stem}_{suffix}.flac").resolve()
+                if not audio.exists():
+                    continue
+                text = " ".join(txt.read_text(encoding="utf-8").split())
+                rows.append((txt.stem, speaker, str(audio.relative_to(self.media_dir_path)), text, suffix))
+
+        tmp = manifest.with_name(manifest.name + ".part")
+        with open(tmp, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter="\t", quoting=csv.QUOTE_NONE, quotechar=None, lineterminator="\n")
+            writer.writerow(["id", "speaker_id", "path", "text_original", "mic_id"])
+            writer.writerows(rows)
+        tmp.replace(manifest)
+
+    def transform_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        batch = super().transform_batch(batch)
+        batch["duration_s"] = [AudioDecoder(path).metadata.duration_seconds for path in batch["audio"]]
         return batch

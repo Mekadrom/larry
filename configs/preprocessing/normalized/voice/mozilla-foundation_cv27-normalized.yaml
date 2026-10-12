@@ -1,6 +1,9 @@
 preprocessor:
   inputs:
     provenance:
+      ancestry:
+        datasets:
+          - "https://mozilladatacollective.com/datasets/cmu5jplf300nwmh07iqvk9leo"
       id_columns:
         - id
         - speaker_id

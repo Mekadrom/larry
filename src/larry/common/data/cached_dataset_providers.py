@@ -106,17 +106,24 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
             if not Path(file).exists():
                 raise FileNotFoundError(f"input data file for split {input_split!r} does not exist: {file}")
 
-            ds = datasets.load_dataset(
-                path=self.config.download_extract_file_type,
-                data_files={input_split: file},
-                split=input_split,
-                cache_dir=str(self.cache_dir),
-                features=self.make_features(data_files),
-                keep_in_memory=self.keep_in_memory,
-                streaming=False,
-                num_proc=self.num_proc,
-                **self.config.download_extract_transform_kwargs,
-            )
+            try:
+                ds = datasets.load_dataset(
+                    path=self.config.download_extract_file_type,
+                    data_files={input_split: file},
+                    split=input_split,
+                    cache_dir=str(self.cache_dir),
+                    features=self.make_features(data_files),
+                    keep_in_memory=self.keep_in_memory,
+                    streaming=False,
+                    num_proc=self.num_proc,
+                    **self.config.download_extract_transform_kwargs,
+                )
+            except Exception:
+                self.log.error(
+                    f"error loading cached dataset from file: path={self.config.download_extract_file_type} "
+                    f"data_files={{{input_split}: {file}}} split={input_split} cache_dir={str(self.cache_dir)}"
+                )
+                raise
 
             split_datasets = {}
             if self.config.split_column:

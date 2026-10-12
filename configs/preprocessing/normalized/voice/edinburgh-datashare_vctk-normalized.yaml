@@ -1,0 +1,29 @@
+preprocessor:
+  inputs:
+    provenance:
+      ancestry:
+        datasets:
+          - "https://datashare.ed.ac.uk/handle/10283/344"
+      id_columns:
+        - id
+        - speaker_id
+        - sentence_id
+
+dataset:
+  config: VCTKCachedDatasetProviderConfig
+  overrides:
+    download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/voice/edinburgh-datashare_vctk-normalized/
+    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/edinburgh-datashare_vctk-normalized/
+
+pipeline:
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: "audio_no_decode"
+  - name: AudioDurationMapper
+    config: AudioDurationMapperConfig
+  - name: CTCScoreMapper
+    config: CTCScoreMapperConfig
+    inputs:
+      text_column: text_original

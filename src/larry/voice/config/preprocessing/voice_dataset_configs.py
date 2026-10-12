@@ -1,13 +1,14 @@
 import csv
 import dataclasses
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
-from datasets import Audio, Image, Split
+from datasets import Audio, Image
 
-from larry.common.config.data.downloader_configs import DownloaderConfig
+from larry.common.config.data.downloader_configs import DownloaderConfig, SingleFileDownloaderConfig
 from larry.common.config.data.extractor_configs import SingleFileExtractorConfig, ExtractorConfig
-from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig, MediaCachedDatasetConfig, \
+from larry.common.config.data.preprocessing.dataset_configs import MediaCachedDatasetConfig, \
     CachedDatasetConfig
 from larry.voice.config.preprocessing.voice_downloader_configs import SCOTUSTermManifestDownloaderConfig, \
     SCOTUSDocketManifestDownloaderConfig
@@ -22,7 +23,7 @@ class VoiceDatasetConfig:
 class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
     """https://mozilladatacollective.com/datasets/cmu5jplf300nwmh07iqvk9leo"""
 
-    audio_file: str = "downloaded.tar.gz"
+    archive_file: str = "downloaded.tar.gz"
     archive_root: str = "cv-corpus-27.0-2026-09-11/en"
 
     provider_name: str = "CommonVoiceMediaCachedDatasetProvider"
@@ -33,7 +34,7 @@ class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
     def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
         return [
             ("SingleFileExtractor", SingleFileExtractorConfig(
-                input_file_name=self.audio_file,
+                input_file_name=self.archive_file,
                 archive_root=self.archive_root,
             )),
         ]
@@ -86,3 +87,46 @@ class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig)
     sleep: float = 1.0
 
     terms: str = "2010-2025"
+
+
+@dataclasses.dataclass(kw_only=True)
+class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
+    download_url: str = "https://datashare.ed.ac.uk"
+    archive_file: str = "DS_10283_3443.zip"
+    download_path: str = f"download/{archive_file}"
+    inner_archive_file: str = "VCTK-Corpus-0.92.zip"
+    archive_root: str = "wav48_silence_trimmed"
+    manifest_file_name: str = "vctk_manifest.tsv"
+
+    provider_name: str = "VCTKCachedDatasetProvider"
+
+    download_extract_file_type: str = "csv"
+    download_extract_transform_kwargs: dict[str, Any] = dataclasses.field(default_factory=lambda: dict(
+        delimiter="\t",
+        quoting=csv.QUOTE_NONE
+    ))
+
+    def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
+        return [
+            ("SingleFileDownloader", SingleFileDownloaderConfig(
+                download_base_url=self.download_url,
+                download_path=self.download_path,
+                output_file_name=self.archive_file,
+            )),
+        ]
+
+    def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
+        return [
+            ("SingleFileExtractor", SingleFileExtractorConfig(
+                input_file_name=self.archive_file,
+                archive_root=self.archive_root,
+            )),
+            ("SingleFileExtractor", SingleFileExtractorConfig(
+                input_file_name=self.inner_archive_file,
+                archive_root=self.archive_root,
+            ))
+        ]
+
+    media_dir: str = archive_root
+    media_type: Audio | Image = dataclasses.field(default_factory=lambda: Audio(decode=False))
+    media_column: str = "audio"

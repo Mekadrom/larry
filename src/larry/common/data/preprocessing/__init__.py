@@ -64,7 +64,7 @@ def main() -> None:
         # to be re-generated
         (output_dir / "provenance.json").unlink(missing_ok=True)
         # remove markers
-        completed_files = glob.glob(str(output_dir / "*.completed"))
+        completed_files = glob.glob(str(output_dir / "*.complete"))
         for completed_file in completed_files:
             Path(completed_file).resolve().unlink()
 
