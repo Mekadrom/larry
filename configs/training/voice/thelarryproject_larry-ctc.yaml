@@ -36,6 +36,7 @@ trainer:
           weight: 0.12
         - name: vctk-normalized-asr
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
+          split: train
           weight: 0.05
         - name: hifi-tts-all-normalized-asr
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
@@ -52,14 +53,18 @@ trainer:
           source_path: mythicinfinity/libriheavy
           source_name: test_clean_large
           source_split: train
-          weight: 0.25
+          weight: 0.23
         - name: libriheavy-index-asr
           index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mythicinfinity_libriheavy-test_other_large-index-asr/
           source_path: mythicinfinity/libriheavy
           source_name: test_other_large
           source_split: train
-          weight: 0.25
+          weight: 0.22
         - name: scotus-normalized-asr-validation
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_scotus-normalized-asr/
           split: validation
           weight: 0.12
+        - name: vctk-normalized-asr-validation
+          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
+          split: validation
+          weight: 0.05

@@ -9,7 +9,7 @@ dataset:
   overrides:
     path: thelarryproject/vctk
     name: ~
-    split: full
+    split: train
     cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
 
 pipeline:
@@ -21,7 +21,8 @@ pipeline:
   - name: ColumnValuesPruner
     config: ColumnValuesPrunerConfig
     inputs:
-      input_column: mic_id
+      input_columns:
+        - mic_id
       op: matches
       op_config:
         values:

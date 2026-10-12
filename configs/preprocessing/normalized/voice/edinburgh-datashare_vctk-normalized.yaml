@@ -3,11 +3,11 @@ preprocessor:
     provenance:
       ancestry:
         datasets:
-          - "https://datashare.ed.ac.uk/handle/10283/344"
+          - "https://datashare.ed.ac.uk/handle/10283/3443"
       id_columns:
         - id
         - speaker_id
-        - sentence_id
+        - mic_id
 
 dataset:
   config: VCTKCachedDatasetProviderConfig
