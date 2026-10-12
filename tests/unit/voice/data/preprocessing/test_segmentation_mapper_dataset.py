@@ -49,7 +49,7 @@ def test_segmentation_mapper_replaces_rows_and_keeps_only_copied_columns() -> No
             produced_on="",
             git_commit="",
             git_is_dirty=None,
-            ancestry=ProvenanceAncestry(datasets=[], models=[])
+            ancestry=ProvenanceAncestry(datasets=set(), models=set()),
         ),
         config,
     )

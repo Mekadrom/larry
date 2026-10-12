@@ -122,17 +122,17 @@ class Pipeline:
 
         datasets = ancestry.get("datasets")
         if datasets is None:
-            datasets = []
-        datasets = list(datasets)
+            datasets = set()
+        datasets = set(datasets)
 
         models = ancestry.get("models")
         if models is None:
-            models = []
-        models = list(models)
+            models = set()
+        models = set(models)
 
         path = self.dataset_provider.config.path
         if path not in ("parquet", "csv", "json", "tsv") and path not in datasets:
-            datasets.append(path)
+            datasets.add(path)
 
         new_dict = dict(p_dict)
         new_dict["ancestry"] = {**ancestry, "datasets": datasets, "models": models}
@@ -227,4 +227,8 @@ class Pipeline:
         """Saves a separate json file that records the sources of this saved dataset."""
 
         self.provenance.populate_mutables()
-        (self.output_dir / "provenance.json").write_text(json.dumps(dataclasses.asdict(self.provenance), indent="\t"))
+        (self.output_dir / "provenance.json").write_text(json.dumps(
+            dataclasses.asdict(self.provenance),
+            default=list,
+            indent="\t"
+        ))

@@ -63,10 +63,7 @@ def test_column_values_pruning_status() -> None:
         git_commit="",
         git_is_dirty=None,
         produced_on="bruh",
-        ancestry=ProvenanceAncestry(
-            datasets=[],
-            models=[],
-        ),
+        ancestry=ProvenanceAncestry(datasets=set(), models=set()),
     ), config)
 
     dataset = Dataset.from_dict(
@@ -109,10 +106,7 @@ def test_column_values_pruning() -> None:
         git_commit="",
         git_is_dirty=None,
         produced_on="bruh",
-        ancestry=ProvenanceAncestry(
-            datasets=[],
-            models=[],
-        ),
+        ancestry=ProvenanceAncestry(datasets=set(), models=set()),
     ), config)
 
     dataset = Dataset.from_dict(

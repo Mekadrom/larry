@@ -16,7 +16,7 @@ def _provenance() -> Provenance:
         produced_on="",
         git_commit="",
         git_is_dirty=None,
-        ancestry=ProvenanceAncestry(datasets=[], models=[]),
+        ancestry=ProvenanceAncestry(datasets=set(), models=set()),
     )
 
 

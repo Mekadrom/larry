@@ -66,10 +66,7 @@ def test_nested_extraction_extracts(
             git_commit="",
             git_is_dirty=None,
             produced_on="bruh",
-            ancestry=ProvenanceAncestry(
-                datasets=[],
-                models=[],
-            ),
+            ancestry=ProvenanceAncestry(datasets=set(), models=set()),
         ),
         config
     )
