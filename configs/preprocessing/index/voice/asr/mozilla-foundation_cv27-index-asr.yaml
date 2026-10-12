@@ -1,0 +1,31 @@
+preprocessor:
+  inputs:
+    provenance:
+      id_columns:
+        - id
+        - client_id
+        - sentence_id
+
+dataset:
+  config: DefaultDatasetConfig
+  overrides:
+    path: parquet
+    name: ~
+    split: ~
+    data_dir: /home/zadar/.cache/larry/datasets/normalized/voice/mozilla-foundation_cv27-normalized/
+    cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/mozilla-foundation_cv27-index-asr/
+
+pipeline:
+  - name: RowIndexAssigningPreprocessor
+    config: RowIndexAssigningPreprocessorConfig
+  - name: ColumnValuesPruner
+    config: ASRCTCMismatchColumnValuesPrunerConfig
+  - name: AudioDurationColumnPruner
+    config: AudioDurationColumnPrunerConfig
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForASR
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: ~

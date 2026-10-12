@@ -1,0 +1,31 @@
+preprocessor:
+  inputs:
+    provenance:
+      id_columns:
+        - example_id
+
+dataset:
+  config: GoogleDOCCIMediaCachedDatasetConfig
+  overrides:
+    download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/google_docci-normalized/
+    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/google_docci-normalized/
+    batch_size: 64
+
+pipeline:
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      column_name_mappings:
+        description: text
+  - name: TextTokenizingMapper
+    config: SmolLM2TextTokenizingMapperConfig
+    inputs:
+      batch_size: 64
+      remove_columns:
+        - "split"
+        - "image_file"
+  - name: ImageResizingMapper
+    config: ImageResizingMapperConfig
+    inputs:
+      batch_size: 64
+      filter_null_outputs: true

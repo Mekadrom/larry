@@ -1,0 +1,45 @@
+preprocessor:
+  inputs:
+    default_batch_size: 8
+    provenance:
+      id_columns:
+        - term
+        - docket
+
+dataset:
+  config: DefaultDatasetConfig
+  overrides:
+    path: thelarryproject/scotus-manifest
+    cache_dir: /home/zadar/.cache/larry/intermediates/other/voice/unaligned/thelarryproject_scotus-unaligned/
+
+pipeline:
+  - name: UrlBytesMapper
+    config: UrlBytesMapperConfig
+    inputs:
+      busy_wait: 1.0
+      num_proc: 1
+      batch_size: 8
+      writer_batch_size: 8
+      input_column: pdf_url
+      output_column: pdf_bytes
+      filter_null_outputs: true
+      validate_starts_with: "%PDF-"
+  - name: UrlAudioMapper
+    config: UrlAudioMapperConfig
+    inputs:
+      busy_wait: 1.0
+      num_proc: 1
+      batch_size: 8
+      writer_batch_size: 8
+      input_column: mp3_url
+      filter_null_outputs: true
+  - name: AudioDurationMapper
+    config: AudioDurationMapperConfig
+    inputs:
+      batch_size: 8
+      writer_batch_size: 8
+  - name: SCOTUSTranscriptPdfTextMapper
+    config: SCOTUSTranscriptPdfTextMapperConfig
+    inputs:
+      batch_size: 8
+      writer_batch_size: 8

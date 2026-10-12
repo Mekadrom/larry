@@ -169,7 +169,7 @@ class RowIndexAssigningPreprocessor(Preprocessor[RowIndexAssigningPreprocessorCo
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         if isinstance(dataset, DatasetDict):
             return DatasetDict({
-                s: ds.add_column("row", np.arange(len(dataset)))
+                s: ds.add_column(self.config.output_column, np.arange(len(ds)))
                 for s, ds in dataset.items()
             })
         return dataset.add_column(self.config.output_column, np.arange(len(dataset)))
