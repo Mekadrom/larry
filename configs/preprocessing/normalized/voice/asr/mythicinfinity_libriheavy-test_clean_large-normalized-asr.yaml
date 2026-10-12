@@ -10,13 +10,11 @@ dataset:
   config: DefaultDatasetConfig
   overrides:
     path: mythicinfinity/libriheavy
-    name: test_other_large
+    name: test_clean_large
     split: train
-    cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/mythicinfinity_libriheavy-test_other_large-index-asr/
+    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/asr/mythicinfinity_libriheavy-test_clean_large-normalized-asr/
 
 pipeline:
-  - name: RowIndexAssigningPreprocessor
-    config: RowIndexAssigningPreprocessorConfig
   - name: ColumnCastingPreprocessor
     config: ColumnCastingPreprocessorConfig
     inputs:
@@ -36,7 +34,5 @@ pipeline:
     config: CTCScoreMapperConfig
     inputs:
       text_column: text_original
-      remove_columns:
-        - audio
   - name: ColumnValuesPruner
     config: ASRCTCMismatchColumnValuesPrunerConfig

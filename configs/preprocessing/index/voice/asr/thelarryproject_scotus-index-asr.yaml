@@ -10,7 +10,7 @@ dataset:
   config: DefaultDatasetConfig
   overrides:
     path: thelarryproject/scotus
-    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/asr/thelarryproject_scotus-normalized-asr/
+    cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/thelarryproject_scotus-index-asr/
 
 pipeline:
   - name: RowIndexAssigningPreprocessor
@@ -26,6 +26,11 @@ pipeline:
     config: ASRCTCMismatchColumnValuesPrunerConfig
   - name: AudioQualityPruner
     config: AudioQualityPrunerConfigForASR
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: ~
   - name: SpeakerValidationSplittingPreprocessor
     config: SpeakerValidationSplittingPreprocessorConfig
     inputs:

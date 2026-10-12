@@ -132,8 +132,15 @@ class Pipeline:
         models = set(models)
 
         path = self.dataset_provider.config.path
-        if path not in ("parquet", "csv", "json", "tsv") and path not in datasets:
+        data_dir = self.dataset_provider.config.data_dir
+        if path not in ("parquet", "csv", "json", "tsv"):
             datasets.add(path)
+        elif data_dir is not None:
+            local = Path(data_dir).expanduser().resolve()
+            try:
+                datasets.add(f"~/{local.relative_to(Path.home())}")
+            except ValueError:
+                datasets.add(str(local))
 
         new_dict = dict(p_dict)
         new_dict["ancestry"] = {**ancestry, "datasets": datasets, "models": models}

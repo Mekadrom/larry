@@ -1,4 +1,6 @@
- - [x] mozilla-foundation_cv27-normalized/
+the following requires a global speaker index keyed on (source, speaker_id) to a unique zero-indexed incrementing 
+integer id
+ - [ ] mozilla-foundation_cv27-normalized/
  - [ ] mozilla-foundation_cv27-index-asr/
 
 
@@ -9,6 +11,6 @@
 
  - [ ] thelarryproject_vctk-normalized-asr/
  - [ ] mikhailt_hifi-tts-all-normalized-asr/
- - [x] mikhailt_lj-speech-normalized-asr/
+ - [ ] mikhailt_lj-speech-normalized-asr/
  - [ ] openslr_librispeech-asr-normalized-asr-validation/
  - [ ] thelarryproject_scotus-normalized-asr/

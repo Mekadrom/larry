@@ -3,7 +3,7 @@ preprocessor:
     provenance:
       id_columns:
         - id
-        - client_id
+        - speaker_id
         - sentence_id
 
 dataset:
