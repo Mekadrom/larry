@@ -7,6 +7,7 @@ from accelerate import PartialState
 from datasets.load import camelcase_to_snakecase
 
 from larry.common.config.model.model_configs import ModelConfig
+from larry.common.config.training import build_trainer_config
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.common.config.training.training_config import TrainingConfig
 from larry.common.metrics.metrics import Metrics, WandBMetrics, TensorBoardMetrics, NoneMetrics
@@ -47,7 +48,7 @@ class Training:
         model_config_dict: dict[str, Any] = definition.get("model", {})
         model_type_name = model_config_dict.get("name")
 
-        self.trainer_config = self._build_trainer_config(trainer_config_dict)
+        self.trainer_config = build_trainer_config(trainer_config_dict)
         model_config = self._build_model_config(model_config_dict)
 
         state = PartialState()
@@ -61,18 +62,6 @@ class Training:
 
         self.log.info(f"trainer={self.trainer}")
         self.log.info(f"trainer_config={self.trainer_config}")
-
-    def _build_trainer_config(self, trainer_config_dict: dict[str, Any]) -> LarryTrainerConfig:
-        trainer_config_type_name = trainer_config_dict.get("config")
-        trainer_config_type = LarryTrainerConfig.REGISTRY.resolve(trainer_config_type_name)
-
-        self.log.info(f"Using trainer_config_type_name={trainer_config_type_name}")
-
-        trainer_config_overrides = trainer_config_dict.get("overrides", [])
-        self.log.info(f"Applying trainer_config_overrides={trainer_config_overrides}")
-
-        trainer_config: LarryTrainerConfig = trainer_config_type(**trainer_config_overrides)
-        return trainer_config
 
     def _build_model_config(self, model_config_dict: dict[str, Any]) -> ModelConfig:
         model_config_type_name = model_config_dict.get("config")

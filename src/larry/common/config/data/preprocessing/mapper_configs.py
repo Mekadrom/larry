@@ -87,3 +87,14 @@ class UrlBytesMapperConfig(UrlMapperConfig):
     validate_starts_with: str | None = None
 
     download_cache_dir: str = "/tmp/larry/bytes_url_mapper"
+
+
+@dataclasses.dataclass(kw_only=True)
+class CompositeIDMapperConfig(MapperConfig):
+    id_column: str = "id"
+
+    def required_input_columns(self) -> list[str]:
+        return self.input_columns
+
+    def required_output_columns(self) -> list[str]:
+        return [self.id_column]

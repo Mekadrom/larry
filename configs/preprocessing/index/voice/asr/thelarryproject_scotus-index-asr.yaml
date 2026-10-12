@@ -9,7 +9,10 @@ preprocessor:
 dataset:
   config: DefaultDatasetConfig
   overrides:
-    path: thelarryproject/scotus
+    path: parquet
+    name: ~
+    split: ~
+    data_dir: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_scotus-normalized/
     cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/thelarryproject_scotus-index-asr/
 
 pipeline:

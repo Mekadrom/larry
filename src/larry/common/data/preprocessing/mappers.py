@@ -12,7 +12,7 @@ from datasets import Dataset, Features, DatasetDict, concatenate_datasets, Value
 from datasets.features.features import FeatureType
 
 from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, ValueOverrideMapperConfig, \
-    MapperConfig, UrlMapperConfig, UrlBytesMapperConfig
+    MapperConfig, UrlMapperConfig, UrlBytesMapperConfig, CompositeIDMapperConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 
@@ -303,3 +303,14 @@ class UrlBytesMapper(UrlMapper[bytes, UrlBytesMapperConfig]):
 
     def output_feature(self) -> FeatureType | None:
         return Value("binary")
+
+
+class CompositeIDMapper(Mapper[CompositeIDMapperConfig]):
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        input_columns = [batch[c] for c in self.config.input_columns]
+        return {
+            self.config.id_column: [
+                ":".join(str(i) for i in example_inputs)
+                for example_inputs in zip(*input_columns)
+            ]
+        }

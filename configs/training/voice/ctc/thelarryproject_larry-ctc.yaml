@@ -22,7 +22,7 @@ trainer:
       train_sources:
         - name: scotus-index-asr
           index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/thelarryproject_scotus-index-asr/
-          source_path: thelarryproject/scotus
+          source_path: /home/zadar/.cache/larry/datasets/normalized/voice/thelarryproject_scotus-normalized/
           split: train
           weight: 0.25
         - name: vctk-normalized-asr
@@ -36,6 +36,7 @@ trainer:
           weight: 0.25
         - name: hifi-tts-all-normalized-asr
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+          split: train.clean+train.other
           weight: 0.03
         - name: lj-speech-normalized-asr
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
@@ -59,6 +60,9 @@ trainer:
           split: validation
           source_path: /home/zadar/.cache/larry/datasets/normalized/voice/mozilla-foundation_cv27-normalized/
           source_split: validation
+        - name: hifi-tts-all-normalized-asr
+          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+          split: dev.clean+dev.other
         - name: librispeech-asr-normalized-asr-validation
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/openslr_librispeech-asr-normalized-asr-validation/
         - name: libriheavy-test-clean-large-index-asr
