@@ -19,15 +19,6 @@ pipeline:
   - name: RowIndexAssigningPreprocessor
     config: RowIndexAssigningPreprocessorConfig
   - name: ColumnValuesPruner
-    config: ColumnValuesPrunerConfig
-    inputs:
-      input_columns:
-        - down_votes
-      op: "matches"
-      op_config:
-        values:
-          - 0
-  - name: ColumnValuesPruner
     config: ASRCTCMismatchColumnValuesPrunerConfig
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig

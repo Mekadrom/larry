@@ -5,6 +5,7 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 import jsonpath_ng
+import numpy as np
 from datasets import Dataset, Features, Value, DatasetDict, Audio
 from jsonpath_ng import JSONPath
 
@@ -166,7 +167,9 @@ class RowIndexAssigningPreprocessor(Preprocessor[RowIndexAssigningPreprocessorCo
             raise ValueError(f"output_column must be specified for {self.__class__.__name__}")
 
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
-        return dataset.map(
-            lambda _, idx: {self.config.output_column: idx},
-            with_indices=True,
-        )
+        if isinstance(dataset, DatasetDict):
+            return DatasetDict({
+                s: ds.add_column("row", np.arange(len(dataset)))
+                for s, ds in dataset.items()
+            })
+        return dataset.add_column(self.config.output_column, np.arange(len(dataset)))

@@ -34,6 +34,7 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
         return {
             split: glob.glob(str(self.parquet_dir / f"{split}/{split}-*.parquet"))
             for split in os.listdir(self.parquet_dir)
+            if self._is_complete(split)
         }
 
     @property
@@ -92,70 +93,87 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
         os.makedirs(self.parquet_dir, exist_ok=True)
 
         data_files = self.load_input_data_files
-        ds = datasets.load_dataset(
-            path=self.config.download_extract_file_type,
-            data_files={"train": data_files["train"]},
-            split="train",
-            cache_dir=str(self.cache_dir),
-            features=self.make_features(data_files),
-            keep_in_memory=self.keep_in_memory,
-            streaming=False,
-            num_proc=self.num_proc,
-            **self.config.download_extract_transform_kwargs,
+        if self.config.split_column and len(data_files) != 1:
+            raise ValueError(
+                f"split_column={self.config.split_column!r} splits a single input file, "
+                f"but load_input_data_files names {sorted(data_files)}"
+            )
+
+        for input_split, file in data_files.items():
+            if not self.config.split_column and self._is_complete(input_split):
+                self.log.info(f"{input_split} parquets already exist in {self.parquet_dir}")
+                continue
+            if not Path(file).exists():
+                raise FileNotFoundError(f"input data file for split {input_split!r} does not exist: {file}")
+
+            ds = datasets.load_dataset(
+                path=self.config.download_extract_file_type,
+                data_files={input_split: file},
+                split=input_split,
+                cache_dir=str(self.cache_dir),
+                features=self.make_features(data_files),
+                keep_in_memory=self.keep_in_memory,
+                streaming=False,
+                num_proc=self.num_proc,
+                **self.config.download_extract_transform_kwargs,
+            )
+
+            split_datasets = {}
+            if self.config.split_column:
+                for split in ds.unique(self.config.split_column):
+                    split_datasets[split] = ds.filter(
+                        partial(self._matches_split, split),
+                        batched=True,
+                        input_columns=self.config.split_column
+                    )
+            else:
+                split_datasets[input_split] = ds
+
+            for split, split_ds in split_datasets.items():
+                if self.config.split_column_mappings is not None and split in self.config.split_column_mappings:
+                    split = self.config.split_column_mappings[split]
+                self._write_split(split, split_ds)
+
+    def _is_complete(self, split: str) -> bool:
+        return (self.parquet_dir / f"{split}.parquets.complete").exists()
+
+    def _write_split(self, split: str, split_ds: Dataset) -> None:
+        if self._is_complete(split):
+            self.log.info(f"{split} parquets already exist in {self.parquet_dir}")
+            return
+
+        split_dir = self.parquet_dir / split
+        os.makedirs(split_dir, exist_ok=True)
+
+        # parquest.complete file was not created, so this is potentially a partial resume. delete existing parquets
+        # in the target dir
+        for f in split_dir.glob("*.parquet"):
+            f.unlink()
+
+        if self.config.select_columns_from_extracted is not None:
+            split_ds = split_ds.select_columns(self.config.select_columns_from_extracted)
+
+        split_ds = split_ds.map(
+            self.transform_batch,
+            batched=True,
+            batch_size=self.config.batch_size,
+            num_proc=self.config.num_proc,
+        )
+        split_ds = self.cast_cols(split_ds)
+        split_ds = split_ds.with_format("arrow").map(embed_table_storage, batched=True).with_format(None)
+
+        save_parquet_shards(
+            split_ds,
+            self.parquet_dir,
+            self.config.cached_parquet_size_mb,
+            prefix=split,
+            writer_batch_size=self.config.batch_size
         )
 
-        split_datasets = {}
-        if self.config.split_column:
-            for split in ds.unique(self.config.split_column):
-                split_datasets[split] = ds.filter(
-                    partial(self._matches_split, split),
-                    batched=True,
-                    input_columns=self.config.split_column
-                )
-        else:
-            split_datasets["train"] = ds
-
-        for split, split_ds in split_datasets.items():
-            if self.config.split_column_mappings is not None and split in self.config.split_column_mappings:
-                split = self.config.split_column_mappings[split]
-
-            split_dir = self.parquet_dir / split
-            os.makedirs(split_dir, exist_ok=True)
-
-            output_parquet_file = self.parquet_dir / f"{split}.parquets.complete"
-            if os.path.exists(output_parquet_file):
-                self.log.info(f"{split} parquets already exist: output_parquet_file={output_parquet_file}")
-                continue
-
-            # parquest.complete file was not created, so this is potentially a partial resume. delete existing parquets
-            # in the target dir
-            for f in split_dir.glob("*.parquet"):
-                f.unlink()
-
-            if self.config.select_columns_from_extracted is not None:
-                split_ds = split_ds.select_columns(self.config.select_columns_from_extracted)
-
-            split_ds = split_ds.map(
-                self.transform_batch,
-                batched=True,
-                batch_size=self.config.batch_size,
-                num_proc=self.config.num_proc,
-            )
-            split_ds = self.cast_cols(split_ds)
-            split_ds = split_ds.with_format("arrow").map(embed_table_storage, batched=True).with_format(None)
-
-            save_parquet_shards(
-                split_ds,
-                self.parquet_dir,
-                self.config.cached_parquet_size_mb,
-                prefix=split,
-                writer_batch_size=self.config.batch_size
-            )
-
-            leftover = [f["filename"] for f in split_ds.cache_files]
-            split_ds.cleanup_cache_files()
-            for f in leftover:
-                Path(f).unlink(missing_ok=True)
+        leftover = [f["filename"] for f in split_ds.cache_files]
+        split_ds.cleanup_cache_files()
+        for f in leftover:
+            Path(f).unlink(missing_ok=True)
 
     def make_features(self, data_files: Mapping[str, str]) -> Features | None:
         return None

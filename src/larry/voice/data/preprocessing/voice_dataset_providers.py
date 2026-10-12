@@ -27,7 +27,7 @@ class CommonVoiceMediaCachedDatasetProvider(MediaCachedDatasetProvider[CommonVoi
     def load_input_data_files(self) -> Mapping[str, str]:
         return {
             "train": str(self._archive_root / "train.tsv"),
-            "validation": str(self._archive_root / "validation.tsv"),
+            "dev": str(self._archive_root / "dev.tsv"),
             "test": str(self._archive_root / "test.tsv")
         }
 

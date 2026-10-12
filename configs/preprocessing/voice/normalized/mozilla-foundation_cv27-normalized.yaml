@@ -9,7 +9,7 @@ preprocessor:
 dataset:
   config: CommonVoiceDatasetConfig
   overrides:
-    download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/voice/tts/mozilla-foundation_cv27/
+    download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/voice/normalized/mozilla-foundation_cv27/
     cache_dir: /home/zadar/.cache/larry/intermediates/voice/normalized/mozilla-foundation_cv27-normalized/
 
 pipeline:

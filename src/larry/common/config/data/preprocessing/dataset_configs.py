@@ -36,6 +36,7 @@ class DefaultDatasetConfig(DatasetConfig):
 @dataclasses.dataclass(kw_only=True)
 class CachedDatasetConfig(DatasetConfig, ABC):
     path: str = "parquet"
+    split: str | Split | list[str] | list[Split] | None = None
 
     download_extract_cache_dir: str
 

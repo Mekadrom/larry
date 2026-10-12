@@ -47,10 +47,11 @@ class Pipeline:
 
         dataset_config_type_name = dataset_config_dict.get("config")
         dataset_config_split_fractions = dataset_config_dict.get("splits", None)
+        self.fractions: dict[str, float] | None = None
         if dataset_config_split_fractions:
             self.fractions = {i["name"]: i["part"] for i in dataset_config_split_fractions}
-        else:
-            self.fractions = {"train": 1.0}
+            if not math.isclose(sum(self.fractions.values()), 1.0, abs_tol=1e-6):
+                raise ValueError(f"split fractions must sum to 1, got {self.fractions}")
 
         dataset_config_type = DatasetConfig.REGISTRY.resolve(dataset_config_type_name)
         self.log.info(f"Using dataset_config_type_name={dataset_config_type_name}")
@@ -162,11 +163,12 @@ class Pipeline:
 
         torch.set_num_threads(1)
 
+        written: set[str] = set()
         if isinstance(dataset, DatasetDict):
-            for _, split_ds in dataset.items():
-                self._preprocess_and_save_shards(split_ds)
+            for split_name, split_ds in dataset.items():
+                self._preprocess_and_save_shards(split_ds, str(split_name), written)
         elif isinstance(dataset, Dataset):
-            self._preprocess_and_save_shards(dataset)
+            self._preprocess_and_save_shards(dataset, "train", written)
         else:
             raise TypeError(f"expected some kind of Dataset, got {type(dataset).__name__}")
 
@@ -175,10 +177,7 @@ class Pipeline:
 
         self.log.info("Dataset saved to disk.")
 
-    def _preprocess_and_save_shards(self, dataset: Dataset | DatasetDict) -> None:
-        if not math.isclose(sum(self.fractions.values()), 1.0, abs_tol=1e-6):
-            raise ValueError("")
-
+    def _preprocess_and_save_shards(self, dataset: Dataset | DatasetDict, input_split: str, written: set[str]) -> None:
         for mapper in self.pipeline:
             try:
                 mapper.log.info(f"columns in: {dataset.column_names}")
@@ -201,25 +200,27 @@ class Pipeline:
                 mapper.log.critical(f"Error during _preprocess_and_save_shards in mapper={mapper}")
                 raise
 
-        if self.fractions and not isinstance(dataset, DatasetDict):
-            dataset = split_by_fractions(dataset, self.fractions)
+        if isinstance(dataset, Dataset):
+            if self.fractions is not None:
+                dataset = split_by_fractions(dataset, self.fractions)
+            else:
+                dataset = DatasetDict({input_split: dataset})
 
-        if isinstance(dataset, DatasetDict):
-            for split_name, split_dataset in dataset.items():
-                split_name = str(split_name)
-                save_parquet_shards(
-                    split_dataset,
-                    self.output_dir,
-                    self.config.parquet_size_mb,
-                    prefix=split_name,
-                    writer_batch_size=self.config.default_batch_size,
-                )
-        else:
+        names = [str(name) for name in dataset]
+        collisions = sorted(written.intersection(names))
+        if collisions:
+            raise ValueError(
+                f"input split {input_split!r} would write output splits {collisions} that an earlier input split "
+                f"already wrote; configure the pipeline so every output split name is produced once"
+            )
+        written.update(names)
+
+        for split_name, split_dataset in dataset.items():
             save_parquet_shards(
-                dataset,
+                split_dataset,
                 self.output_dir,
                 self.config.parquet_size_mb,
-                prefix="train",
+                prefix=str(split_name),
                 writer_batch_size=self.config.default_batch_size,
             )
 
