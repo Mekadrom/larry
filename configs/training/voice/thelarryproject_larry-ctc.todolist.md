@@ -1,10 +1,14 @@
- - [ ] mythicinfinity_libriheavy-large-index-asr/
- - [ ] mozilla-foundation_cv27-index-asr/
  - [x] mozilla-foundation_cv27-normalized/
- - [ ] thelarryproject_scotus-normalized-asr/
+ - [ ] mozilla-foundation_cv27-index-asr/
+
+
+ - [ ] mythicinfinity_libriheavy-large-index-asr/
+ - [ ] mythicinfinity_libriheavy-test_clean_large-index-asr/
+ - [ ] mythicinfinity_libriheavy-test_other_large-index-asr/
+
+
  - [ ] thelarryproject_vctk-normalized-asr/
  - [ ] mikhailt_hifi-tts-all-normalized-asr/
  - [x] mikhailt_lj-speech-normalized-asr/
  - [ ] openslr_librispeech-asr-normalized-asr-validation/
- - [ ] mythicinfinity_libriheavy-test_clean_large-index-asr/
- - [ ] mythicinfinity_libriheavy-test_other_large-index-asr/
+ - [ ] thelarryproject_scotus-normalized-asr/

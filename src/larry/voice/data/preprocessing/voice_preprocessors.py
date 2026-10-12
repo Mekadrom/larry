@@ -71,10 +71,6 @@ class SpeakerValidationSplittingPreprocessor(Preprocessor[SpeakerValidationSplit
             "validation": validation_dataset,
         })
 
-    def _speaker_bucket(self, speaker_id: str) -> int:
-        digest = hashlib.blake2b(speaker_id.encode("utf-8"), digest_size=8).digest()
-        return int.from_bytes(digest, "big") % 100
-
     def _hashed_is_validation(self, speaker_ids: list[Any]) -> list[bool]:
         validation_percent = self.config.validation_percent
         if validation_percent is None:
@@ -84,6 +80,10 @@ class SpeakerValidationSplittingPreprocessor(Preprocessor[SpeakerValidationSplit
             self._speaker_bucket(str(s)) < validation_percent
             for s in speaker_ids
         ]
+
+    def _speaker_bucket(self, speaker_id: str) -> int:
+        digest = hashlib.blake2b(speaker_id.encode("utf-8"), digest_size=8).digest()
+        return int.from_bytes(digest, "big") % 100
 
     def _hashed_is_train(self, speaker_ids: list[Any]) -> list[bool]:
         return [

@@ -18,23 +18,25 @@ pipeline:
     inputs:
       column_casts:
         audio: "audio_no_decode"
-        spoken_text: ~
-  - name: ColumnRenamingPreprocessor
-    config: ColumnRenamingPreprocessorConfig
+  - name: ColumnValuesPruner
+    config: ColumnValuesPrunerConfig
     inputs:
-      column_name_mappings:
-        normalized_text: text_original
-        file: id
-  - name: AudioDurationMapper
-    config: AudioDurationMapperConfig
+      input_column: mic_id
+      op: matches
+      op_config:
+        values:
+          - mic1
+        containing: true
+        strip: true
+        case_sensitive: false
   - name: AudioDurationColumnPruner
     config: AudioDurationColumnPrunerConfig
-  - name: AudioQualityPruner
-    config: AudioQualityPrunerConfigForASR
-  - name: CTCScoreMapper
-    config: CTCScoreMapperConfig
-    inputs:
-      num_proc: 4
-      text_column: text_original
   - name: ColumnValuesPruner
     config: ASRCTCMismatchColumnValuesPrunerConfig
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForASR
+  - name: SpeakerValidationSplittingPreprocessor
+    config: SpeakerValidationSplittingPreprocessorConfig
+    inputs:
+      mode: random
+      validation_percent: 5
