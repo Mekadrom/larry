@@ -1,5 +1,8 @@
+import pickle
+from pathlib import Path
+
 import pytest
-from datasets import Dataset, DatasetDict, Value
+from datasets import Dataset, DatasetDict, Value, concatenate_datasets, load_from_disk
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.common.config.data.preprocessing.preprocessor_configs import RowIndexAssigningPreprocessorConfig
@@ -34,3 +37,17 @@ def test_single_dataset_is_numbered_in_its_current_order(output_column: str) -> 
     assert out["a"] == [0, 2, 4]
     assert out[output_column] == [0, 1, 2]
     assert out.features[output_column] == Value("int64")
+
+
+def test_dataset_spread_over_many_files_stays_small_when_pickled_for_a_worker(tmp_path: Path) -> None:
+    parts = []
+    for i in range(40):
+        Dataset.from_dict({"a": list(range(i * 500, (i + 1) * 500))}).save_to_disk(tmp_path / f"part{i}")
+        parts.append(load_from_disk(tmp_path / f"part{i}"))
+    dataset = concatenate_datasets(parts)
+
+    out = _preprocessor("row").preprocess_dataset(dataset)
+
+    assert isinstance(out, Dataset)
+    assert out["row"] == list(range(20_000))
+    assert len(pickle.dumps(out)) < 200_000

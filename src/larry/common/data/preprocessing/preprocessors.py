@@ -5,8 +5,7 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 import jsonpath_ng
-import numpy as np
-from datasets import Dataset, Features, Value, DatasetDict, Audio
+from datasets import Dataset, Features, Value, DatasetDict, Audio, concatenate_datasets
 from jsonpath_ng import JSONPath
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
@@ -169,7 +168,25 @@ class RowIndexAssigningPreprocessor(Preprocessor[RowIndexAssigningPreprocessorCo
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         if isinstance(dataset, DatasetDict):
             return DatasetDict({
-                s: ds.add_column(self.config.output_column, np.arange(len(ds)))
+                s: self._assign_rows(ds)
                 for s, ds in dataset.items()
             })
-        return dataset.add_column(self.config.output_column, np.arange(len(dataset)))
+        return self._assign_rows(dataset)
+
+    def _assign_rows(self, dataset: Dataset) -> Dataset:
+        rows = dataset.map(
+            self._row_numbers,
+            with_indices=True,
+            batched=True,
+            input_columns=[],
+            remove_columns=dataset.column_names,
+            batch_size=self.config.batch_size,
+            writer_batch_size=self.config.writer_batch_size,
+            keep_in_memory=not self.config.cache_results,
+            load_from_cache_file=self.config.cache_results,
+            features=Features({self.config.output_column: Value("int64")}),
+        )
+        return concatenate_datasets([dataset, rows], axis=1)
+
+    def _row_numbers(self, indices: list[int]) -> dict[str, list[int]]:
+        return {self.config.output_column: indices}
