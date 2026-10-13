@@ -60,8 +60,26 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
             )
         return CTCCriterion(CTCCriterionConfig(blank=self.model_config.text_vocab_size), self.model)
 
-    def eval_token_count(self, batch: Mapping[str, Any]) -> int:
-        return int(batch["target_lengths"].sum().item())
+    def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
+        output = self.model(batch["waveforms"], batch["waveform_lengths"])
+        criterion = cast(CTCCriterion, self.criterion)
+        sample_losses = criterion.sample_losses(output, batch["targets"], batch["target_lengths"])
+        loss = (sample_losses / batch["target_lengths"].clamp(min=1)).mean()
+        return StepOutput(loss=loss, metrics=output.metrics, sample_losses=sample_losses)
+
+    def eval_group_names(self) -> list[str]:
+        names = [source.name for source in self.config.mixture_config.eval_sources]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(f"eval source names must be unique to log per-source eval loss: {duplicates}")
+        return names
+
+    def eval_group_totals(
+            self, batch: Mapping[str, Any], output: StepOutput
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
+        if output.sample_losses is None:
+            return None
+        return batch["source_ids"], output.sample_losses, batch["target_lengths"]
 
     def make_dataset_dict(self) -> Mapping[str, Dataset]:
         if len(self.config.mixture_config.train_sources) == 0:

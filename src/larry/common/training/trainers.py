@@ -31,10 +31,15 @@ from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
 
 
+def _reduce_sum(accelerator: Accelerator, tensor: torch.Tensor) -> torch.Tensor:
+    return cast(torch.Tensor, accelerator.reduce(tensor, reduction="sum"))
+
+
 @dataclasses.dataclass(kw_only=True)
 class StepOutput:
     loss: torch.Tensor
     metrics: MetricDict
+    sample_losses: torch.Tensor | None = None
 
 
 class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Registrable, ABC, root=True):
@@ -192,7 +197,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
     def sync_tokens_seen(self) -> int:
         pending = torch.tensor(self._pending_tokens, dtype=torch.long, device=self.accelerator.device)
-        self.train_state.tokens_seen += int(self.accelerator.reduce(pending, reduction="sum").item())
+        self.train_state.tokens_seen += int(_reduce_sum(self.accelerator, pending).item())
         self._pending_tokens = 0
         return self.train_state.tokens_seen
 
@@ -287,6 +292,8 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
         eval_metrics = MetricDict()
 
+        group_names = self.eval_group_names()
+        groups = torch.zeros((len(group_names), 2), device=self.accelerator.device)
         total = torch.zeros(2, device=self.accelerator.device)
         for batch in tqdm(self.eval_loader):
             output = self.eval_forward_pass(batch)
@@ -295,10 +302,23 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
             if output.metrics:
                 eval_metrics.update(output.metrics)
 
-            n_tokens = self.eval_token_count(batch)
-            total += torch.stack([loss.float() * n_tokens, torch.tensor(float(n_tokens), device=total.device)])
+            grouped = self.eval_group_totals(batch, output)
+            if grouped is not None:
+                group_ids, loss_sums, token_counts = grouped
+                values = torch.stack([loss_sums.float(), token_counts.float()], dim=1).to(groups.device)
+                groups.index_add_(0, group_ids.to(groups.device), values)
+            else:
+                n_tokens = self.eval_token_count(batch)
+                total += torch.stack([loss.float() * n_tokens, torch.tensor(float(n_tokens), device=total.device)])
 
-        total = self.accelerator.reduce(total, reduction="sum")
+        if group_names:
+            groups = _reduce_sum(self.accelerator, groups)
+            for name, (loss_sum, token_count) in zip(group_names, groups.tolist()):
+                if token_count > 0:
+                    eval_metrics.add_metric(ScalarMetricEntry(tag=f"eval/loss/{name}", scalar=loss_sum / token_count))
+            total = groups.sum(dim=0)
+        else:
+            total = _reduce_sum(self.accelerator, total)
         avg_loss = (total[0] / total[1])
 
         eval_metrics.add_metric(ScalarMetricEntry(tag="eval/loss", scalar=avg_loss.item()))
@@ -386,6 +406,14 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
     @abstractmethod
     def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
         ...
+
+    def eval_group_names(self) -> list[str]:
+        return []
+
+    def eval_group_totals(
+            self, batch: Mapping[str, Any], output: StepOutput
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
+        return None
 
     def eval_token_count(self, batch: Mapping[str, Any]) -> int:
         return 1  # ctc loss is already token weighted; don't weight by tokens here for eval loss

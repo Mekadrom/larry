@@ -33,11 +33,11 @@ class IndexedSpeechDataset(Dataset[dict[str, Any]]):
         return self.offsets[-1]
 
     def __getitem__(self, k: int) -> dict[str, Any]:
-        s = bisect.bisect_right(self.offsets, k) - 1
-        config = self.configs[s]
-        entry = self.indexes[s][k - self.offsets[s]]
+        source_idx = bisect.bisect_right(self.offsets, k) - 1
+        config = self.configs[source_idx]
+        entry = self.indexes[source_idx][k - self.offsets[source_idx]]
 
-        source = self.sources[s]
+        source = self.sources[source_idx]
         if source is None:
             audio = entry[config.audio_column]
         else:
@@ -47,7 +47,11 @@ class IndexedSpeechDataset(Dataset[dict[str, Any]]):
             audio = row[config.audio_column]
 
         waveform = bytes_to_waveforms(audio["bytes"], self.sample_rate)[0]
-        return {"waveform": waveform, "text": entry[config.text_column]}
+        return {
+            "waveform": waveform,
+            "text": entry[config.text_column],
+            "source": source_idx,
+        }
 
     def source_ids_and_durations(self) -> tuple[torch.Tensor, torch.Tensor]:
         source_ids = []

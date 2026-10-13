@@ -181,6 +181,7 @@ class SpeechCTCCollator:
             "waveform_lengths": torch.tensor([len(w) for w in waveforms]),
             "targets": pad_sequence(targets, batch_first=True),
             "target_lengths": torch.tensor([len(t) for t in targets]),
+            "source_ids": torch.tensor([item["source"] for item in items], dtype=torch.long),
             # a plain int stays on the cpu when the batch is moved to the device, so reading it never syncs
             "n_target_tokens": sum(len(t) for t in targets),
         }
