@@ -17,13 +17,6 @@ pipeline:
     inputs:
       column_name_mappings:
         description: text
-  - name: TextTokenizingMapper
-    config: SmolLM2TextTokenizingMapperConfig
-    inputs:
-      batch_size: 64
-      remove_columns:
-        - "split"
-        - "image_file"
   - name: ImageResizingMapper
     config: ImageResizingMapperConfig
     inputs:
