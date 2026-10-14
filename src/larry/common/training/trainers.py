@@ -1,5 +1,6 @@
 import dataclasses
 import functools
+import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sized
@@ -18,10 +19,12 @@ from torch.optim.lr_scheduler import LRScheduler, ConstantLR, CosineAnnealingLR,
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.common.criteria import criterion
 from larry.common.data.samplers import ResumableBatchSampler, ShuffledBatchSampler
 from larry.common.metrics.metrics import MetricDict, Metrics, ScalarMetricEntry
+from larry.common.model.model import LarryModelOutput
 from larry.common.training.callbacks import TrainingCallback, ModelInitLoggingCallback
 from larry.common.training.qk_clip import QKClipHandler, QKClipCallback
 from larry.common.training.training_model import LarryModel
@@ -40,6 +43,7 @@ class StepOutput:
     loss: torch.Tensor
     metrics: MetricDict
     sample_losses: torch.Tensor | None = None
+    model_output: LarryModelOutput | None = None
 
 
 class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Registrable, ABC, root=True):
@@ -58,9 +62,17 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
     total_steps: int
 
-    def __init__(self, model: M, config: C, metrics: Metrics, resume_dir: str | None = None) -> None:
+    def __init__(
+            self,
+            provenance: Provenance,
+            model: M,
+            config: C,
+            metrics: Metrics,
+            resume_dir: str | None = None
+    ) -> None:
         self.log = logging.getLogger(type(self).__name__)
 
+        self.provenance = provenance
         self._config = config
         self.model_config = model.config
 
@@ -69,6 +81,8 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         dataset_dict = self.make_dataset_dict()
         train_loader = self.make_train_dataloader(dataset_dict)
         eval_loader = self.make_eval_dataloader(dataset_dict)
+
+        self.update_provenance(self.provenance)
 
         if not isinstance(train_loader.batch_sampler, ResumableBatchSampler):
             raise TypeError(
@@ -134,6 +148,10 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         if repo_state is not None:
             return repo_state.git_commit
         return "head"
+
+    @abstractmethod
+    def update_provenance(self, provenance: Provenance) -> None:
+        ...
 
     def make_optimizers(self, model: nn.Module) -> list[Optimizer]:
         if self.config.optimizer_name == "muon":
@@ -217,14 +235,19 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         ))
 
     def run(self) -> None:
+        if self.train_state.global_step == 0 and self.config.eval_steps is not None:
+            self.evaluate()
+
         with tqdm(
                 initial=self.train_state.global_step,
                 total=self.config.max_steps,
+                desc="train",
                 disable=not self.accelerator.is_local_main_process
         ) as pbar:
             self.train(pbar=pbar)
 
-        self.save(self.train_state.global_step)
+        if self.train_state.global_step % self.config.save_steps != 0:
+            self.save(self.train_state.global_step)
 
     def train(self, pbar: tqdm) -> None:
         self.model.train()
@@ -274,12 +297,12 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         step_metrics.update(self.on_step_end(loss, step))
 
         self.train_state.global_step += 1
+        completed = self.train_state.global_step
 
-        if step % self.config.save_steps == 0:
-            self.sync_tokens_seen()
-            self.save(step)
+        if completed % self.config.save_steps == 0:
+            self.save(completed)
 
-        if self.config.eval_steps is not None and step % self.config.eval_steps == 0:
+        if self.config.eval_steps is not None and completed % self.config.eval_steps == 0:
             self.evaluate()
             self.model.train()
 
@@ -294,13 +317,19 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
         group_names = self.eval_group_names()
         groups = torch.zeros((len(group_names), 2), device=self.accelerator.device)
+        statistics = self.eval_statistics()
         total = torch.zeros(2, device=self.accelerator.device)
-        for batch in tqdm(self.eval_loader):
+        eval_batches = tqdm(
+            self.eval_loader, desc="eval", leave=False, disable=not self.accelerator.is_local_main_process
+        )
+        for batch in eval_batches:
             output = self.eval_forward_pass(batch)
             loss = output.loss
 
             if output.metrics:
                 eval_metrics.update(output.metrics)
+
+            self.update_eval_statistics(statistics, batch, output)
 
             grouped = self.eval_group_totals(batch, output)
             if grouped is not None:
@@ -322,6 +351,10 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         avg_loss = (total[0] / total[1])
 
         eval_metrics.add_metric(ScalarMetricEntry(tag="eval/loss", scalar=avg_loss.item()))
+        eval_metrics.update(self.eval_statistics_metrics({
+            name: _reduce_sum(self.accelerator, value)
+            for name, value in statistics.items()
+        }))
 
         self.metrics.batch_metrics(eval_metrics, self.train_state.global_step)
 
@@ -415,6 +448,17 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
         return None
 
+    def eval_statistics(self) -> dict[str, torch.Tensor]:
+        return {}
+
+    def update_eval_statistics(
+            self, statistics: dict[str, torch.Tensor], batch: Mapping[str, Any], output: StepOutput
+    ) -> None:
+        ...
+
+    def eval_statistics_metrics(self, statistics: dict[str, torch.Tensor]) -> MetricDict:
+        return MetricDict()
+
     def eval_token_count(self, batch: Mapping[str, Any]) -> int:
         return 1  # ctc loss is already token weighted; don't weight by tokens here for eval loss
 
@@ -423,6 +467,16 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
     def eval_batch_size(self, batch: Mapping[str, Any]) -> int:
         return self.config.eval_batch_size
+
+    def _compile_and_save_provenance(self) -> None:
+        """Saves a separate json file that records the sources of this saved dataset."""
+
+        self.provenance.populate_mutables()
+        (Path(self.metrics.log_dir).expanduser().resolve() / "provenance.json").write_text(json.dumps(
+            dataclasses.asdict(self.provenance),
+            default=list,
+            indent="\t"
+        ))
 
 
 class TrainState:
@@ -437,7 +491,7 @@ class TrainState:
         vars(self).update(d)
 
 
-class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](TrainerBase[M, C]):
+class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](TrainerBase[M, C], ABC):
     accelerator: Accelerator
 
     def make_dataset_dict(self) -> Mapping[str, Dataset]:
@@ -494,4 +548,8 @@ class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Tr
 
     @abstractmethod
     def make_criterion(self) -> criterion.Criterion:
+        ...
+
+    @abstractmethod
+    def update_provenance(self, provenance: Provenance) -> None:
         ...

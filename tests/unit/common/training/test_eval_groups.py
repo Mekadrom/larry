@@ -6,9 +6,11 @@ import pytest
 import torch
 from accelerate.state import AcceleratorState
 
+from larry.common.metrics.metrics import MetricDict, ScalarMetricEntry
 from larry.common.training.trainers import StepOutput
 
-from tests.unit.common.training.test_step_based_training import NullMetrics, ToyModel, ToyTrainer, ToyTrainerConfig
+from tests.unit.common.training.test_step_based_training import NullMetrics, ToyModel, ToyTrainer, ToyTrainerConfig, \
+    provenance
 
 
 class RecordingMetrics(NullMetrics):
@@ -43,6 +45,24 @@ def fresh_accelerate_state() -> Iterator[None]:
     AcceleratorState._reset_state(reset_partial_state=True)
 
 
+class StatisticsToyTrainer(ToyTrainer):
+    def eval_statistics(self) -> dict[str, torch.Tensor]:
+        return {"rows": torch.zeros(2, device=self.accelerator.device)}
+
+    def update_eval_statistics(
+            self, statistics: dict[str, torch.Tensor], batch: Mapping[str, Any], output: StepOutput
+    ) -> None:
+        assert output.model_output is None
+        statistics["rows"] += torch.stack([(batch["idx"] % 2 == 0).sum(), (batch["idx"] % 2 == 1).sum()]).float()
+
+    def eval_statistics_metrics(self, statistics: dict[str, torch.Tensor]) -> MetricDict:
+        even, odd = statistics["rows"].tolist()
+        metrics = MetricDict()
+        metrics.add_metric(ScalarMetricEntry(tag="eval/even_rows", scalar=even))
+        metrics.add_metric(ScalarMetricEntry(tag="eval/odd_rows", scalar=odd))
+        return metrics
+
+
 def _trainer(trainer_type: type[ToyTrainer], tmp_path: Path) -> tuple[ToyTrainer, RecordingMetrics]:
     config = ToyTrainerConfig(
         max_steps=1,
@@ -53,7 +73,7 @@ def _trainer(trainer_type: type[ToyTrainer], tmp_path: Path) -> tuple[ToyTrainer
         mixed_precision="bf16",
     )
     metrics = RecordingMetrics(str(tmp_path))
-    trainer = trainer_type(ToyModel(), config, metrics)
+    trainer = trainer_type(provenance(), ToyModel(), config, metrics)
     with torch.no_grad():
         trainer.model.linear.weight.fill_(1.0)
         trainer.model.linear.bias.zero_()
@@ -78,3 +98,12 @@ def test_eval_without_groups_logs_only_the_overall_loss(tmp_path: Path) -> None:
 
     assert "eval/loss" in metrics.scalars
     assert not [tag for tag in metrics.scalars if tag.startswith("eval/loss/")]
+
+
+def test_eval_statistics_accumulate_over_every_batch_and_are_logged(tmp_path: Path) -> None:
+    trainer, metrics = _trainer(StatisticsToyTrainer, tmp_path)
+
+    trainer.evaluate()
+
+    assert metrics.scalars["eval/even_rows"] == 2
+    assert metrics.scalars["eval/odd_rows"] == 2

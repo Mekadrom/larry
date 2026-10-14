@@ -1,6 +1,8 @@
 import dataclasses
+import glob
 import itertools
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -24,6 +26,16 @@ class SpeechSourceConfig:
     duration_column: str = "duration_s"
     text_column: str = "text_normalized"
     weight: float = 1.0  # target share of audio time, not of rows
+
+
+def index_split_files(index_path: str, split: str) -> list[str]:
+    files: list[str] = []
+    for name in split.split("+"):
+        found = sorted(glob.glob(str(Path(index_path).expanduser() / name / "*.parquet")))
+        if not found:
+            raise FileNotFoundError(f"no parquet files for split {name!r} under {index_path}")
+        files.extend(found)
+    return files
 
 
 @dataclasses.dataclass(kw_only=True)

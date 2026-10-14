@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 import av
+import torch
 from datasets import Dataset, Audio, DatasetDict
 from datasets.features.features import FeatureType, Value, Features
 from torchcodec.decoders import AudioDecoder
@@ -241,10 +242,17 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
             scores: list[float | None],
             normalized: list[str | None],
     ) -> None:
-        waveforms = [
-            bytes_to_waveforms(audios[i]["bytes"], sample_rate=self.config.sample_rate)[0]
-            for i in indices
-        ]
+        decoded: list[int] = []
+        waveforms: list[torch.Tensor] = []
+        for i in indices:
+            try:
+                waveforms.append(bytes_to_waveforms(audios[i]["bytes"], sample_rate=self.config.sample_rate)[0])
+                decoded.append(i)
+            except (RuntimeError, ValueError) as e:
+                self.log.warning(f"skipping undecodable audio path={audios[i].get('path')!r}: {e}")
+        indices = decoded
+        if not indices:
+            return
         emissions = aligner.clip_emissions(waveforms)
         for i, emission in zip(indices, emissions):
             text = texts[i]

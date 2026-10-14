@@ -5,7 +5,11 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 import jsonpath_ng
+import numpy as np
+import pyarrow as pa
 from datasets import Dataset, Features, Value, DatasetDict, Audio, concatenate_datasets
+from datasets.fingerprint import Hasher
+from datasets.table import InMemoryTable
 from jsonpath_ng import JSONPath
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
@@ -174,19 +178,18 @@ class RowIndexAssigningPreprocessor(Preprocessor[RowIndexAssigningPreprocessorCo
         return self._assign_rows(dataset)
 
     def _assign_rows(self, dataset: Dataset) -> Dataset:
-        rows = dataset.map(
-            self._row_numbers,
-            with_indices=True,
-            batched=True,
-            input_columns=[],
-            remove_columns=dataset.column_names,
-            batch_size=self.config.batch_size,
-            writer_batch_size=self.config.writer_batch_size,
-            keep_in_memory=not self.config.cache_results,
-            load_from_cache_file=self.config.cache_results,
-            features=Features({self.config.output_column: Value("int64")}),
+        # noinspection PyProtectedMember
+        if dataset._indices is not None:
+            dataset = dataset.flatten_indices(writer_batch_size=self.config.writer_batch_size)
+        lengths = [len(chunk) for chunk in dataset.data.column(0).chunks]
+        starts = np.cumsum([0, *lengths[:-1]])
+        column = pa.chunked_array(
+            [pa.array(np.arange(s, s + n, dtype=np.int64)) for s, n in zip(starts, lengths)],
+            type=pa.int64(),
+        )
+        # noinspection PyProtectedMember
+        rows = Dataset(
+            InMemoryTable(pa.Table.from_arrays([column], names=[self.config.output_column])),
+            fingerprint=Hasher.hash((dataset._fingerprint, self.config.output_column)),
         )
         return concatenate_datasets([dataset, rows], axis=1)
-
-    def _row_numbers(self, indices: list[int]) -> dict[str, list[int]]:
-        return {self.config.output_column: indices}

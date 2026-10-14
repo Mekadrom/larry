@@ -1,3 +1,5 @@
+import dataclasses
+import json
 import logging
 
 import torch
@@ -24,11 +26,15 @@ class ModelInitLoggingCallback(TrainingCallback):
             trainer.metrics.add_text("model/architecture", trainer.model, step)
             self.log.info(f"model_config: {trainer.model_config}")
             trainer.metrics.add_text("model/model_config", trainer.model_config, step)
-            self.log.info(f"n_parameters: {trainer.n_parameters}")
-            trainer.metrics.add_text("model/parameter_count", trainer.n_parameters, step)
+            self.log.info(f"n_parameters: {trainer.n_parameters:,}")
+            trainer.metrics.add_text("model/parameter_count", f"{trainer.n_parameters:,}", step)
             trainer.metrics.add_text("run/git_commit_hash", trainer.git_commit_hash, step)
             self.log.info(f"trainer_config: {trainer.config}")
-            trainer.metrics.add_text("run/trainer_config", trainer.config, step)
+            trainer.metrics.add_text(
+                "run/trainer_config",
+                json.dumps(dataclasses.asdict(trainer.config), default=str, indent="\t"),
+                step
+            )
 
 
 class LoggingTrainingCallback(TrainingCallback):

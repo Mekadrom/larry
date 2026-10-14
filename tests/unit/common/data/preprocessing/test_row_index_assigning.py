@@ -50,4 +50,38 @@ def test_dataset_spread_over_many_files_stays_small_when_pickled_for_a_worker(tm
 
     assert isinstance(out, Dataset)
     assert out["row"] == list(range(20_000))
-    assert len(pickle.dumps(out)) < 200_000
+    assert len(pickle.dumps(out)) < 20_000 * 8 + 50_000
+
+
+def test_dataset_spread_over_many_files_is_rebuilt_quickly_by_a_worker_after_later_steps(tmp_path: Path) -> None:
+    parts = []
+    for i in range(40):
+        Dataset.from_dict({"a": list(range(i * 500, (i + 1) * 500))}).save_to_disk(tmp_path / f"part{i}")
+        parts.append(load_from_disk(tmp_path / f"part{i}"))
+    dataset = concatenate_datasets(parts)
+
+    out = _preprocessor("row").preprocess_dataset(dataset).rename_column("a", "b")
+    worker_copy = pickle.loads(pickle.dumps(out.shard(8, 3, contiguous=True)))
+
+    assert worker_copy["row"] == list(range(7_500, 10_000))
+    assert worker_copy["b"] == list(range(7_500, 10_000))
+    assert {f["filename"] for f in worker_copy.cache_files} <= {f["filename"] for f in dataset.cache_files}
+
+
+def test_rows_follow_an_indices_mapping() -> None:
+    dataset = Dataset.from_dict({"a": list(range(10))}).filter(lambda r: r["a"] % 3 == 0)
+
+    out = _preprocessor("row").preprocess_dataset(dataset)
+
+    assert out["a"] == [0, 3, 6, 9]
+    assert out["row"] == [0, 1, 2, 3]
+
+
+def test_row_column_fingerprint_is_stable_across_runs(tmp_path: Path) -> None:
+    Dataset.from_dict({"a": list(range(100))}).save_to_disk(tmp_path / "source")
+
+    first = _preprocessor("row").preprocess_dataset(load_from_disk(tmp_path / "source"))
+    second = _preprocessor("row").preprocess_dataset(load_from_disk(tmp_path / "source"))
+
+    assert isinstance(first, Dataset) and isinstance(second, Dataset)
+    assert first._fingerprint == second._fingerprint

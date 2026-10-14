@@ -21,3 +21,39 @@ class FSQ(nn.Module):
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         q = self.quantize(x)
         return self.up(q), self.indices(q)
+
+def code_counts(
+        token_ids: torch.Tensor,
+        frame_lengths: torch.Tensor,
+        codebook_size: int,
+        group_ids: torch.Tensor | None = None,
+        n_groups: int = 1,
+) -> torch.Tensor:
+    """[n_groups, codebook_size] counts of the codes on real frames; padded frames are not counted."""
+    frames = torch.arange(token_ids.shape[1], device=token_ids.device)
+    real = frames.unsqueeze(0) < frame_lengths.to(token_ids.device).unsqueeze(1)
+    if group_ids is None:
+        group_ids = torch.zeros(token_ids.shape[0], dtype=torch.long, device=token_ids.device)
+    groups = group_ids.to(token_ids.device).unsqueeze(1).expand_as(token_ids)
+    flat = groups[real] * codebook_size + token_ids[real]
+    return torch.bincount(flat, minlength=n_groups * codebook_size).view(n_groups, codebook_size)
+
+
+def codebook_statistics(counts: torch.Tensor, dims: int, levels: int) -> dict[str, float]:
+    """Usage, perplexity, and per-dimension level shares of one [codebook_size] count vector."""
+    total = counts.sum()
+    if total == 0:
+        return {}
+    probs = counts.double() / total
+    used = probs[probs > 0]
+    statistics = {
+        "usage": float((counts > 0).double().mean()),
+        "perplexity": float(torch.exp(-(used * used.log()).sum())),
+    }
+    codes = torch.arange(levels ** dims, device=counts.device)
+    for d in range(dims):
+        digit = (codes // levels ** d) % levels
+        for level in range(levels):
+            share = float(probs[digit == level].sum())
+            statistics[f"dim{d}/level{level - levels // 2}"] = share
+    return statistics

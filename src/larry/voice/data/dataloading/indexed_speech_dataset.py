@@ -1,6 +1,7 @@
 import bisect
-from typing import Any
+from typing import Any, cast
 
+import pyarrow as pa
 import torch
 from datasets import Dataset as HFDataset
 from torch.utils.data import Dataset
@@ -57,7 +58,8 @@ class IndexedSpeechDataset(Dataset[dict[str, Any]]):
         source_ids = []
         durations = []
         for s, (config, index) in enumerate(zip(self.configs, self.indexes)):
-            column = index.with_format("numpy")[config.duration_column]
+            table = cast(pa.Table, index.select_columns([config.duration_column]).with_format("arrow")[:])
+            column = table.column(config.duration_column).to_numpy()
             durations.append(torch.from_numpy(column).double())
             source_ids.append(torch.full((len(column),), s, dtype=torch.long))
         return torch.cat(source_ids), torch.cat(durations)

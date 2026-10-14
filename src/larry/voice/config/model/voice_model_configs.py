@@ -21,6 +21,7 @@ class ASRVoiceModelConfig(VoiceModelConfig):
 @dataclasses.dataclass(kw_only=True)
 class SpeechTokenizerModelConfig(ASRVoiceModelConfig, LLMBlockModuleConfig):
     subsampler_stride: int = 2
+    n_query_groups: int = 16
 
     d_model: int = 1024
     fsq_dims: int = 8
@@ -29,3 +30,7 @@ class SpeechTokenizerModelConfig(ASRVoiceModelConfig, LLMBlockModuleConfig):
     n_encoder2_layers: int = 6
 
     text_vocab_size: int = 512
+
+    attention_dropout_p: float = 0.0
+    proj_dropout_p: float = 0.0
+    mlp_dropout_p: float = 0.0

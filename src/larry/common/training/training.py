@@ -1,3 +1,4 @@
+import copy
 import logging
 import sys
 from pathlib import Path
@@ -6,6 +7,7 @@ from typing import Any
 from accelerate import PartialState
 from datasets.load import camelcase_to_snakecase
 
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.training import build_model_config, build_trainer_config
 from larry.common.config.training.training_config import TrainingConfig
 from larry.common.metrics.metrics import Metrics, WandBMetrics, TensorBoardMetrics, NoneMetrics
@@ -56,10 +58,31 @@ class Training:
         model = model_type(model_config)
 
         trainer_type = trainers.TrainerBase.REGISTRY.resolve(trainer_type_name)
-        self.trainer = trainer_type(model, self.trainer_config, metrics, resume_dir=resume_dir)
+        provenance = self._build_provenance(copy.deepcopy(training_config_dict.get("provenance", {})))
+        self.trainer = trainer_type(provenance, model, self.trainer_config, metrics, resume_dir=resume_dir)
+
 
         self.log.info(f"trainer={self.trainer}")
         self.log.info(f"trainer_config={self.trainer_config}")
+
+    def _build_provenance(self, p_dict: dict[str, Any]) -> Provenance:
+        ancestry = p_dict.get("ancestry")
+        if ancestry is None:
+            ancestry = {}
+
+        datasets = ancestry.get("datasets")
+        if datasets is None:
+            datasets = set()
+        datasets = set(datasets)
+
+        models = ancestry.get("models")
+        if models is None:
+            models = set()
+        models = set(models)
+
+        new_dict = dict(p_dict)
+        new_dict["ancestry"] = {**ancestry, "datasets": datasets, "models": models}
+        return Provenance.new_provenance(new_dict)
 
     def run(self) -> None:
         """Runs preprocessing."""

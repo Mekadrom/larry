@@ -1,7 +1,6 @@
 import argparse
 import collections
 import dataclasses
-import glob
 import logging
 from pathlib import Path
 
@@ -14,7 +13,7 @@ from larry.common.utils import load_yaml_config
 from larry.common.utils.init_helpers import import_submodules
 from larry.voice.config.model.voice_model_configs import SpeechTokenizerModelConfig
 from larry.voice.config.training.voice_trainer_configs import SpeechTokenizerTrainerConfig
-from larry.voice.data.dataloading.voice_dataloading import SpeechSourceConfig
+from larry.voice.data.dataloading.voice_dataloading import SpeechSourceConfig, index_split_files
 
 log = logging.getLogger(__name__)
 
@@ -27,18 +26,11 @@ class SourceText:
     counts: collections.Counter[str]
 
 
-def split_files(index_path: str, split: str) -> list[str]:
-    files = sorted(glob.glob(str(Path(index_path).expanduser() / split / "*.parquet")))
-    if not files:
-        raise FileNotFoundError(f"no parquet files for split {split!r} under {index_path}")
-    return files
-
-
 def read_source(source: SpeechSourceConfig) -> SourceText:
     counts: collections.Counter[str] = collections.Counter()
     seconds = 0.0
     columns = [source.text_column, source.duration_column]
-    for file in split_files(source.index_path, source.split):
+    for file in index_split_files(source.index_path, source.split):
         for batch in pq.ParquetFile(file).iter_batches(columns=columns, batch_size=65536):
             seconds += pc.sum(batch.column(source.duration_column)).as_py() or 0.0
             counts.update(t for t in batch.column(source.text_column).to_pylist() if t)

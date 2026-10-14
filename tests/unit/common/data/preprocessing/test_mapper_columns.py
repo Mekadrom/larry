@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
 import pytest
 from datasets import Dataset, DatasetDict, Features, Value, load_from_disk
 
@@ -229,6 +230,22 @@ def test_value_override_mapper_applies_rules_sharing_an_input_column() -> None:
     assert out["date_argued"] == ["2015-04-20", "2020-01-01"]
     assert out["docket"] == ["13-7120rearg", "1-1"]
     assert out["term"] == ["2014", "2019"]
+
+
+def test_columns_removed_from_a_filtered_source_are_not_rewritten(tmp_path: Path) -> None:
+    _dataset().save_to_disk(tmp_path / "source")
+    dataset = load_from_disk(tmp_path / "source").filter(lambda row: row["text"] != "yy")
+    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(**_base(
+        input_column="text", output_column="n", remove_columns=["audio"], num_proc=2, cache_results=True,
+    )))
+
+    out = mapper.preprocess_dataset(dataset)
+
+    assert out["text"] == ["x", "zzz", "wwww", "vvvvv"]
+    assert out["n"] == [1, 3, 4, 5]
+    for cache_file in out.cache_files:
+        with pa.memory_map(cache_file["filename"]) as source:
+            assert "audio" not in pa.ipc.open_stream(source).schema.names
 
 
 def test_chained_mappers_on_disk_backed_data_survive_multiprocess_sharding(tmp_path: Path) -> None:

@@ -18,7 +18,7 @@ class LarryAttention(nn.Module, QKModule):
 
         self.n_query_groups = config.n_query_groups
         self.d_queries = config.d_model // config.n_heads
-        self.d_values = config.d_model // config.n_heads // self.n_query_groups
+        self.d_values = config.d_model // config.n_heads
         self.n_heads = config.n_heads
 
         # for gqa, queries have full n_heads, keys/values have fewer n_query_groups (shared across query heads)
@@ -69,9 +69,6 @@ class LarryAttention(nn.Module, QKModule):
             global_pids = position_ids[..., 0].to(queries.device).float()
             local_pids = position_ids[..., 1].to(queries.device).float()
 
-            # RotaryEmbedding accepts batched positions ((N, t) -> (N, t, dim)) and matches
-            # the per-row result exactly, so this must not be a Python loop: it runs once
-            # per attention call, i.e. ~n_blocks * n_iterations times per forward.
             fg = self.rotary_global(global_pids).unsqueeze(1)  # (N, 1, t, half)
             fl = self.rotary_local(local_pids).unsqueeze(1)
 
@@ -85,7 +82,9 @@ class LarryAttention(nn.Module, QKModule):
             keys = self.rotary_embedding.rotate_queries_or_keys(keys, offset=position_offset)
         return queries, keys
 
-    def _kv_cache(self, kv_cache: KVCache, k: torch.Tensor, v: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _kv_cache(
+            self, kv_cache: KVCache | None, k: torch.Tensor, v: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if kv_cache is not None and kv_cache.key_cache is not None and kv_cache.value_cache is not None:
             if self.n_rep > 1:
                 k = k.repeat_interleave(self.n_rep, dim=1)
@@ -101,9 +100,6 @@ class LarryAttention(nn.Module, QKModule):
         return k, v
 
     def _sliced_causal_mask(self, q_seq_len: int, k_seq_len: int) -> torch.Tensor:
-        # For cached generation with Huginn-style cache, position_offset tracks the global position while k_seq_len
-        # may differ across cache slots
-        # use k_seq_len-based offset so the mask matches the actual key dimension
         eff_offset = max(k_seq_len - q_seq_len, 0)  # query positions relative to key positions
         required_size = max(eff_offset + q_seq_len, k_seq_len)
 
@@ -187,8 +183,7 @@ class LarryAttention(nn.Module, QKModule):
         if self.rotary_embedding is not None:
             queries, keys = self._apply_rotary_embedding(queries, keys, position_ids, position_offset)
 
-        if kv_cache:
-            keys, values = self._kv_cache(kv_cache, keys, values)
+        keys, values = self._kv_cache(kv_cache, keys, values)
 
         new_kv_cache = None
         if use_cache:

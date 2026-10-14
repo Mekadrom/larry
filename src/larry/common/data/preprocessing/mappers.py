@@ -56,12 +56,6 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
         return self._filter_nulls(dataset)
 
     def _preprocess_dataset(self, dataset: Dataset) -> Dataset:
-        # noinspection PyProtectedMember
-        if dataset._indices is not None:
-            dataset = dataset.flatten_indices(
-                num_proc=self.config.num_proc,
-                writer_batch_size=self.config.writer_batch_size
-            )
         out = dataset.map(
             self._preprocess_columns,
             input_columns=self.input_columns,
@@ -70,7 +64,11 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
             **{**self.map_kwargs(), "remove_columns": dataset.column_names},
         )
         drop = [c for c in dataset.column_names if c in out.column_names or c in self.remove_columns]
-        return concatenate_datasets([dataset.remove_columns(drop), out], axis=1)
+        kept = dataset.remove_columns(drop)
+        # noinspection PyProtectedMember
+        if kept._indices is not None:
+            kept = kept.flatten_indices(num_proc=self.config.num_proc, writer_batch_size=self.config.writer_batch_size)
+        return concatenate_datasets([kept, out], axis=1)
 
     def _preprocess_columns(self, *args: Any) -> dict[str, list[Any]]:
         *columns, rank = args
