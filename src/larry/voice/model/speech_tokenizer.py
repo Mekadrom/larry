@@ -68,6 +68,10 @@ class SpeechEncoderPreBottleneck(VoiceModel[SpeechTokenizerModelConfig]):
         ])
         self.final_norm = nn.LayerNorm(config.d_model)
 
+    @property
+    def frame_seconds(self) -> float:
+        return self.config.hop_length * self.stride1 * self.stride2 / self.config.sample_rate
+
     def _conv_lengths(self, lengths: torch.Tensor, stride: int) -> torch.Tensor:
         return (lengths + 2 * self.padding - self.kernel_size) // stride + 1
 

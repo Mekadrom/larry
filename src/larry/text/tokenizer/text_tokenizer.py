@@ -22,6 +22,10 @@ class TextTokenizer(Registrable, ABC, root=True):
     def vocab_size(self) -> int:
         ...
 
+    @abstractmethod
+    def id_to_piece(self, token_id: int) -> str:
+        ...
+
 
 class SentencePieceTokenizer(TextTokenizer):
     def __init__(self, model_file: str) -> None:
@@ -35,3 +39,6 @@ class SentencePieceTokenizer(TextTokenizer):
 
     def vocab_size(self) -> int:
         return self.sp.get_piece_size()
+
+    def id_to_piece(self, token_id: int) -> str:
+        return self.sp.id_to_piece(token_id)

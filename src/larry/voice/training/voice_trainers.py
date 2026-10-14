@@ -132,6 +132,11 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
         return metrics
 
     def make_dataset_dict(self) -> Mapping[str, Dataset]:
+        if self.model_config.sample_rate != self.config.mixture_config.sample_rate:
+            raise ValueError(
+                f"sample_rates do not match: model_config={self.model_config.sample_rate}, "
+                f"dataset_config={self.config.mixture_config.sample_rate}"
+            )
         if len(self.config.mixture_config.train_sources) == 0:
             raise ValueError("train_sources is empty")
         if len(self.config.mixture_config.eval_sources) == 0:
