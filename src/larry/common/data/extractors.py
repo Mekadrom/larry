@@ -8,37 +8,50 @@ from typing import cast, BinaryIO, ClassVar
 
 from tqdm import tqdm
 
-from larry.common.config.data.extractor_configs import ExtractorConfig, SingleFileExtractorConfig, \
-    MultiFileExtractorConfig
+from larry.common.config.data.extractor_configs import ExtractorConfig, SingleFileExtractorConfig
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
 
 
 class Extractor[C: ExtractorConfig](Registrable, ABC, root=True):
+    """Superclass for extractors."""
     REGISTRY: ClassVar[TypeRegistry[Extractor]]
 
     _config: C
 
     def __init__(self, config: C, extract_cache_abs_dir: Path) -> None:
+        """Sets up this instance's config."""
+        self.log = logging.getLogger(type(self).__name__)
+
         self._config = config
         self.extract_cache_dir = extract_cache_abs_dir
 
     @property
     def config(self) -> C:
+        """Immutable type-hint config getter."""
         return self._config
 
     @abstractmethod
     def ensure_extracted(self) -> None:
+        """Entrypoint for all extractors to ensure that a specified archive is extracted."""
         ...
 
 
 class SingleFileExtractor(Extractor[SingleFileExtractorConfig]):
+    """Extractor implementation responsible for extracting a single archive file."""
+
     def __init__(self, config: SingleFileExtractorConfig, extract_cache_abs_dir: Path):
+        """Sets up this instance's config."""
         super().__init__(config, extract_cache_abs_dir)
         self.input_file_path = self.extract_cache_dir / config.input_file_name
-        self.log = logging.getLogger(type(self).__name__)
 
     def ensure_extracted(self) -> None:
+        """Ensures that the specified archive has been extracted.
+
+        First checks to see if the input file path exists as a primary form of validation. Then, checks to see if a
+        special ".extracted" marker file for the specified archive file exists. If it does, then this archive has been
+        extracted already and it returns early. If it does not exist, moves on to extracting.
+        """
         if not os.path.exists(self.input_file_path):
             raise ValueError(f"input_file_path does not exist to extract: {self.input_file_path}")
 
@@ -54,6 +67,7 @@ class SingleFileExtractor(Extractor[SingleFileExtractorConfig]):
 
     @staticmethod
     def _extract_file(output_dir: Path, file_path: Path) -> None:
+        """Performs the extraction of supported file types; mostly tarballs or zips. Supports tqdm progress bars."""
         name = file_path.name
         if name.endswith((".tar", ".tar.gz", ".tgz", ".tar.xz", ".tar.bz2")):
             total = os.path.getsize(file_path)
@@ -84,17 +98,3 @@ class SingleFileExtractor(Extractor[SingleFileExtractorConfig]):
         else:
             raise ValueError(f"unsupported archive type: {name}")
         file_path.with_name(f"{file_path.name}.extracted").touch(exist_ok=False)
-
-
-class MultiFileExtractor(Extractor[MultiFileExtractorConfig]):
-    def __init__(self, config: MultiFileExtractorConfig, extract_cache_abs_dir: Path):
-        super().__init__(config, extract_cache_abs_dir)
-
-        self.delegates = [
-            Extractor.REGISTRY.resolve(k)(c, self.extract_cache_dir)
-            for k, c in config.delegate_configs
-        ]
-
-    def ensure_extracted(self) -> None:
-        for delegate in self.delegates:
-            delegate.ensure_extracted()

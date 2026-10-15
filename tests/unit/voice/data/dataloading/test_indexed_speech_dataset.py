@@ -1,8 +1,17 @@
+import io
+import math
+import random
+import struct
+import wave
+from types import SimpleNamespace
+
+import pytest
 import torch
 from datasets import Dataset
 
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
-from larry.voice.data.dataloading.voice_dataloading import SpeechSourceConfig
+from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
+from larry.voice.training.voice_trainers import SpeechTokenizerTrainer
 
 
 def test_source_ids_and_durations_cover_every_index_in_order_with_full_precision() -> None:
@@ -21,3 +30,64 @@ def test_source_ids_and_durations_cover_every_index_in_order_with_full_precision
     assert source_ids.tolist() == [0, 0, 1, 1]
     assert durations.dtype == torch.float64
     assert durations.tolist() == [1.25, 2.5, 3.3, 7.123456789]
+
+
+def _wav(seconds: float, sample_rate: int) -> bytes:
+    frames = b"".join(
+        struct.pack("<h", int(6000 * math.sin(2 * math.pi * 300 * i / sample_rate)))
+        for i in range(int(seconds * sample_rate))
+    )
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(frames)
+    return buffer.getvalue()
+
+
+def _clip_dataset(speed_factors: tuple[float, ...]) -> IndexedSpeechDataset:
+    index = Dataset.from_dict({
+        "audio": [{"bytes": _wav(1.0, 16000), "path": "a.wav"}],
+        "text_normalized": ["HI"],
+        "duration_s": [1.0],
+    })
+    source = SpeechSourceConfig(name="toy", index_path="toy")
+    return IndexedSpeechDataset([source], [index], [None], sample_rate=16000, speed_factors=speed_factors)
+
+
+@pytest.mark.parametrize(("factor", "expected_samples"), [(1.0, 16000), (1.1, 14546), (0.9, 17778)])
+def test_speed_perturbation_rescales_clip_length(factor: float, expected_samples: int) -> None:
+    waveform = _clip_dataset((factor,))[0]["waveform"]
+
+    assert abs(waveform.shape[-1] - expected_samples) <= 1
+
+
+def test_speed_perturbation_picks_among_the_configured_factors() -> None:
+    dataset = _clip_dataset((0.9, 1.1))
+    random.seed(0)
+
+    lengths = {dataset[0]["waveform"].shape[-1] for _ in range(20)}
+
+    assert lengths == {14546, 17778}
+
+
+def test_speed_factors_reach_only_the_training_split() -> None:
+    calls: list[tuple[list[str], tuple[float, ...]]] = []
+    trainer = SpeechTokenizerTrainer.__new__(SpeechTokenizerTrainer)
+    vars(trainer).update(
+        model_config=SimpleNamespace(sample_rate=16000),
+        _config=SimpleNamespace(
+            speed_augment_factors=[0.9, 1.0, 1.1],
+            mixture_config=SimpleNamespace(
+                sample_rate=16000,
+                train_sources=[SpeechSourceConfig(name="train", index_path="train")],
+                eval_sources=[SpeechSourceConfig(name="eval", index_path="eval")],
+            ),
+        ),
+        _load_indexed=lambda configs, speed_factors=(1.0,): calls.append(([c.name for c in configs], speed_factors)),
+    )
+
+    trainer.make_dataset_dict()
+
+    assert calls == [(["train"], (0.9, 1.0, 1.1)), (["eval"], (1.0,))]

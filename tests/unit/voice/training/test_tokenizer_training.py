@@ -7,7 +7,7 @@ import sentencepiece
 import yaml
 from datasets import Dataset
 
-from larry.voice.data.dataloading.voice_dataloading import SpeechSourceConfig
+from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
 from larry.voice.training import tokenizer_training
 from larry.voice.training.tokenizer_training import SourceText, read_source, train_tokenizer, weighted_frequencies
 

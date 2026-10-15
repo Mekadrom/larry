@@ -1,153 +1,65 @@
-import copy
 import dataclasses
+import glob
 import json
 import logging
-import math
 import os
 import shutil
 import sys
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Literal
 
+import numpy as np
 import torch
 from datasets import Dataset, DatasetDict
 
-from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig
-from larry.common.config.data.preprocessing.pipeline_config import PipelineConfig, Provenance
-from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
-from larry.common.data.dataset_providers import DatasetProvider
-from larry.common.data.preprocessing.preprocessors import Preprocessor
-from larry.common.data.utils import save_parquet_shards, split_by_fractions
-from larry.common.utils import load_yaml_config
+from larry.common.config.data.preprocessing import pipeline_config
+from larry.common.data.utils import save_parquet_shards
 
 
 class Pipeline:
-    config: PipelineConfig
+    """Management class for preprocessing pipelines; handles configuration loading/parsing and final output saving."""
     output_dir: Path
-    dataset_provider: DatasetProvider
-    pipeline: list[Preprocessor]
-    provenance: Provenance
+    state: pipeline_config.PipelineState
+    provenance_only: bool
 
     def __init__(self, config_file: Path, output_dir: Path, clean: bool = False, provenance_only: bool = False) -> None:
-        """Instantiates a ``Runner`` and the configs specified for this preprocessing pipeline run."""
-        self.log = logging.getLogger(__name__)
+        """Sets up the pipeline run."""
+        self.log = logging.getLogger(type(self).__name__)
+
+        self.state = pipeline_config.PipelineState(config_file)
+
+        if clean:
+            self._clean(self.state.dataset_provider.config.cache_dir)
+
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-        self.log.info(f"Loading pipeline config from yaml config_file={config_file}")
-        definition = load_yaml_config(config_file)
-        self.log.info("Pipeline config loaded.")
-
-        preprocessor_config_dict: dict[str, Any] = definition.get("preprocessor", {})
-        preprocessor_inputs: dict[str, Any] = preprocessor_config_dict.get("inputs", [])
-        self.log.info(f"using preprocessor_inputs={preprocessor_inputs}")
-        self.config = PipelineConfig(**preprocessor_inputs)
-
-        dataset_config_dict: dict[str, Any] = definition.get("dataset", {})
-
-        dataset_config_type_name = dataset_config_dict.get("config")
-        dataset_config_split_fractions = dataset_config_dict.get("splits", None)
-        self.fractions: dict[str, float] | None = None
-        if dataset_config_split_fractions:
-            self.fractions = {i["name"]: i["part"] for i in dataset_config_split_fractions}
-            if not math.isclose(sum(self.fractions.values()), 1.0, abs_tol=1e-6):
-                raise ValueError(f"split fractions must sum to 1, got {self.fractions}")
-
-        dataset_config_type = DatasetConfig.REGISTRY.resolve(dataset_config_type_name)
-        self.log.info(f"Using dataset_config_type_name={dataset_config_type_name}")
-
-        dataset_config_overrides = dataset_config_dict.get("overrides", [])
-        self.log.info(f"Applying dataset_config_overrides={dataset_config_overrides}")
-
-        dataset_provider_config: DatasetConfig = dataset_config_type(**dataset_config_overrides)
-
-        if dataset_provider_config.cache_dir:
-            dataset_provider_config.cache_dir = Path(dataset_provider_config.cache_dir).expanduser().resolve()
-            if clean:
-                self.log.info(f"Cleaning up {dataset_provider_config.cache_dir}")
-                shutil.rmtree(dataset_provider_config.cache_dir, ignore_errors=True)
-
-        dataset_provider_type_name = dataset_provider_config.provider_name
-        self.log.info(
-            f"Using dataset_provider_type_name={dataset_provider_type_name} "
-            f"for dataset_provider_config={dataset_provider_config}"
-        )
-        dataset_provider_type = DatasetProvider.REGISTRY.resolve(dataset_provider_type_name)
-        self.dataset_provider = dataset_provider_type(dataset_provider_config)
-
-        self.provenance = self._build_provenance(copy.deepcopy(self.config.provenance))
         self.provenance_only = provenance_only
 
-        pipeline_configs = definition.get("pipeline", None)
-        if pipeline_configs:
-            self.pipeline = self._build_mapper_pipeline(pipeline_configs)
-        else:
-            self.log.critical(
-                "No pipeline configured; parquets will be downloaded and cached locally according to the configuration."
-            )
-            self.pipeline = []
-        self.log.info("Preprocessor constructed")
+    def _clean(self, dataset_provider_cache_dir: str | Path | Literal[""] | None) -> None:
+        """Cleans up parquet dirs, *.complete marker files, provenance.json, and cache dirs."""
+        if self.output_dir.exists():
+            self.log.info(f"Cleaning up {self.output_dir}")
 
-    def _build_mapper_pipeline(self, pipeline_configs: list[dict[str, Any]]) -> list[Preprocessor]:
-        pipeline: list[Preprocessor] = []
+            # removes split dirs containing parquets
+            subdirs = [x for x in self.output_dir.iterdir() if x.is_dir()]
+            for subdir in subdirs:
+                shutil.rmtree(subdir, ignore_errors=True)
 
-        for preprocessor_config in pipeline_configs:
-            preprocessor_type_name = preprocessor_config.get("name")
-            preprocessor_type = Preprocessor.REGISTRY.resolve(preprocessor_type_name)
+            # to be re-generated
+            (self.output_dir / "provenance.json").unlink(missing_ok=True)
 
-            preprocessor_config_type_name = preprocessor_config.get("config")
-            preprocessor_config_type = PreprocessorConfig.REGISTRY.resolve(preprocessor_config_type_name)
+            # remove markers
+            for completed_marker in glob.glob(str(self.output_dir / "*.complete")):
+                Path(completed_marker).resolve().unlink()
 
-            self.log.info(
-                f"Using preprocessor_config_type_name={preprocessor_config_type_name} "
-                f"for preprocessor_type_name={preprocessor_type_name}"
-            )
-
-            preprocessor_config_overrides = preprocessor_config.get("inputs", {})
-            self.log.info(f"Applying preprocessor_config_overrides={preprocessor_config_overrides}")
-            preprocessor_config = preprocessor_config_type(**preprocessor_config_overrides)
-
-            self.log.info(
-                f"preprocessor_type_name={preprocessor_type_name} "
-                f"using preprocessor_config={preprocessor_config}"
-            )
-
-            pipeline.append(preprocessor_type(self.provenance, preprocessor_config))
-
-        return pipeline
-
-    def _build_provenance(self, p_dict: dict[str, Any]) -> Provenance:
-        ancestry = p_dict.get("ancestry")
-        if ancestry is None:
-            ancestry = {}
-
-        datasets = ancestry.get("datasets")
-        if datasets is None:
-            datasets = set()
-        datasets = set(datasets)
-
-        models = ancestry.get("models")
-        if models is None:
-            models = set()
-        models = set(models)
-
-        path = self.dataset_provider.config.path
-        data_dir = self.dataset_provider.config.data_dir
-        if path not in ("parquet", "csv", "json", "tsv"):
-            datasets.add(path)
-        elif data_dir is not None:
-            local = Path(data_dir).expanduser().resolve()
-            try:
-                datasets.add(f"~/{local.relative_to(Path.home())}")
-            except ValueError:
-                datasets.add(str(local))
-
-        new_dict = dict(p_dict)
-        new_dict["ancestry"] = {**ancestry, "datasets": datasets, "models": models}
-        return Provenance.new_provenance(new_dict)
+        if dataset_provider_cache_dir:
+            self.log.info(f"Cleaning up {dataset_provider_cache_dir}")
+            shutil.rmtree(dataset_provider_cache_dir, ignore_errors=True)
 
     def run(self) -> None:
-        """Runs preprocessing."""
+        """Runs the preprocessing pipeline."""
         self.log.info("Beginning preprocessing...")
         try:
             self.preprocess_all()
@@ -157,15 +69,14 @@ class Pipeline:
             sys.exit(-2)
 
     def preprocess_all(self) -> None:
-        """Super method for the primary entrypoint for preprocessors. Does all the work using ``self.config``."""
-
+        """The primary entrypoint for preprocessors."""
         if self.provenance_only:
             self.log.warning("--provenance_only passed; will skip preprocessing.")
             self._compile_and_save_provenance()
             return
 
         self.log.info("Initializing dataset...")
-        dataset = self.dataset_provider.load_dataset()
+        dataset = self.state.dataset_provider.load_dataset()
         self.log.info("Dataset initialized. Preprocessing...")
 
         torch.set_num_threads(1)
@@ -185,7 +96,11 @@ class Pipeline:
         self.log.info("Dataset saved to disk.")
 
     def _preprocess_and_save_shards(self, dataset: Dataset | DatasetDict, input_split: str, written: set[str]) -> None:
-        for mapper in self.pipeline:
+        dataset = self._preprocess(dataset, input_split, written)
+        self._save_shards(dataset)
+
+    def _preprocess(self, dataset: Dataset | DatasetDict, input_split: str, written: set[str]) -> DatasetDict:
+        for mapper in self.state.pipeline:
             try:
                 mapper.log.info(f"columns in: {dataset.column_names}")
 
@@ -208,8 +123,8 @@ class Pipeline:
                 raise
 
         if isinstance(dataset, Dataset):
-            if self.fractions is not None:
-                dataset = split_by_fractions(dataset, self.fractions)
+            if self.state.fractions is not None:
+                dataset = self._split_by_fractions(dataset, self.state.fractions)
             else:
                 dataset = DatasetDict({input_split: dataset})
 
@@ -221,22 +136,43 @@ class Pipeline:
                 f"already wrote; configure the pipeline so every output split name is produced once"
             )
         written.update(names)
+        return dataset
 
+    @staticmethod
+    def _split_by_fractions(dataset: Dataset, fractions: Mapping[str, float]) -> DatasetDict:
+        """Splits a given dataset into different splits depending on fraction definitions.
+
+        Takes fractions like {"train": 0.98, "val": 0.01, "test": 0.01}, produces an array of [0.0, 0.98, 0.99, 1.00]
+        and then multiplies to the length of the dataset to get something like [0, 9800, 9900, 10000] (for a dataset
+        of length 10,000) representing each bound of a ranged indices for each split requested (has to cast to int for
+        rounding). Returns a ``DatasetDict``.
+        """
+        n = len(dataset)
+
+        indices = np.cumsum([0.0, *fractions.values()]) * n
+        indices = np.round(indices).astype(int)
+        indices[-1] = n
+        return DatasetDict({
+            name: dataset.select(range(int(a), int(b)))
+            for name, a, b in zip(fractions, indices[:-1], indices[1:])
+        })
+
+    def _save_shards(self, dataset: DatasetDict) -> None:
+        """Saves each split to separate parquet dirs."""
         for split_name, split_dataset in dataset.items():
             save_parquet_shards(
                 split_dataset,
                 self.output_dir,
-                self.config.parquet_size_mb,
+                self.state.config.parquet_size_mb,
                 prefix=str(split_name),
-                writer_batch_size=self.config.default_batch_size,
+                writer_batch_size=self.state.config.default_batch_size,
             )
 
     def _compile_and_save_provenance(self) -> None:
         """Saves a separate json file that records the sources of this saved dataset."""
-
-        self.provenance.populate_mutables()
+        self.state.provenance.populate_mutables()
         (self.output_dir / "provenance.json").write_text(json.dumps(
-            dataclasses.asdict(self.provenance),
+            dataclasses.asdict(self.state.provenance),
             default=list,
             indent="\t"
         ))

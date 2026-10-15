@@ -7,14 +7,17 @@ import git
 
 @dataclasses.dataclass
 class RepoState:
+    """Helper dataclass for storing git information."""
     git_commit: str
     git_dirty: bool
 
 
 @functools.cache
 def git_info() -> RepoState | None:
+    """Returns git info for storing in provenance."""
     try:
         repo = git.Repo(Path(__file__).resolve().parent, search_parent_directories=True)
     except (git.InvalidGitRepositoryError, git.NoSuchPathError):
         return None
+    
     return RepoState(repo.head.commit.hexsha, repo.is_dirty(untracked_files=True))

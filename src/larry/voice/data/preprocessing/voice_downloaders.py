@@ -23,11 +23,15 @@ _SPAN = re.compile(r"""<span id=["'][^"']*%s["'][^>]*>(.*?)</span>""", re.DOTALL
 
 
 class SCOTUSTermManifestDownloader(RangedIndexMultiFileDownloader[SCOTUSTermManifestDownloaderConfig]):
+    """Downloader implementation that crawls the SCOTUS html pages for an index of terms -> dockets."""
+
     def __init__(self, config: SCOTUSTermManifestDownloaderConfig, download_cache_abs_dir: Path) -> None:
+        """Simple init."""
         super().__init__(config, download_cache_abs_dir)
         self.output_file_path = self.download_cache_abs_dir / self.config.term_manifest_file_name
 
     def ensure_downloaded(self) -> bool:
+        """Downloads and caches index.html pages for terms that list all dockets within that term."""
         if os.path.exists(self.output_file_path):
             self.log.info(f"Already downloaded and produced {self.output_file_path}")
             return False
@@ -85,30 +89,38 @@ class SCOTUSTermManifestDownloader(RangedIndexMultiFileDownloader[SCOTUSTermMani
 
 
 class SCOTUSCaseDetailSingleFileBackupDownloader(SingleFileBackupDownloader):
-    def __init__(self, config: SingleFileBackupDownloaderConfig, download_cache_abs_dir: Path, docket: str) -> None:
-        self.docket = docket
+    """Downloads a single case/docket, using a couple of backup formats."""
 
+    def __init__(self, config: SingleFileBackupDownloaderConfig, download_cache_abs_dir: Path, docket: str) -> None:
+        """Simple init."""
+        self.docket = docket
         super().__init__(config, download_cache_abs_dir)
 
     def make_backup_download_paths(self, default_url: str) -> list[str]:
+        """Generates backup paths by regex substitution of common patterns."""
         out = []
 
-        docket_upper_url = re.sub(self.docket, self.docket.upper(), default_url, flags=re.I)
-        docker_suffix_url = re.sub(r"orig", "Orig", default_url, flags=re.I)
+        docket_upper_url = re.sub(self.docket, self.docket.upper(), default_url, flags=re.IGNORECASE)
+        docker_suffix_url = re.sub(r"orig", "Orig", default_url, flags=re.IGNORECASE)
 
         for v in (docket_upper_url, docker_suffix_url):
             if v not in out:
                 out.append(v)
+
         return out
 
 
 class SCOTUSDocketManifestDownloader(MultiFileDownloader[SCOTUSDocketManifestDownloaderConfig]):
+    """Downloader for taking term indices and downloading case pages for all dockets within that term."""
+
     def __init__(self, config: SCOTUSDocketManifestDownloaderConfig, download_cache_abs_dir: Path) -> None:
+        """Simple init."""
         super().__init__(config, download_cache_abs_dir)
         self.input_file_path = self.download_cache_abs_dir / self.config.term_manifest_file_name
         self.output_file_path = self.download_cache_abs_dir / self.config.docket_manifest_file_name
 
     def ensure_downloaded(self) -> bool:
+        """Downloads and caches docket/case index.html files to pull URLs from for the mp3 file and transcript pdf."""
         if os.path.exists(self.output_file_path):
             return False
 
@@ -165,16 +177,25 @@ class SCOTUSDocketManifestDownloader(MultiFileDownloader[SCOTUSDocketManifestDow
 
     @staticmethod
     def _normalize_date(s: str) -> str:
+        """Normalizes the date argued for the docket to yyyy-MM-dd."""
         return datetime.strptime(s, "%m/%d/%y").date().isoformat()  # "10/29/18" -> "2018-10-29"
 
     @staticmethod
-    def _get_text(raw):
+    def _get_text(raw: str) -> str:
+        """Strips html tags from a raw html page block."""
         return html.unescape(re.sub(r"<[^>]+>", " ", raw or "")).strip()
 
-    def _get_span(self, page, suffix):
+    def _get_span(self, page: str, suffix: str) -> str:
+        """Returns the contents inside a named span using regex."""
         m = re.search(_SPAN.pattern % re.escape(suffix), page, re.S)
-        return self._get_text(m.group(1)) if m else ""
+        if m:
+            return self._get_text(m.group(1))
+        return ""
 
     def _get_term_indices(self) -> list[tuple[str, str]]:
+        """Given the term manifest output csv from ``SCOTUSTermManifestDownloader``, produce a table of term->docket."""
         with open(self.input_file_path, newline="", encoding="utf-8") as f:
-            return [(row["term"], row["docket"]) for row in csv.DictReader(f, delimiter="\t")]
+            return [
+                (row["term"], row["docket"])
+                for row in csv.DictReader(f, delimiter="\t")
+            ]

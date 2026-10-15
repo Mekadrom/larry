@@ -2,7 +2,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from larry.common.training.training import Training
+from larry.common.training.training_run import TrainingRun
 from larry.common.utils import set_seed_everywhere
 
 log = logging.getLogger(__name__)
@@ -59,5 +59,4 @@ def main() -> None:
 
     set_seed_everywhere(args.seed)
 
-    t = Training(config_file, run_dir, resume_dir=args.resume_dir)
-    t.run()
+    TrainingRun(config_file, run_dir, resume_dir=args.resume_dir).run()

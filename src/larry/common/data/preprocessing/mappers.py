@@ -1,24 +1,25 @@
-import hashlib
-import os.path
-import time
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
-import requests
 import torch.cuda
-from datasets import Dataset, Features, DatasetDict, concatenate_datasets, Value
+from datasets import Dataset, Features, DatasetDict, concatenate_datasets
 from datasets.features.features import FeatureType
 
 from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, ValueOverrideMapperConfig, \
-    MapperConfig, UrlMapperConfig, UrlBytesMapperConfig, CompositeIDMapperConfig
+    MapperConfig, CompositeIDMapperConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 
 
 class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
+    """Superclass for all ``Preprocessor`` instances that map from N input columns to M output columns."""
+
     def __init__(self, provenance: Provenance, config: C) -> None:
+        """Sets up all ``Mapper`` instances.
+
+        Sets up with a ``self.remove_columns`` for columns to remove columns after this step runs,
+        ``self.input_columns``, and ``self.output_columns`` filtered for None values.
+        """
         super().__init__(provenance, config)
         if self.config.remove_columns:
             self.remove_columns = [c for c in self.config.remove_columns if c is not None]
@@ -29,12 +30,18 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
         self.device_index = 0
 
     def validate(self) -> None:
+        """Simple override validating the input config; called by the super class, ``Preprocessor`` in init."""
         if not self.config.input_columns:
             raise ValueError(f"input_columns must be specified for {self.__class__.__name__}")
         if not self.config.output_columns:
             raise ValueError(f"output_columns must be specified for {self.__class__.__name__}")
 
     def map_kwargs(self) -> dict[str, Any]:
+        """Overrideable function for returning kwargs passed to the default ``preprocess_dataset`` function.
+
+        Some amount of sanitization should be done on this prior to allowing it to be passed directly to
+        ``dataset.map``.
+        """
         return dict(
             batched=True,
             batch_size=self.config.batch_size,
@@ -46,6 +53,7 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
         )
 
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        """For a ``Dataset`` or ``DatasetDict``, calls ``_preprocess_dataset`` for each underlying ``Dataset``."""
         if isinstance(dataset, DatasetDict):
             dataset = DatasetDict({
                 split: self._preprocess_dataset(split_ds)
@@ -56,6 +64,16 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
         return self._filter_nulls(dataset)
 
     def _preprocess_dataset(self, dataset: Dataset) -> Dataset:
+        """Real generic entrypoint for mapping the input dataset.
+
+        Provides all configured input columns and output features from the overridden ``output_features`` method, and
+        uses the return value of ``map_kwargs`` in conjunction with an overridden remove_columns value. Passes device
+        rank as well for multi-gpu processing of gpu-parallelizable mapper steps. To avoid passing all columns of a
+        dataset as materialized data, the actual map call expects the implementation of mapper to only return the
+        columns to be added, with no rows removed. It then concatenates the new columns onto the existing dataset,
+        only requiring that the ``self.input_columns`` be loaded into memory for this step's processing. Additionally
+        flattens indices if required prior to concatenation.
+        """
         out = dataset.map(
             self._preprocess_columns,
             input_columns=self.input_columns,
@@ -63,18 +81,34 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
             with_rank=True,
             **{**self.map_kwargs(), "remove_columns": dataset.column_names},
         )
-        drop = [c for c in dataset.column_names if c in out.column_names or c in self.remove_columns]
-        kept = dataset.remove_columns(drop)
+
+        # prior to concatenating the output columns, make sure they don't already exist in the dataset
+        kept = dataset.remove_columns([
+            c
+            for c in dataset.column_names
+            if c in out.column_names or c in self.remove_columns
+        ])
+
         # noinspection PyProtectedMember
         if kept._indices is not None:
             kept = kept.flatten_indices(num_proc=self.config.num_proc, writer_batch_size=self.config.writer_batch_size)
+
         return concatenate_datasets([kept, out], axis=1)
 
     def _preprocess_columns(self, *args: Any) -> dict[str, list[Any]]:
+        """Helper/wrapper for preprocessing a batch.
+
+        Since specifying multiple input columns provides them to the batch function as ordered args, this takes them and
+        pairs them with the column_name to create a dict batch to provide to the _preprocess_batch function instead.
+        """
         *columns, rank = args
         return self._preprocess_batch(dict(zip(self.input_columns, columns)), rank)
 
     def _preprocess_batch(self, batch: dict[str, list[Any]], rank: int | None) -> dict[str, list[Any]]:
+        """Wrapper/helper that makes sure this mapper instance uses the correct device according to the device index.
+
+        Avoids requiring all subclasses to care about such things.
+        """
         if rank is not None:
             n_devices = torch.cuda.device_count()
             if n_devices > 0:
@@ -83,17 +117,31 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
 
     @abstractmethod
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        """Abstract entrypoint for batch-based preprocessing.
+
+        The input ``batch`` is a ``dict[str, list[Any]]``, where the string keys are input column names and the list
+        values are the values per-row in order for each example in each column. Can be iterated safely in order over
+        using ``zip``.
+        """
         ...
 
     def _filter_nulls(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
-        if isinstance(dataset, Dataset):
-            dataset = self.filter_nulls(dataset)
-        elif isinstance(dataset, DatasetDict):
+        """After preprocessing the entire dataset by batches, filter for nulls.
+
+        Filters rows that have null values in any of the output columns.
+        """
+        if isinstance(dataset, DatasetDict):
             for split, split_ds in dataset.items():
                 dataset[split] = self.filter_nulls(split_ds)
+        elif isinstance(dataset, Dataset):
+            dataset = self.filter_nulls(dataset)
         return dataset
 
     def filter_nulls(self, dataset: Dataset) -> Dataset:
+        """Checks to see if any nulls are present in the output columns after this mapper preprocessed.
+
+        Then, does a specialized prune step that removes any rows that have any nulls in the output columns.
+        """
         n = sum(dataset.data.column(c).null_count for c in self.output_columns)
         if self.config.filter_null_outputs and n > 0:
             return dataset.filter(
@@ -108,11 +156,18 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
         return dataset
 
     def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        """Overrideable method to return a ``Features`` object (dict) mapping output column names to ``FeatureType``.
+
+        Returning ``None`` lets datasets guess what the type is, which is relatively unsafe and not recommended.
+        """
         return None
 
 
 class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperConfig](Mapper[C], ABC):
+    """Subclass of ``Mapper`` for mappers that operate on a single input column and produce a single output column."""
+
     def validate(self) -> None:
+        """Validates the singular input and output column names are configured."""
         super().validate()
         if not self.config.input_column:
             raise ValueError(f"input_column must be specified for {self.__class__.__name__}")
@@ -120,6 +175,11 @@ class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperC
             raise ValueError(f"output_column must be specified for {self.__class__.__name__}")
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        """Helper/wrapper for preprocess_batch.
+
+        Takes the required single input column values and passes it example-wise to a single-item preprocessing
+        function. Produces the single output column as an ordered list of corresponding values.
+        """
         column_in = batch[self.config.input_column]
         column_out = []
         for example in column_in:
@@ -127,9 +187,11 @@ class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperC
         return {self.config.output_column: column_out}
 
     def preprocess_example(self, example: I) -> O:
+        """Takes a single input value as a value from the input column and produces a corresponding output."""
         ...
 
     def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        """Helper/wrapper for a single output feature. Only the one output feature needs to be specified."""
         output_feature = self.output_feature()
         if output_feature is None:
             return None
@@ -137,19 +199,32 @@ class SingleColumnMapper[I, O, C: SingleColumnMapperConfig = SingleColumnMapperC
 
     @abstractmethod
     def output_feature(self) -> FeatureType | None:
+        """Simplified abstract method for specifying a single output ``FeatureType``."""
         ...
 
 
 class ValueOverrideMapper(Mapper[ValueOverrideMapperConfig]):
+    """Mapper implementation overrides specific values."""
+
     def validate(self) -> None:
+        """Validates the input and output columns in addition to configured value mappings."""
         super().validate()
         if not self.config.mappings:
             raise ValueError(f"mappings_config must be specified for {self.__class__.__name__}")
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        """Batch preprocessor for overriding specific row values.
+
+        Matches on a single input column's given value, sets the value of the output column for that row to the given
+        override value. Does this for any number of configured mappings.
+        """
         output_batch = {}
 
         def current(column: str) -> list[Any]:
+            """Simple helper function for getting the current value of a column.
+
+            Retrieves the value from either the input batch or the WIP output batch.
+            """
             return output_batch.get(column, batch[column])
 
         for rule in self.config.mappings:
@@ -161,154 +236,19 @@ class ValueOverrideMapper(Mapper[ValueOverrideMapperConfig]):
         return output_batch
 
 
-_SESSIONS: dict[str, requests.Session] = {}
-
-
-class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str, O | None, C], ABC):
-    def __init__(self, provenance: Provenance, config: C) -> None:
-        super().__init__(provenance, config)
-        if self.config.download_cache_dir is not None:
-            self.download_cache_dir = Path(self.config.download_cache_dir).expanduser().resolve()
-            os.makedirs(self.download_cache_dir, exist_ok=True)
-        else:
-            self.download_cache_dir = None
-
-    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
-        column_in = batch[self.config.input_column]
-        column_out = []
-        for example in column_in:
-            column_out.append(self.preprocess_example(example))
-        return {self.config.output_column: column_out}
-
-    def preprocess_example(self, example: str) -> O | None:
-        url_hash = str(hashlib.sha256(example.encode('utf-8')).hexdigest())
-        if self.download_cache_dir is not None:
-            cache_file_path = self.download_cache_dir / url_hash
-        else:
-            cache_file_path = None
-
-        content = None
-        if cache_file_path is not None and cache_file_path.exists() and os.path.getsize(cache_file_path) > 0:
-            self.log.info(f"cache hit for url: {example} at {str(cache_file_path)}")
-            content = cache_file_path.read_bytes()
-            try:
-                self.validate_content(example, content)
-            except Exception:
-                self.log.error(
-                    f"Cached content at {cache_file_path} did not pass validation; redownloading from: {example}"
-                )
-                content = None
-
-        if content is None:
-            # lazy init session
-            session = self._lazy_get_session()
-            if session is None:
-                raise ValueError("session was not initialized")
-
-            for attempt in range(self.config.max_retries + 1):
-                sleep = self.config.busy_wait + (self.config.retry_backoff * 2 ** (attempt - 1) if attempt else 0)
-                time.sleep(sleep)
-                try:
-                    response = session.get(example, timeout=self.config.timeout)
-                except (requests.ConnectionError, requests.Timeout):
-                    self.log.warning(f"network error (attempt {attempt + 1}) for {example}", exc_info=True)
-                    continue
-
-                if response.status_code == 403:
-                    # we have been kicked off the website in the worst way possible: ip ban. abort the mission
-                    raise ValueError(
-                        f"You have been IP banned from {urlparse(example).hostname} - preprocessing has been cancelled."
-                    )
-                if response.status_code == 404:
-                    # not found - typical, can actually be retried because sometimes this is transient in my experience
-                    continue
-                if response.status_code == 429:
-                    time.sleep(float(response.headers.get("Retry-After", 60)))
-                    continue
-                if 500 <= response.status_code < 600:
-                    continue
-
-                if response.ok:
-                    try:
-                        self._validate_response(example, response)
-                    except Exception:
-                        self.log.warning(f"validation error (attempt {attempt + 1}) for {example}", exc_info=True)
-                        continue
-
-                    content = response.content
-
-                    if cache_file_path is not None:
-                        tmp = cache_file_path.with_suffix(".part")
-                        tmp.write_bytes(content)
-                        os.replace(tmp, cache_file_path)
-
-                    break
-                else:
-                    self.log.error(f"{response.status_code} for {example}: {response.text[:200]!r}")
-
-        if content is not None:
-            return self.extract_content(example, content)
-
-        self.log.warning(
-            f"Failed to obtain content for url={example} - "
-            f"this row will contain a null for one of output_columns={self.config.output_columns}, "
-            f"and nulls {'are' if self.config.filter_null_outputs else 'are not'} filtered out after mapping"
-        )
-        return None
-
-    def _lazy_get_session(self) -> requests.Session:
-        key = repr(self.config)
-        if key not in _SESSIONS:
-            session = requests.Session()
-            session.headers["User-Agent"] = self.user_agent()
-            _SESSIONS[key] = session
-        return _SESSIONS[key]
-
-    def _validate_response(self, example: str, response: requests.Response) -> None:
-        if "Content-Length" in response.headers:
-            expected = int(response.headers["Content-Length"])
-            actual = response.raw.tell()
-            if expected != actual:
-                raise ValueError(
-                    f"Content-Length header value ({expected}) does not match real content length {actual}"
-                )
-        self.validate_content(example, response.content)
-
-    @abstractmethod
-    def user_agent(self) -> str:
-        ...
-
-    @abstractmethod
-    def validate_content(self, example: str, content: bytes) -> None:
-        ...
-
-    @abstractmethod
-    def extract_content(self, example: str, content: bytes) -> O:
-        ...
-
-
-class UrlBytesMapper(UrlMapper[bytes, UrlBytesMapperConfig]):
-    def user_agent(self) -> str:
-        return "larry-bytes-downloader/1.0 (dataset research; contact via github.com/Mekadrom)"
-
-    def validate_content(self, example: str, content: bytes) -> None:
-        if self.config.validate_starts_with is not None:
-            if not content.startswith(self.config.validate_starts_with.encode()):
-                raise ValueError(f"not a pdf: {example} - {str(content)[:200]!r}")
-
-    def extract_content(self, example: str, content: bytes) -> bytes:
-        return content
-
-    def output_feature(self) -> FeatureType | None:
-        return Value("binary")
-
-
 class CompositeIDMapper(Mapper[CompositeIDMapperConfig]):
+    """Mapper that takes one or more input columns and produces a composite ID column."""
+
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        """Batch preprocessor that generates a composite ID for each example.
+
+        Takes one or more input columns, joins them with a configured delimiter, and produces a new column with the
+        joined value.
+        """
         input_columns = [batch[c] for c in self.config.input_columns]
         return {
             self.config.id_output_column: [
-                ":".join(str(i) for i in example_inputs)
+                self.config.delim.join(str(i) for i in example_inputs)
                 for example_inputs in zip(*input_columns)
             ]
         }

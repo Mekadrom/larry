@@ -91,7 +91,48 @@ _ALIASES = {
 
 
 class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
+    """Implementation of ``Transcript`` with highly specific processing for the SCOTUS transcripts."""
+
+    _ONE_OR_MORE_WHITESPACE = re.compile(r"\s+")
+    _LOOK_BEHIND_ONE_WHITESPACE_ONE_HYPHEN_AT_END = re.compile(r"(?<=\s)-$")
+    _LOOK_BEHIND_NO_WHITESPACE_OR_HYPHEN_ONE_HYPHEN_AT_END = re.compile(r"(?<=[^\s-])-$")
+    # reporter typos in speaker labels, checked against the surrounding dialog
+    # i believe some of these are no longer necessary due to improvements that were made to preprocessing in general
+    _LABEL_FIXES: dict[tuple[str, str], str] = {
+        ("11-204", "CHIEF JUSTICE BREYER"): "CHIEF JUSTICE ROBERTS",  # "Mr. Goldstein, 3 minutes." is a time call
+        ("16-1275", "CHIEF JUSTICE GORSUCH"): "CHIEF JUSTICE ROBERTS",  # resumes Roberts's "we've got too many --"
+        ("22-451", "GENERAL GORSUCH"): "JUSTICE GORSUCH",
+        ("16-299", "MS. KAGAN"): "JUSTICE KAGAN",
+        ("22-1219", "MR. KAGAN"): "JUSTICE KAGAN",
+        ("17-988", "Mr. SOTOMAYOR"): "JUSTICE SOTOMAYOR",
+        ("22-800", "JUSTICE PRELOGAR"): "GENERAL PRELOGAR",
+        ("11-551", "JUSTICE PHILLIPS"): "JUSTICE KENNEDY",
+        ("23-583", "MR. DEGER SEN"): "MR. DEGER-SEN",
+        ("15-5040", "MS. EISENSTEIN"): "MR. EISENBERG",
+        ("24-416", "MS. ROSE"): "MS. ROSS",
+        ("15-109", "MR. RAMIREZ"): "MR. MARTINEZ",
+        ("23-909", "MR. REIGN"): "MR. FEIGIN",
+        ("11-889", "MR. CLEMENT"): "MR. ROTHFELD",
+        ("24-297", "MS. WILSON"): "MS. HARRIS",
+        ("23-477", "MR. DAVIE"): "MR. RICE",
+        ("12-930", "MR. MITCHELL"): "MR. FLEMING",
+        ("15-927", "MS. SULLIVAN"): "MR. WAXMAN",
+        ("12-416", "MR. KATZ"): "MR. WEINBERGER",
+        ("14-844", "MR. KIMBERLY"): "MR. SHELLEY",
+        ("14-844", "MR. SULLIVAN"): "MS. SAHARSKY",
+        ("10-6", "MS. BLATT"): "MR. CRUZ",
+        ("13-9972", "MR. KELLER"): "MR. O'CONNOR",
+        ("10-879", "MS. SMITH"): "MS. HARRINGTON",
+    }
+    _TITLE_FIX = re.compile(r"^(M\s?RS?|MS)(?:\s*\.\s*|\s+)(?=\S)", re.I)
+    _LABEL_FIXES_ANY: dict[str, str] = {
+        "CHIEF JUSTICE ROBERT": "CHIEF JUSTICE ROBERTS",
+        "CHIEF JUDGE ROBERTS": "CHIEF JUSTICE ROBERTS",
+        "MR. BREYER": "JUSTICE BREYER",
+    }
+
     def __init__(self, config: SCOTUSTranscriptConfig, docket: str, date_argued: date) -> None:
+        """Initializes the bench."""
         super().__init__(config)
         self.docket = docket
         self.date_argued = date_argued
@@ -102,6 +143,7 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
         }
 
     def extract_body_lines(self, raw: str) -> list[str]:
+        """Collects lines that appear to be in the body (speaker label followed by speech or speech)."""
         out = []
         for line in raw.splitlines():
             # replace weird characters with regular ones
@@ -126,11 +168,14 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
             n = int(m.group(1))
             if not 1 <= n <= 30:
                 continue
+
             # one label per line from here on: split in front of any label embedded mid-line
             out.extend(p.strip() for p in _MIDLINE.split(m.group(2)) if p.strip())
+
         return out
 
     def parse_turns(self) -> None:
+        """For each line in the body of the transcript, turn into speaker/speech pairs to yield a normalized output."""
         start, end = self._parse_start_end(self.body_lines)
 
         speaker = None
@@ -153,6 +198,7 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
 
                 if len(paren) < self.config.max_note_lines:
                     continue
+
                 # not a note after all; it was speech. the current line is processed below, so leave it out here
                 speech_buffer.extend(paren[:-1])
                 paren = None
@@ -205,6 +251,7 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
         })
 
     def load_appearances(self) -> None:
+        """Taking the bank of appearances at the beginning of a transcript as the ground truth, yields all speakers."""
         started = False
         for ln in self.body_lines:
             if _APPEARANCES.match(ln):
@@ -222,16 +269,19 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
                 full = re.sub(r"\s+", " ", m.group(1)).strip()
                 for key in self._name_keys(full):
                     self.appearances.setdefault(key, full)
+
         for ln in self.body_lines:
             m = _ARGUMENT_OF_NAME.match(ln)
             if m is None:
                 continue
+
             full = re.sub(r"\s+", " ", m.group(1)).strip()
             for key in self._name_keys(full):
                 self.appearances.setdefault(key, full)
 
     @staticmethod
     def _name_keys(full: str) -> set[str]:
+        """Normalizes name keys for speakers by removing punctuation and suffixes/end epithets."""
         toks = [
             t
             for t in full.upper().replace(",", " ").split()
@@ -239,15 +289,18 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
         ]
         while toks and NAME_SUFFIX.match(toks[-1]):
             toks.pop()
+
         return {" ".join(toks[-k:]) for k in (1, 2, 3) if len(toks) >= k}
 
     @staticmethod
     def _parse_start_end(lines: list[str]) -> tuple[int, int]:
+        """Finds the start and end of a transcript as line indices."""
         start = None
         end = None
         for i, line in enumerate(lines):
             if _PROCEEDINGS.match(line):
                 start = i
+
             if start is not None and i > start and _WHEREUPON.match(line):
                 end = i
 
@@ -265,6 +318,12 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
 
     @staticmethod
     def _looks_like_note_text(text):
+        """If a given line looks like a stage direction or note, returns that text. Otherwise, returns None.
+
+        Example:
+            MR. SPEAKER: Chief Justice, what do we do?
+            (Chief Justice Roberts pulls out lightsaber) <- stage direction line
+        """
         # match opening and closing parentheses appearing uninterrupted in one line
         m = _NOTE_CLOSED.match(text)
         if not m:
@@ -281,6 +340,7 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
 
     @staticmethod
     def _looks_like_heading(text: str) -> bool:
+        """If a line looks like an ignorable heading, returns True. Otherwise, returns False."""
         if _HEADING.search(text):
             return True
 
@@ -300,9 +360,11 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
         return len(letters) >= 4 and len(text.split()) >= 2
 
     def _looks_like_oral_argument_heading(self, text: str) -> bool:
+        """Simply matches all-uppercase "ARGUMENT" in the provided text."""
         return "ARGUMENT" in text
 
     def _match_title_or_speaker_label(self, text: str) -> re.Match | None:
+        """Mathces prefix epithets or speaker labels, usually prior to speech on the same line."""
         match = _TITLED.match(text)
         if match is None:
             match = _SPEAKER.match(text)
@@ -317,6 +379,7 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
 
     @staticmethod
     def _is_label(label: str, upper_ratio: float = 0.6) -> bool:
+        """Decides whether a provided text is probably a label or not by ratio of uppercase letters to non-uppercase."""
         letters = [
             c
             for c in label
@@ -329,12 +392,19 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
         return sum(c.isupper() for c in letters) / len(letters) >= upper_ratio
 
     def flush_turn(self, speaker: str | None, buffer: list[str], buffer_line: int, section: int) -> None:
+        """Performs final normalization attempts prior to flushing the buffer as speech for the given speaker label."""
         if speaker is not None and buffer:
             # normalize whitespace
-            text = re.sub(r"\s+", " ", " ".join(buffer)).strip()
+            text = SCOTUSTranscript._ONE_OR_MORE_WHITESPACE.sub(" ", " ".join(buffer)).strip()
             # repair a trailing double hyphen that got cut down to a single one
-            text = re.sub(r"(?<=\s)-$", "--", text)
-            text = re.sub(r"(?<=[^\s-])-$", " --", text)
+            text = SCOTUSTranscript._LOOK_BEHIND_ONE_WHITESPACE_ONE_HYPHEN_AT_END.sub("--", text)
+            text = SCOTUSTranscript._LOOK_BEHIND_NO_WHITESPACE_OR_HYPHEN_ONE_HYPHEN_AT_END.sub(" --", text)
+            speaker = SCOTUSTranscript._LABEL_FIXES.get((self.docket, speaker), speaker)
+            speaker = SCOTUSTranscript._TITLE_FIX.sub(
+                lambda m: re.sub(r"\s", "", m.group(1)).upper() + ". ",
+                speaker
+            )
+            speaker = SCOTUSTranscript._LABEL_FIXES_ANY.get(speaker, speaker)
             if text:
                 self.turns.append(transcript.Turn(
                     speaker=speaker,
@@ -344,6 +414,11 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
                 ))
 
     def fix_sandwiched_advocates(self, exceptions: set[tuple[str, str]]) -> list[tuple[str, str, str]]:
+        """Sometimes the wrong speaker label is applied in the transcript by the reporter. This attempts to fix that.
+
+        Some exceptions are known where a person really did speak out of turn, such as during the opposing side's oral
+        argument.
+        """
         advocate_indices = [
             i
             for i, turn in enumerate(self.turns)
@@ -372,28 +447,38 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
             next_key = self.resolve_speaker(next_turn.speaker)[0]
             if prev_key != next_key or key == prev_key:
                 continue
+
             if (self.docket, turn.text.strip()[:40]) in exceptions:
                 continue
+
             self.log.warning(
                 f"{self.docket}: reattributing {turn.speaker!r} -> {prev_turn.speaker!r}: {turn.text[:60]!r}"
             )
+
             reattributions.append((turn.speaker, prev_turn.speaker, turn.text[:60]))
             turn.speaker = prev_turn.speaker
+
         return reattributions
 
     def _is_excepted(self, turn: Turn, exceptions: set[tuple[str, str]]) -> bool:
+        """Returns whether a speaker turn is a known exception to the false interjection assumption."""
         return any(
             docket == self.docket and turn.text.strip().startswith(prefix)
             for docket, prefix in exceptions
         )
 
     def resolve_speaker(self, speaker_raw: str) -> tuple[str, str]:
+        """Produces a normalized speaker_id label for a given speaker label."""
         up = speaker_raw.strip().rstrip(":").strip().upper()
         if not up:
             return f"scotus:{self.docket}:UNIDENTIFIED", "unknown"
 
         if up in ("CHIEF JUSTICE", "THE CHIEF JUSTICE"):
-            chief = next((v for v in self.bench.values() if v.startswith("CHIEF")), None)
+            chief = next((
+                v
+                for v in self.bench.values()
+                if v.startswith("CHIEF")
+            ), None)
             if chief:
                 return f"scotus:{chief}", "justice"
 
@@ -408,6 +493,7 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
             near = difflib.get_close_matches(surname, list(self.bench), n=1, cutoff=0.75)
             if near:
                 return f"scotus:{self.bench[near[0]]}", "justice"
+
             return f"scotus:{self.docket}:{up}", "unknown"
 
         rest = HONORIFIC.sub("", up).strip(" .,")
@@ -421,10 +507,12 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
 
         if surname in self.bench:  # e.g. "MR. KAGAN", a reporter typo for the justice
             return f"scotus:{self.bench[surname]}", "justice"
+
         return f"scotus:{self.docket}:{up}", "advocate"
 
     @staticmethod
     def _adv_key(full: str) -> str:
+        """Normalizes and advocate's speaker label by removing titles; meant to obtain just the name."""
         toks = [t for t in re.split(r"[\s.,]+", full.upper()) if t]
         while toks and toks[0] in {"GEN", "GENERAL", "HON", "MR", "MS", "MRS", "DR", "PROF"}:
             toks.pop(0)

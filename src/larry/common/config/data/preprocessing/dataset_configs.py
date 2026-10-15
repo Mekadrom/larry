@@ -14,6 +14,7 @@ from larry.common.utils.types import TypeRegistry
 
 @dataclasses.dataclass(kw_only=True)
 class DatasetConfig(Registrable, root=True):
+    """Superclass for configs for all dataset providers for preprocessing pipelines only."""
     REGISTRY: ClassVar[TypeRegistry[DatasetConfig]]
 
     provider_name: str = "HuggingFaceDatasetProvider"
@@ -30,11 +31,16 @@ class DatasetConfig(Registrable, root=True):
 
 @dataclasses.dataclass(kw_only=True)
 class DefaultDatasetConfig(DatasetConfig):
+    """Default impl for dataset providers that use the simple huggingface route for providing a dataset."""
     ...
 
 
 @dataclasses.dataclass(kw_only=True)
 class CachedDatasetConfig(DatasetConfig, ABC):
+    """Superclass for configs for any dataset provider that requires downloading or extracting prior to preprocessing.
+
+    Used to replace any datasets that originally required arbitrary python code execution, essentially.
+    """
     path: str = "parquet"
     split: str | Split | list[str] | list[Split] | None = None
 
@@ -45,10 +51,22 @@ class CachedDatasetConfig(DatasetConfig, ABC):
 
     @abstractmethod
     def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
+        """Configure in subclasses to return a ``Sequence`` of tuples of (``str``, ``DownloaderConfig``).
+
+        Each downloader is to be instantiated using the name from the string in the first position in each tuple using
+        the config in the second position of the same tuple, and the downloaders then run sequentially in insertion
+        order.
+        """
         ...
 
     @abstractmethod
     def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
+        """Configure in subclasses to return a ``Sequence`` of tuples of (``str``, ``ExtractorConfig``).
+
+        Each extractor is to be instantiated using the name from the string in the first position in each tuple using
+        the config in the second position of the same tuple, and the extractors then run sequentially in insertion
+        order.
+        """
         ...
 
     download_extract_file_type: str
@@ -62,6 +80,10 @@ class CachedDatasetConfig(DatasetConfig, ABC):
 
 @dataclasses.dataclass(kw_only=True)
 class MediaCachedDatasetConfig(CachedDatasetConfig, ABC):
+    """Super class for all implementations of ``CachedDatasetConfig`` which require media processing.
+
+    E.g. images or audio.
+    """
     media_dir: str
     media_type: Audio | Image
     media_column: str

@@ -17,8 +17,7 @@ import torch
 
 @dataclasses.dataclass
 class KVCache:
-    """
-    Standard KV cache for a single attention layer.
+    """Standard KV cache for a single attention layer.
 
     Stores key and value tensors that can be incrementally updated
     during autoregressive generation.
@@ -92,14 +91,9 @@ class LayerKVCache:
         self.layer_caches.clear()
 
 
-# =============================================================================
-# Huginn-style Shared KV Cache (Default, Efficient)
-# =============================================================================
-
 @dataclasses.dataclass
 class HuginnKVCache:
-    """
-    Huginn-style shared KV cache with circular buffer for recurrent blocks.
+    """Huginn-style shared KV cache with circular buffer for recurrent blocks.
 
     From the Huginn paper (Section 6.2):
     - Uses a fixed KV-cache budget (e.g., 16 slots)
@@ -142,14 +136,9 @@ class HuginnKVCache:
         self.slot_caches.clear()
 
 
-# =============================================================================
-# Per-Iteration KV Cache (For Research, More Memory)
-# =============================================================================
-
 @dataclasses.dataclass
 class PerIterationKVCache:
-    """
-    Per-iteration KV cache for recurrent transformer blocks.
+    """Per-iteration KV cache for recurrent transformer blocks.
 
     More accurate than Huginn-style but uses more memory.
     Each iteration has its own complete KV cache.
@@ -184,14 +173,9 @@ class PerIterationKVCache:
         self.iteration_caches.clear()
 
 
-# =============================================================================
-# Unified Recurrent KV Cache (Supports Both Strategies)
-# =============================================================================
-
 @dataclasses.dataclass
 class RecurrentKVCache:
-    """
-    Unified KV cache for recurrent blocks supporting both strategies.
+    """Unified KV cache for recurrent blocks supporting both strategies.
 
     Args:
         strategy: "huginn" (default, shared cache) or "per_iteration" (separate caches)
@@ -206,6 +190,7 @@ class RecurrentKVCache:
     _per_iter_cache: PerIterationKVCache | None = dataclasses.field(default=None, init=False)
 
     def __post_init__(self):
+        """Required to have the underlying cache implementation initialized from config."""
         if self.strategy == "huginn":
             self._huginn_cache = HuginnKVCache(cache_budget=self.cache_budget)
         elif self.strategy == "per_iteration":
@@ -242,63 +227,10 @@ class RecurrentKVCache:
             raise self._throw_state()
 
     def _throw_state(self) -> ValueError:
+        """Raises with useful self information."""
         return ValueError(
             f"Improper state: "
             f"huginn_cache={self._huginn_cache} "
             f"per_iter_cache={self._per_iter_cache} "
             f"selected strategy={self.strategy}"
         )
-
-
-# =============================================================================
-# Complete World Model KV Cache
-# =============================================================================
-
-@dataclasses.dataclass
-class WorldModelKVCache:
-    """
-    Complete KV cache for the world model during generation.
-
-    Contains:
-    - recurrent_cache: For the recurrent block
-    - position_offset: Current position for RoPE
-    - generation_state: Track modality boundaries
-    """
-    strategy: str = "huginn"
-    cache_budget: int = 16
-
-    recurrent_cache: RecurrentKVCache | None = dataclasses.field(default=None)
-    position_offset: int = 0
-
-    # Generation state tracking
-    generated_tokens: list[int] = dataclasses.field(default_factory=list)
-    in_audio_block: bool = False
-    in_voice_block: bool = False
-    in_image_block: bool = False
-    pending_audio_hidden: torch.Tensor | None = None
-    pending_voice_hidden: torch.Tensor | None = None
-    pending_image_hidden: torch.Tensor | None = None
-
-    def __post_init__(self):
-        if self.recurrent_cache is None:
-            self.recurrent_cache = RecurrentKVCache(
-                strategy=self.strategy,
-                cache_budget=self.cache_budget,
-            )
-
-    def clear(self):
-        """Clear all caches and reset state."""
-        if self.recurrent_cache:
-            self.recurrent_cache.clear()
-        self.position_offset = 0
-        self.generated_tokens.clear()
-        self.in_audio_block = False
-        self.in_voice_block = False
-        self.in_image_block = False
-        self.pending_audio_hidden = None
-        self.pending_voice_hidden = None
-        self.pending_image_hidden = None
-
-    def update_position(self, num_new_tokens: int):
-        """Update position offset after generating new tokens."""
-        self.position_offset += num_new_tokens

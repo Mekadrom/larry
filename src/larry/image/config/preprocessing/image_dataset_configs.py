@@ -11,12 +11,16 @@ from larry.common.config.data.preprocessing.dataset_configs import MediaCachedDa
 
 @dataclasses.dataclass
 class ImageDatasetConfig(DatasetConfig):
+    """Superclass config for all image dataset configs."""
     ...
 
 
 @dataclasses.dataclass(kw_only=True)
 class GoogleDOCCIMediaCachedDatasetConfig(ImageDatasetConfig, MediaCachedDatasetConfig):
-    """https://huggingface.co/datasets/google/docci"""
+    """Loads the google/docci dataset from its hosted location, not from huggingface.
+
+    https://huggingface.co/datasets/google/docci - the documentation this references (including python script).
+    """
 
     download_url: str = "https://storage.googleapis.com/docci/data"
     descriptions_file: str = "docci_descriptions.jsonlines"
@@ -26,6 +30,10 @@ class GoogleDOCCIMediaCachedDatasetConfig(ImageDatasetConfig, MediaCachedDataset
     provider_name: str = "GoogleDOCCIMediaCachedDatasetProvider"
 
     def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
+        """Configures downloaders for both files from google/docci
+
+        Configures downloaders for the jsonlines descriptions file and the docci_images.tar.gz archive.
+        """
         return [
             ("MultiFileDownloader", MultiFileDownloaderConfig(
                 configs=[
@@ -42,6 +50,7 @@ class GoogleDOCCIMediaCachedDatasetConfig(ImageDatasetConfig, MediaCachedDataset
         ]
 
     def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
+        """Configures extraction for the images archive."""
         return [
             ("SingleFileExtractor", SingleFileExtractorConfig(
                 input_file_name=self.images_file,

@@ -6,6 +6,7 @@ from larry.common.training import trainers, callbacks
 
 
 class QKModule:
+    """Marker interface for attention modules to inherit from and define fields on (duck typing also does this)."""
     q_proj: nn.Linear
     k_proj: nn.Linear
     d_queries: int
@@ -14,7 +15,14 @@ class QKModule:
 
 
 class QKClipHandler:
+    """Applies QK clip to all modules within a model that duck-type to ``QKModule``."""
+
     def __init__(self, model: nn.Module, tau: float, probe_every: int, alpha: float = 0.5) -> None:
+        """Registers modules in the provided model that duck-type to ``QKModule`` for QK clipping.
+
+        QK clipping occurs only every ``probe_every`` steps, but it does result in a materialized attention scores
+        matrix for every attention module watched by this handler. It needs to in order to retrieve the maximum logits.
+        """
         if tau is None or tau <= 0:
             raise ValueError(f"qk_clip tau must be positive, got {tau}")
 
@@ -29,15 +37,17 @@ class QKClipHandler:
                 if not m.q_proj.weight.requires_grad:
                     # don't clip frozen modules
                     continue
+
                 self.modules.append((name, m))
 
         self.armed = False
 
     def __len__(self) -> int:
+        """Returns the number of modules watched by this handler."""
         return len(self.modules)
 
     def maybe_arm(self, step: int) -> None:
-        """Turn the probe on for this step's forward pass, if it is a sampled step."""
+        """Turn the probe on for this step's forward pass if it is a sampled step."""
         want = (step % self.probe_every) == 0
         if want == self.armed:
             return
@@ -77,8 +87,9 @@ class QKClipHandler:
             qk = m.qk_max_logit.float()
             if torch.distributed.is_initialized():
                 torch.distributed.all_reduce(qk, op=torch.distributed.ReduceOp.MAX)
-            n_heads_total += qk.numel()
 
+            # recordkeeping
+            n_heads_total += qk.numel()
             max_seen = max(max_seen, float(qk.max()))
 
             w_q = m.q_proj.weight  # (n_heads*dq, d_model)
@@ -123,10 +134,13 @@ class QKClipCallback(callbacks.TrainingCallback):
     """Arms the probe before the forward, applies the clip after optimizer.step()."""
 
     def __init__(self, handler: QKClipHandler):
+        """Simply sets a delegate handler."""
         self.handler = handler
 
     def on_step_begin(self, trainer: trainers.TrainerBase, step: int) -> MetricDict | None:
+        """On step begin, conditionally arm every ``probe_every`` steps."""
         self.handler.maybe_arm(step)
 
     def on_step_end(self, trainer: trainers.TrainerBase, train_loss: torch.Tensor, step: int) -> MetricDict | None:
+        """On step end, apply the handler's changes, if any are required."""
         return self.handler.apply()

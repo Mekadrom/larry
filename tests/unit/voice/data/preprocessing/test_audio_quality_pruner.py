@@ -10,7 +10,7 @@ from larry.voice.config.preprocessing.voice_pruner_configs import AudioQualityPr
 from larry.voice.data.preprocessing.voice_pruners import AudioQualityPruner
 
 
-def _tone_wav(seconds: float = 1.0, sample_rate: int = 16000) -> bytes:
+def _tone_wav(sample_rate: int, seconds: float = 1.0) -> bytes:
     frames = b"".join(
         struct.pack("<h", int(8000 * math.sin(2 * math.pi * 220 * i / sample_rate)) if (i // 1600) % 2 == 0 else 0)
         for i in range(int(seconds * sample_rate))
@@ -29,8 +29,8 @@ def _pruner() -> AudioQualityPruner:
     return AudioQualityPruner(provenance, AudioQualityPrunerConfigForASR())
 
 
-@pytest.mark.parametrize("corrupt", [b"", b"\x00" * 64, _tone_wav()[:20]])
+@pytest.mark.parametrize("corrupt", [b"", b"\x00" * 64, _tone_wav(16000)[:20]])
 def test_undecodable_audio_is_pruned_instead_of_failing_the_step(corrupt: bytes) -> None:
-    audios = [{"bytes": _tone_wav(), "path": "good.wav"}, {"bytes": corrupt, "path": "corrupt.wav"}]
+    audios = [{"bytes": _tone_wav(16000), "path": "good.wav"}, {"bytes": corrupt, "path": "corrupt.wav"}]
 
     assert _pruner().keep_batched(audios) == [True, False]

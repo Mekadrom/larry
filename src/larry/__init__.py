@@ -1,6 +1,7 @@
 import logging
 import os
 
+# forcefully prevent httpx from spamming annoying logs
 logging.basicConfig(
     level=os.environ.get("LARRY_LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",

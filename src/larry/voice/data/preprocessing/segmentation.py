@@ -11,6 +11,7 @@ from larry.voice.data.preprocessing.transcript import TokenStream
 
 @dataclasses.dataclass
 class Segment:
+    """Helper dataclass for storing all data relevant to a single segment of speech."""
     audio: torch.Tensor
     text: str
     text_normalized: str
@@ -21,28 +22,33 @@ class Segment:
 
 
 class Segmenter:
+    """Utility class for splitting a larger speech and transcript into individual audio files and speaker turns."""
+
     def __init__(
             self,
             config: SpeechSegmentationAligningMapperConfig,
             stream: TokenStream,
             timeline: TokenTimeline,
     ) -> None:
+        """Simple init."""
         self.log = logging.getLogger(type(self).__name__)
         self.config = config
         self.stream = stream
         self.timeline = timeline
 
     def segments(self, waveform: torch.Tensor) -> list[Segment]:
+        """Splits an input waveform into segments according to the spans."""
         segments = []
         for toks in self.stream.turns():
             for piece in self._split_turn(toks, self.timeline.spans, self.stream.ftr.tokens):
                 segment = self._make_segment(piece, waveform)
                 if segment is not None:
                     segments.append(segment)
+
         return segments
 
     def _split_turn(self, toks: list[int], spans: list[SpanScore | None], tokens: list[str]) -> list[list[int]]:
-        """Split a turn into pieces under max_segment_seconds, preferring sentence ends."""
+        """Split a turn into pieces under max_segment_seconds, preferring to split on sentence ends."""
         pieces = []
         cur = []
         prev = None
@@ -89,19 +95,24 @@ class Segmenter:
         return pieces
 
     def _is_sentence_end(self, token: str) -> bool:
+        """Detects the end of a sentence from the provided token."""
         core = token.rstrip("\"')")
         if not core.endswith((".", "?", "!")):
             return False
+
         if core.endswith("."):
             base = core.lstrip("(\"'").rstrip(".").upper()
             if base in ABBREVIATIONS:
                 return False
+
             # a single-letter initial: "John J. Smith", "D. John Sauer"
             if len(base) == 1 and base.isalpha():
                 return False
+
         return True
 
     def _make_segment(self, piece: list[int], waveform: torch.Tensor) -> Segment | None:
+        """Produces a single segment from a set of aligned words in sequence."""
         spans = self.timeline.spans
         ftr = self.stream.ftr
         sample_rate = self.config.sample_rate

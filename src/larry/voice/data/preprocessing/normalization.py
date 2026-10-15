@@ -72,7 +72,8 @@ ABBREVIATIONS: dict[str, list[str]] = {
 }
 
 
-def cardinal(n):
+def cardinal(n: int) -> str:
+    """Attempts to spell out a number simply."""
     if n < 0:
         return "MINUS " + cardinal(-n)
 
@@ -92,7 +93,8 @@ def cardinal(n):
     return _ONES[n]
 
 
-def ordinal(n):
+def ordinal(n: int) -> str:
+    """Attempts to spell out a number as a counter/ordinal (1st, 3rd, 4th -> FIRST, THIRD, FOURTH)"""
     words = cardinal(n).split()
     last = words[-1]
     if last in _ORDINAL:
@@ -102,7 +104,7 @@ def ordinal(n):
     return " ".join(words)
 
 
-def year(n):
+def year(n: int) -> str:
     """Read 1983 as NINETEEN EIGHTY THREE, 2007 as TWO THOUSAND SEVEN."""
     if 2000 <= n <= 2009:
         return "TWO THOUSAND" + ("" if n == 2000 else " " + _ONES[n - 2000])
@@ -120,7 +122,8 @@ def year(n):
     return cardinal(n)
 
 
-def digits(s):
+def digits(s: str) -> str:
+    """Spells out a number by speaking each digit."""
     return " ".join([
         _ONES[int(c)]
         for c in s
@@ -141,12 +144,15 @@ def pairs(s: str) -> str:
 
     if lo == 0:
         return head + " HUNDRED"
+
     if lo < 10:
         return head + " OH " + _ONES[lo]
+
     return head + " " + cardinal(lo)
 
 
 def roman_value(numeral: str) -> int:
+    """Attempts to spell out roman numerals."""
     total = 0
     for i, symbol in enumerate(numeral):
         value = _ROMAN_VALUES[symbol]
@@ -159,6 +165,8 @@ def roman_value(numeral: str) -> int:
 
 
 class TextNormalizer:
+    """Utility class for normalizing string tokens for speech alignment. Primarily normalizes numbers."""
+
     def normalize_token(self, token: str, prev_token: str | None = None) -> list[list[str]]:
         """One original token -> zero or more CTC-alphabet words."""
 
@@ -223,6 +231,7 @@ class TextNormalizer:
                         words.extend(spoken.split())
                     else:
                         words.append(run.upper())
+
                 piece_options.append([words])
                 continue
 
@@ -233,6 +242,7 @@ class TextNormalizer:
         return self._combine(piece_options)
 
     def _abbreviation_readings(self, token: str) -> list[list[str]] | None:
+        """Returns all potential readings for a provided abbreviation token."""
         core = token.lstrip("(\"'").rstrip(",;:!?)\"'")
         has_period = core.endswith(".")
         key = core.rstrip(".").upper()
@@ -246,12 +256,15 @@ class TextNormalizer:
         ]
 
     def _roman_readings(self, token: str, prev_token: str | None) -> list[list[str]] | None:
+        """Returns both the numerical reading and the letter reading for roman numerals."""
         if prev_token is None:
             return None
+
         core = token.strip(".,;:!?()\"'")
         m = _ROMAN_HEAD.match(core)
         if m is None or _ROMAN.fullmatch(m.group(1)) is None:
             return None
+
         numeral = m.group(1)
         rest = m.group(2)
         prev = prev_token.strip(".,;:!?()\"'")
@@ -273,9 +286,11 @@ class TextNormalizer:
 
         if rest == "":
             return readings
+
         return self._combine([readings, self.normalize_token(rest)])
 
     def _combine(self, piece_options: list[list[list[str]]]) -> list[list[str]]:
+        """Combines two lists of possible readings for an input, deduplicating."""
         ambiguous = [
             options
             for options in piece_options
@@ -295,6 +310,7 @@ class TextNormalizer:
                 for done in readings
                 for option in options
             ]
+
         return readings
 
     def _number_readings(self, token: str) -> list[str]:
@@ -313,13 +329,17 @@ class TextNormalizer:
                 hundreds = cardinal(int(t[:2])) + " HUNDRED"
                 if lo > 0:
                     hundreds = hundreds + " " + cardinal(lo)
+
                 candidates.append(hundreds)
+
             for candidate in candidates:
                 if candidate not in readings:
                     readings.append(candidate)
+
         return readings
 
     def number_token(self, token: str) -> str | None:
+        """If a token is numeric, returns a standardized form of it. Otherwise returns None."""
         t = token.replace(",", "")
         m = re.fullmatch(r"(\d+)(st|nd|rd|th|ST|ND|RD|TH)", t)
         if m:
@@ -341,6 +361,7 @@ class TextNormalizer:
 
 class SCOTUSTextNormalizer(TextNormalizer):
     def number_token(self, token: str) -> str | None:
+        """Override to normalize dockets that may look like years to be read as dockets potentially."""
         m = re.fullmatch(r"(\d{1,2})-(\d{3,4})", token.replace(",", ""))
         if m:
             return cardinal(int(m.group(1))) + " " + pairs(m.group(2))

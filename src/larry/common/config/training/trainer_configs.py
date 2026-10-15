@@ -8,6 +8,7 @@ from larry.common.utils.types import TypeRegistry
 
 @dataclasses.dataclass(kw_only=True)
 class LarryTrainerConfig(Registrable, ABC, root=True):
+    """Superclass config for all ``TrainerBase`` and ``LarryTrainer`` implementations."""
     REGISTRY: ClassVar[TypeRegistry[LarryTrainerConfig]]
 
     dataset_config: dict[str, Any] = dataclasses.field(default_factory=dict)

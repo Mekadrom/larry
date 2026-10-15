@@ -5,6 +5,12 @@ from larry.image.config.preprocessing.image_dataset_configs import GoogleDOCCIMe
 
 
 class GoogleDOCCIMediaCachedDatasetProvider(MediaCachedDatasetProvider[GoogleDOCCIMediaCachedDatasetConfig]):
+    """Override for ``MediaCachedDatasetProvider`` to provide the google docci dataset as if it was an HF dataset.
+
+    This in conjunction with the ``GoogleDOCCIMediaCachedDatasetConfig`` completely replaces the arbitrary python code
+    execution required to load the original google/docci dataset straight from huggingface.
+    """
+
     @property
     def load_input_data_files(self) -> Mapping[str, str]:
         return {"train": str(self.download_extract_cache_dir / self.config.descriptions_file)}

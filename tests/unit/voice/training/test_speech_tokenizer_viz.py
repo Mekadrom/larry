@@ -11,7 +11,8 @@ from datasets import Dataset
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.model.voice_model_configs import SpeechTokenizerModelConfig
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
-from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator, SpeechSourceConfig
+from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
+from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator
 from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
 from larry.voice.training.voice_viz_callbacks import SpeechTokenizerVizCallback, collapse, pick_rows, timeline
 
@@ -48,7 +49,7 @@ class RecordingMetrics:
         self.figures.append((tag, step))
 
 
-def _wav(seconds: float, sample_rate: int = 16000) -> bytes:
+def _wav(seconds: float, sample_rate: int) -> bytes:
     frames = b"".join(
         struct.pack("<h", int(6000 * math.sin(2 * math.pi * 300 * i / sample_rate)))
         for i in range(int(seconds * sample_rate))
@@ -96,7 +97,7 @@ def test_greedy_frames_collapse_and_time_each_new_token() -> None:
 
 def test_viz_logs_audio_once_and_alignments_for_every_example_each_time() -> None:
     index = Dataset.from_dict({
-        "audio": [{"bytes": _wav(1.0), "path": "a.wav"}, {"bytes": _wav(1.5), "path": "b.wav"}],
+        "audio": [{"bytes": _wav(1.0, 16000), "path": "a.wav"}, {"bytes": _wav(1.5, 16000), "path": "b.wav"}],
         "text_normalized": ["HI", "OK GO"],
         "duration_s": [1.0, 1.5],
     })
@@ -125,9 +126,9 @@ def test_viz_logs_audio_once_and_alignments_for_every_example_each_time() -> Non
     callback.viz(trainer, 0)  # pyright: ignore[reportArgumentType]
     callback.viz(trainer, 10)  # pyright: ignore[reportArgumentType]
 
-    assert metrics.audio == [("viz/toy/0/audio", 0), ("viz/toy/1/audio", 0)]
+    assert metrics.audio == [("viz/0/toy/audio", 0), ("viz/1/toy/audio", 0)]
     assert [(tag, step) for tag, _, step in metrics.text] == [
-        ("viz/toy/0/ctc", 0), ("viz/toy/1/ctc", 0), ("viz/toy/0/ctc", 10), ("viz/toy/1/ctc", 10),
+        ("viz/0/toy/ctc", 0), ("viz/1/toy/ctc", 0), ("viz/0/toy/ctc", 10), ("viz/1/toy/ctc", 10),
     ]
     assert len(metrics.figures) == 4
     assert "**target:** OK GO" in metrics.text[1][1]

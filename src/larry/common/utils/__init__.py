@@ -12,7 +12,8 @@ from transformers import set_seed as hf_set_seed
 log = logging.getLogger(__name__)
 
 
-def load_yaml_config(yaml_file: Path) -> dict[str, Any]:
+def load_yaml_dict(yaml_file: Path) -> dict[str, Any]:
+    """Loads a yaml file to a dictionary."""
     with open(yaml_file) as stream:
         try:
             return yaml.safe_load(stream)
@@ -22,7 +23,7 @@ def load_yaml_config(yaml_file: Path) -> dict[str, Any]:
 
 
 def set_seed_everywhere(seed: int):
-    """Set seed for all random number generators."""
+    """Set seed for all random number generators (that I could find)."""
     random.seed(seed)
 
     np.random.seed(seed)

@@ -3,4 +3,5 @@ from larry.image.config.preprocessing.image_pruner_configs import ImagePrunerCon
 
 
 class ImagePruner[C: ImagePrunerConfig = ImagePrunerConfig](Pruner[C]):
+    """Superclass for image pruners."""
     ...

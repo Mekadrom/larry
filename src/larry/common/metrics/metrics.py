@@ -1,6 +1,7 @@
 import copy
 import dataclasses
 import logging
+import os
 from abc import ABC, abstractmethod
 from collections import UserDict
 from collections.abc import Iterable, Callable
@@ -15,6 +16,7 @@ from matplotlib.figure import Figure
 from torch import nn
 
 from larry.common.utils.convert_np import make_np
+from larry.common.utils.types import Color
 from larry.voice.utils import mel_to_db
 
 log = logging.getLogger(__name__)
@@ -25,13 +27,12 @@ except ImportError:
     log.debug("Could not import wandb, hopefully you didn't intend to use it.")
     wandb = None
 
-type Color = int | tuple[int, ...] | str
-
 
 def _patch_image(
         img_array: np.ndarray,
         img_transform: Callable[[Image.Image], Image.Image],
 ) -> np.ndarray:
+    """Performs a provided transform on an image with validation."""
     if img_array.dtype != np.uint8:
         raise ValueError(f"expected uint8, got {img_array.dtype}")
     if not (img_array.ndim == 2 or (img_array.ndim == 3 and img_array.shape[2] in (3, 4))):
@@ -49,7 +50,10 @@ def _patch_image_with_padded_label(
         pad_color: Color = "white",
         font_color: Color = "black"
 ) -> np.ndarray:
+    """Patches an image by appending whitespace padding to the bottom and centering a label on the padded rectangle."""
+
     def _patch(img: Image.Image) -> Image.Image:
+        """The patch function to pass to the ``_patch_image`` helper."""
         out = ImageOps.expand(img, border=(0, 0, 0, pad), fill=pad_color)
         font = ImageFont.load_default(size=font_size)
         x, y = img.width / 2, img.height + pad / 2
@@ -67,7 +71,10 @@ def _patch_image_with_label(
         color: Color = "black",
         anchor: str = "la",
 ) -> np.ndarray:
+    """Patches an image by placing a label at the specified position."""
+
     def _patch(img: Image.Image) -> Image.Image:
+        """The patch function to pass to the ``_patch_image`` helper."""
         font = ImageFont.load_default(size=font_size)
         ImageDraw.Draw(img).text(position, label, fill=color, font=font, anchor=anchor)
         return img
@@ -81,25 +88,29 @@ def patch_image_with_label(
         label_kwargs: dict[str, Any] | None = None,
         label_padding_kwargs: dict[str, Any] | None = None,
 ) -> np.ndarray:
+    """Patches an image with some kind of label."""
     if label_kwargs is not None and label_padding_kwargs is not None:
         raise ValueError("Please only specify one of either label_kwargs or label_padding_kwargs.")
+
     img_array = make_np(img_array)
     if label is not None:
         if label_kwargs is not None:
             img_array = _patch_image_with_label(img_array, label, **label_kwargs)
         else:
             img_array = _patch_image_with_padded_label(img_array, label, **(label_padding_kwargs or {}))
+
     return img_array
 
 
 def render_mels_fig(
         mels: torch.Tensor | np.ndarray,
+        sample_rate: int,
         hop_length: int = 256,
-        sample_rate: int = 16000,
         n_fft: int = 1024,
         f_max: float = 8000,
         db_range: tuple = (-100.0, 20.0),
 ) -> Figure:
+    """Renders audio mels to a figure with a label and legend."""
     mels = mel_to_db(make_np(mels))
     fig, ax = plt.subplots(figsize=(10, 4))
     img = librosa.display.specshow(
@@ -128,65 +139,79 @@ def prepare_image_add_label(
         label_kwargs: dict[str, Any] | None = None,
         label_padding_kwargs: dict[str, Any] | None = None
 ) -> np.ndarray:
+    """Wrapper that produces an np.ndarray of a provided image tensor to place labels on it."""
     return patch_image_with_label(make_np(img_array), label, label_kwargs, label_padding_kwargs)
 
 
 def prepare_audio_and_mels(
         audio_array: torch.Tensor | np.ndarray,
+        sample_rate: int,
         mels: torch.Tensor | np.ndarray | None = None,
 ) -> tuple[np.ndarray, Figure | None]:
+    """Massages an audio input tensor into something renderable to tensorboard and renders a mels figure."""
     audio = make_np(audio_array)
     if audio.ndim == 2:
         if audio.shape[0] == 1:
             audio = audio[0]
         elif audio.shape[0] < audio.shape[1]:
             audio = audio.T
-    return audio, (render_mels_fig(mels) if mels is not None else None)
+
+    return audio, (render_mels_fig(mels, sample_rate) if mels is not None else None)
 
 
 @dataclasses.dataclass(kw_only=True)
 class MetricEntry[V](ABC):
+    """Superclass for all MetricEntry events."""
     tag: str
 
     @property
     @abstractmethod
     def value(self) -> V:
+        """Allows for overriding the value getter."""
         ...
 
 
 @dataclasses.dataclass(kw_only=True)
 class TextMetricEntry(MetricEntry[str]):
+    """A text MetricEntry implementation."""
     text: str
 
     @property
     def value(self) -> str:
+        """Returns the text as its value."""
         return self.text
 
 
 @dataclasses.dataclass(kw_only=True)
 class ScalarMetricEntry(MetricEntry[float | int]):
+    """Any number/scalar MetricEntry value."""
     scalar: float | int
 
     @property
     def value(self) -> float | int:
+        """Returns the scalar number as its value."""
         return self.scalar
 
 
 @dataclasses.dataclass(kw_only=True)
 class CountableMetricEntry[V](MetricEntry[V], ABC):
+    """Superclass MetricEntry for any metric that is recurring and has a count."""
+
     @property
     @abstractmethod
     def count(self) -> int:
+        """Returns the count of entries in this MetricEntry."""
         ...
 
     @abstractmethod
     def add_(self, other: Any) -> None:
-        """In-place."""
+        """In-place addition to the total."""
         ...
 
 
 @dataclasses.dataclass(kw_only=True)
 class AggregateMetricEntry(CountableMetricEntry[float | int]):
+    """An aggregate scalar/number MetricEntry."""
     average_reduce: Literal["all", "none"] = "all"
     alert_naninf: bool = True
 
@@ -195,15 +220,18 @@ class AggregateMetricEntry(CountableMetricEntry[float | int]):
 
     @property
     def value(self) -> float | int:
+        """Returns the total with an optional reduction applied as its value."""
         if self.average_reduce == "all":
             return float(self.total) / float(self.count)
         return self.total
 
     @property
     def count(self) -> int:
+        """Returns the number of items represented here as its count."""
         return self.n_items
 
     def add_(self, other: Any) -> None:
+        """Adds a numeric value or instantiates this MetricEntry."""
         if isinstance(other, (float, int)):
             self.total += other
             self.n_items += 1
@@ -217,56 +245,70 @@ class AggregateMetricEntry(CountableMetricEntry[float | int]):
 
 @dataclasses.dataclass(kw_only=True)
 class BatchMetricEntry(MetricEntry[list], ABC):
+    """A batch of various MetricEntry values that is itself a MetricEntry."""
     metrics_list: list = dataclasses.field(default_factory=list)
 
     @property
     def value(self) -> list:
+        """Returns the list of MetricEntry objects as its value."""
         return self.metrics_list
 
     def add_(self, other: BatchMetricEntry) -> None:
+        """Adds all of another BatchMetricEntry's MetricEntry objects to this BatchMetricEntry instance."""
         self.metrics_list.extend(other.metrics_list)
 
 
 class ImageMetric(MetricEntry[torch.Tensor]):
+    """A MetricEntry containing an image."""
     image: torch.Tensor
 
     @property
     def value(self) -> torch.Tensor:
+        """Returns the image tensor as its value."""
         return self.image
 
 
 @dataclasses.dataclass(kw_only=True)
 class CaptionedImageMetric(MetricEntry[tuple[ImageMetric, str]]):
+    """A MetricEntry wrapping an ImageMetric with an additional caption value."""
     image: ImageMetric
     caption: str
 
     @property
     def value(self) -> tuple[ImageMetric, str]:
+        """Returns a tuple of (ImageMetric, str) as its value."""
         return self.image, self.caption
 
 
 @dataclasses.dataclass(kw_only=True)
 class AudioMetric(MetricEntry[torch.Tensor]):
+    """A MetricEntry containing audio and its sample rate."""
     audio: torch.Tensor
     sample_rate: int
 
     @property
     def value(self) -> torch.Tensor:
+        """Returns the audio tensor as its value."""
         return self.audio
 
 
 @dataclasses.dataclass(kw_only=True)
 class CaptionedAudioMetric(MetricEntry[tuple[AudioMetric, str]]):
+    """A MetricEntry wrapping an AudioMetric with an additional caption value."""
     audio: AudioMetric
     caption: str
 
     @property
     def value(self) -> tuple[AudioMetric, str]:
+        """Returns a tuple of (AudioMetric, str) as its value."""
         return self.audio, self.caption
 
 
 class MetricDict(UserDict[str, MetricEntry]):
+    """Dictionary wrapper for MetricEntry objects keyed by their intended tag in the metrics backend."""
+
     def __setitem__(self, key: str, item: MetricEntry) -> None:
+        """Basic dict override to merge MetricEntry types that support merging and to set the value otherwise."""
         if not isinstance(item, MetricEntry):
             raise ValueError(
                 f"MetricDict entries must be type MetricEntry, received type={type(item).__name__}"
@@ -287,19 +329,26 @@ class MetricDict(UserDict[str, MetricEntry]):
         self.data[key] = copy.deepcopy(item)
 
     def add_metric(self, m: MetricEntry) -> None:
+        """Delegates to the __setitem__ function."""
         self[m.tag] = m
 
     def add_metrics(self, l: Iterable[MetricEntry]) -> None:
+        """Delegates to the add_metric function in a loop for an Iterable of MetricEntry objects."""
         for m in l:
             self.add_metric(m)
 
 
 class Metrics(ABC):
+    """Superclass for all metrics backends."""
+
     def __init__(self, log_dir: str) -> None:
+        """Sets up just the target log_dir."""
         self.log_dir = log_dir
+        os.makedirs(log_dir, exist_ok=True)
 
     @abstractmethod
     def add_scalar(self, tag: str, value: float, step: int, **kwargs) -> None:
+        """For logging numbers as scalars."""
         ...
 
     @abstractmethod
@@ -315,6 +364,7 @@ class Metrics(ABC):
             label_padding_kwargs: dict[str, Any] | None = None,
             **kwargs
     ) -> None:
+        """For logging native images and optional captions."""
         ...
 
     @abstractmethod
@@ -330,18 +380,22 @@ class Metrics(ABC):
             caption_tag: str | None = None,
             **kwargs
     ) -> None:
+        """For logging native audio and optional captions and/or mels."""
         ...
 
     @abstractmethod
     def add_figure(self, tag: str, figure: Figure, step: int, **kwargs) -> None:
+        """For logging a figure."""
         ...
 
     @abstractmethod
     def add_text(self, tag: str, text: str | Any, step: int, **kwargs) -> None:
+        """For logging text."""
         ...
 
     @abstractmethod
     def add_histogram(self, tag: str, values: np.ndarray, step: int, **kwargs) -> None:
+        """For logging a tensor or array as a histogram."""
         ...
 
     @abstractmethod
@@ -353,6 +407,7 @@ class Metrics(ABC):
             hparam_domain_discrete: dict[str, list[Any]] | None = None,
             **kwargs
     ) -> None:
+        """For logging the hyperparameters for a run and results."""
         ...
 
     @abstractmethod
@@ -364,13 +419,16 @@ class Metrics(ABC):
             prefix: str = "grad_norm",
             per_param_scalars: bool = False
     ) -> None:
+        """Helper intended for logging the grad_norms of an entire model."""
         ...
 
     def batch_metrics(self, step_metrics: MetricDict, step: int) -> None:
+        """Helper for logging a batch of metrics as a ``MetricDict``."""
         for tag, metric in step_metrics.items():
             self.add_metric(tag, metric, step)
 
     def add_metric(self, tag: str, m: MetricEntry, step: int) -> None:
+        """Helper for deciding which logging/add method to use for a given MetricEntry."""
         if isinstance(m, BatchMetricEntry):
             for i, v in enumerate(m.value):
                 self.add_metric(f"{tag}_{i}", v, step)
@@ -396,15 +454,20 @@ class Metrics(ABC):
 
     @abstractmethod
     def flush(self) -> None:
+        """For metrics backends that require manual flushing to disk."""
         ...
 
     @abstractmethod
     def close(self) -> None:
+        """For metrics backends that require manual closing."""
         ...
 
 
 class TensorBoardMetrics(Metrics):
+    """Tensorboard metrics backend implementation."""
+
     def __init__(self, log_dir: str, writer=None) -> None:
+        """Sets up the SummaryWriter"""
         super().__init__(log_dir=log_dir)
         if writer is not None:
             self._writer = writer
@@ -413,6 +476,7 @@ class TensorBoardMetrics(Metrics):
             self._writer = SummaryWriter(log_dir=log_dir)
 
     def add_scalar(self, tag: str, value: float, step: int, **kwargs) -> None:
+        """Logs a scalar to Tensorboard."""
         self._writer.add_scalar(tag, value, step)
 
     def add_image(
@@ -427,6 +491,7 @@ class TensorBoardMetrics(Metrics):
             label_padding_kwargs: dict[str, Any] | None = None,
             **kwargs
     ) -> None:
+        """Logs an image with an optional caption to Tensorboard."""
         img_array = prepare_image_add_label(img_array, label, label_kwargs, label_padding_kwargs)
         if caption is not None:
             self.add_text(caption_tag or f"{tag}/caption", caption, step)
@@ -444,24 +509,29 @@ class TensorBoardMetrics(Metrics):
             caption_tag: str | None = None,
             **kwargs
     ) -> None:
-        audio_array, mels_fig = prepare_audio_and_mels(audio_array, mels)
+        """Logs audio with optional captions or mels to Tensorboard."""
+        audio_array, mels_fig = prepare_audio_and_mels(audio_array, sample_rate, mels)
         if audio_array.ndim == 2:
             audio_array = audio_array.mean(axis=1)
         if mels_fig is not None:
             self.add_figure(mels_tag or f"{tag}/mels", mels_fig, step)
         if caption is not None:
             self.add_text(caption_tag or f"{tag}/caption", caption, step)
+
         # technically this accepts np.ndarray and even uses ``make_np()``
         # noinspection PyTypeChecker
         self._writer.add_audio(tag, audio_array, step, sample_rate=sample_rate)
 
     def add_figure(self, tag: str, figure: Figure, step: int, **kwargs) -> None:
+        """Logs a figure to Tensorboard."""
         self._writer.add_figure(tag, figure, step)
 
     def add_text(self, tag: str, text: str | Any, step: int, **kwargs) -> None:
+        """Logs text to Tensorboard."""
         self._writer.add_text(tag, str(text), step)
 
     def add_histogram(self, tag: str, values: np.ndarray, step: int, **kwargs) -> None:
+        """Logs an array of values as a histogram to Tensorboard."""
         self._writer.add_histogram(tag, values, step)
 
     def add_hparams(
@@ -472,6 +542,7 @@ class TensorBoardMetrics(Metrics):
             hparam_domain_discrete: dict[str, list[Any]] | None = None,
             **kwargs
     ) -> None:
+        """Logs hyperparameters and/or run results to Tensorboard."""
         self._writer.add_hparams(hparams, metrics, step, hparam_domain_discrete, **kwargs)
 
     @torch.no_grad()
@@ -482,14 +553,17 @@ class TensorBoardMetrics(Metrics):
             prefix: str = "grad_norm",
             per_param_scalars: bool = False
     ) -> None:
+        """Adds an entire model's grad norms to Tensorboard."""
         prefix = prefix.rstrip("/")
         names, norms = [], []
         for name, p in model.named_parameters():
             if p.grad is not None:
                 names.append(name)
                 norms.append(p.grad.detach().norm())
+
         if not norms:
             return
+
         norms = torch.stack(norms).float().cpu()  # single device sync
         self.add_scalar(f"{prefix}/total", norms.pow(2).sum().sqrt().item(), step)
         self.add_histogram(f"{prefix}/per_param", norms.numpy(), step)
@@ -498,14 +572,19 @@ class TensorBoardMetrics(Metrics):
                 self.add_scalar(f"{prefix}/{name}", n, step)
 
     def flush(self) -> None:
+        """Flushes the Tensorboard SummaryWriter."""
         self._writer.flush()
 
     def close(self) -> None:
+        """Closes the Tensorboard SummaryWriter."""
         self._writer.close()
 
 
 class WandBMetrics(TensorBoardMetrics):
+    """Weights and Biases metric backend implementation."""
+
     def __init__(self, log_dir: str, **wandb_kwargs) -> None:
+        """Sets up the wandb backend using its library."""
         if wandb is None:
             raise ImportError("WandBMetrics requires wandb; pip install wandb")
 
@@ -516,6 +595,7 @@ class WandBMetrics(TensorBoardMetrics):
 
     @staticmethod
     def _log(data: dict[str, Any], step: int) -> None:
+        """Generic log wrapper for the wandb library entrypoint for logging metrics."""
         if wandb is None:
             return
         # noinspection PyArgumentList
@@ -533,6 +613,7 @@ class WandBMetrics(TensorBoardMetrics):
             label_padding_kwargs: dict[str, Any] | None = None,
             **kwargs
     ) -> None:
+        """Logs an image with an optional caption to wandb."""
         if wandb is None:
             return
         img_array = prepare_image_add_label(img_array, label, label_kwargs, label_padding_kwargs)
@@ -550,10 +631,11 @@ class WandBMetrics(TensorBoardMetrics):
             caption_tag: str | None = None,
             **kwargs
     ) -> None:
+        """Logs audio with optional captions or mels to wandb."""
         if wandb is None:
             return
 
-        audio_array, mels_fig = prepare_audio_and_mels(audio_array, mels)
+        audio_array, mels_fig = prepare_audio_and_mels(audio_array, sample_rate, mels)
         audio = wandb.Audio(audio_array, sample_rate=sample_rate, caption=caption)
 
         data: dict[str, Any] = {tag: audio}
@@ -564,19 +646,19 @@ class WandBMetrics(TensorBoardMetrics):
         self._log(data, step)
 
     def close(self) -> None:
+        """Closes the wandb system."""
         super().close()
         if wandb is None:
             return
+
         wandb.finish()
 
 
 class NoneMetrics(Metrics):
-    """For processes on devices when world_size > 1. Logging should only occur after the gather."""
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    """For processes on devices when world_size > 1. Logging should only occur after the gather. Does nothing."""
 
     def add_scalar(self, tag: str, value: float, step: int, **kwargs) -> None:
+        """No-op."""
         pass
 
     def add_image(
@@ -591,6 +673,7 @@ class NoneMetrics(Metrics):
             label_padding_kwargs: dict[str, Any] | None = None,
             **kwargs
     ) -> None:
+        """No-op."""
         pass
 
     def add_audio(
@@ -605,15 +688,19 @@ class NoneMetrics(Metrics):
             caption_tag: str | None = None,
             **kwargs
     ) -> None:
+        """No-op."""
         pass
 
     def add_figure(self, tag: str, figure: Figure, step: int, **kwargs) -> None:
+        """No-op."""
         pass
 
     def add_text(self, tag: str, text: str | Any, step: int, **kwargs) -> None:
+        """No-op."""
         pass
 
     def add_histogram(self, tag: str, values: np.ndarray, step: int, **kwargs) -> None:
+        """No-op."""
         pass
 
     def add_hparams(
@@ -624,6 +711,7 @@ class NoneMetrics(Metrics):
             hparam_domain_discrete: dict[str, list[Any]] | None = None,
             **kwargs
     ) -> None:
+        """No-op."""
         pass
 
     def add_grad_norms(
@@ -633,10 +721,13 @@ class NoneMetrics(Metrics):
             prefix: str = "grad_norm",
             per_param_scalars: bool = False
     ) -> None:
+        """No-op."""
         pass
 
     def flush(self) -> None:
+        """No-op."""
         pass
 
     def close(self) -> None:
+        """No-op."""
         pass

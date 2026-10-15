@@ -5,4 +5,5 @@ from larry.common.config.data.preprocessing.pruner_configs import PrunerConfig
 
 @dataclasses.dataclass(kw_only=True)
 class ImagePrunerConfig(PrunerConfig):
+    """Superclass for image pruner configs."""
     ...

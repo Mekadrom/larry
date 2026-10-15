@@ -1,5 +1,6 @@
+import textwrap
 from abc import ABC
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import torch
 import torchaudio.functional as AF
@@ -9,12 +10,11 @@ import larry.common.training.trainers as trainers
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
 from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
-
-if TYPE_CHECKING:
-    from larry.voice.training.voice_trainers import SpeechTokenizerTrainer
+from larry.voice.training import voice_trainers
 
 
 class VoiceVizCallback(trainers.VizCallback, ABC):
+    """Superclass for voice viz callbacks."""
     ...
 
 
@@ -67,17 +67,37 @@ def alignment_figure(
         blank: int,
         tokenizer: TextTokenizer,
         frame_seconds: float,
+        target_text: str,
+        greedy_text: str,
+        label_rows: int = 3,
 ) -> Figure:
-    fig = Figure(figsize=(14, 4))
-    ax = fig.subplots()
+    n_mels = mels.shape[0]
+    band = n_mels * 0.12 * label_rows
+    top = n_mels + band
     duration = mels.shape[-1] * mel_seconds
-    ax.imshow(mels.numpy(), origin="lower", aspect="auto", extent=(0.0, duration, 0.0, mels.shape[0]))
+
+    fig = Figure(figsize=(14, 5.5))
+    ax = fig.subplots()
+    ax.set_facecolor("black")
+    ax.imshow(mels.numpy(), origin="lower", aspect="auto", extent=(0.0, duration, 0.0, n_mels))
+    ax.set_xlim(0.0, duration)
+    ax.set_ylim(0.0, top)
+    ax.set_yticks([0, n_mels // 2, n_mels])
+
     if forced is not None:
-        for t, token in token_starts(forced, blank):
+        for i, (t, token) in enumerate(token_starts(forced, blank)):
             x = t * frame_seconds
-            ax.axvline(x, color="white", linewidth=0.6, alpha=0.7)
-            ax.text(x, mels.shape[0] * 0.98, tokenizer.id_to_piece(token), color="white", fontsize=7,
-                    rotation=90, va="top", ha="right")
+            y = n_mels + band * (label_rows - i % label_rows - 0.5) / label_rows
+            ax.vlines(x, 0.0, y, colors="white", linewidth=0.6, alpha=0.6)
+            piece = tokenizer.id_to_piece(token).replace("\u2581", " ").strip() or "\u2581"
+            ax.text(x, y, piece, color="white", fontsize=8, ha="left", va="center", clip_on=True,
+                    bbox={"boxstyle": "square,pad=0.1", "facecolor": "black", "edgecolor": "none", "alpha": 0.7})
+
+    wrap = 170
+    ax.set_title(
+        "\n".join(textwrap.wrap(f"target: {target_text}", wrap) + textwrap.wrap(f"greedy: {greedy_text}", wrap)),
+        loc="left", fontsize=8, family="monospace",
+    )
     ax.set_xlabel("seconds")
     ax.set_ylabel("mel bin")
     fig.tight_layout()
@@ -85,22 +105,34 @@ def alignment_figure(
 
 
 class SpeechTokenizerVizCallback(VoiceVizCallback):
+    """Visualization callback for a speech tokenizer tasked with CTC alignment.
+
+    Saves audio with captions and mel figures that are captioned/labeled with aligned token placements according to the
+    model's confidence when force to output the ground truth tokens.
+    """
+
     def __init__(self, viz_steps: int, examples_per_source: int = 2) -> None:
+        """Simple init."""
         super().__init__(viz_steps)
         self.examples_per_source = examples_per_source
         self.rows: list[int] | None = None
         self.audio_logged = False
 
     def viz(self, trainer: trainers.TrainerBase, step: int) -> None:
+        """Logs visualizations of audio as mels with aligned CTC tokens, as well as saving the audio and labels."""
         if not trainer.accelerator.is_main_process:
             return
-        speech_trainer = cast("SpeechTokenizerTrainer", trainer)
+
+        self.log.info(f"Performing visualization at step {step}")
+
+        speech_trainer = cast(voice_trainers.SpeechTokenizerTrainer, trainer)
         dataset = cast(IndexedSpeechDataset, speech_trainer.eval_loader.dataset)
         if self.rows is None:
             self.rows = pick_rows(dataset.offsets, self.examples_per_source)
 
         items = [dataset[k] for k in self.rows]
         collate_fn = speech_trainer.make_collate_fn()
+
         assert collate_fn is not None
         batch = collate_fn(items)
 
@@ -129,7 +161,7 @@ class SpeechTokenizerVizCallback(VoiceVizCallback):
             greedy = log_probs.argmax(-1)
             forced = forced_path(log_probs, target, blank)
 
-            tag = f"viz/{sources[item['source']].name}/{i}"
+            tag = f"viz/{i}/{sources[item['source']].name}"
             if not self.audio_logged:
                 trainer.metrics.add_audio(
                     f"{tag}/audio",
@@ -137,13 +169,18 @@ class SpeechTokenizerVizCallback(VoiceVizCallback):
                     step,
                     sample_rate=speech_trainer.config.mixture_config.sample_rate,
                 )
+
+            target_text = tokenizer.decode(target.tolist())
+            greedy_text = tokenizer.decode(collapse(greedy, blank))
             trainer.metrics.add_text(f"{tag}/ctc", "  \n".join([
-                f"**target:** {tokenizer.decode(target.tolist())}",
-                f"**greedy:** {tokenizer.decode(collapse(greedy, blank))}",
+                f"**target:** {target_text}",
+                f"**greedy:** {greedy_text}",
                 f"**greedy alignment:** {timeline(greedy, blank, tokenizer, frame_seconds)}",
                 f"**target alignment:** {timeline(forced, blank, tokenizer, frame_seconds)}",
             ]), step)
             trainer.metrics.add_figure(f"{tag}/alignment", alignment_figure(
                 mels[i, :, :int(mel_lengths[i])].float().cpu(), mel_seconds, forced, blank, tokenizer, frame_seconds,
+                target_text, greedy_text,
             ), step)
+
         self.audio_logged = True

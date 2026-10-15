@@ -6,6 +6,7 @@ from larry.common.utils.convert_np import make_np
 
 
 def mel_to_db(mels: torch.Tensor | np.ndarray) -> torch.Tensor | np.ndarray:
+    """Converts mels to DB scale."""
     mels = make_np(mels)
     if mels.ndim == 3:
         mels = mels.squeeze(0)
@@ -13,10 +14,12 @@ def mel_to_db(mels: torch.Tensor | np.ndarray) -> torch.Tensor | np.ndarray:
 
 
 def bytes_to_waveforms(audio_bytes: bytes, sample_rate: int) -> torch.Tensor:
+    """Converts audio bytes to a decoded waveform tensor."""
     return AudioDecoder(audio_bytes, sample_rate=sample_rate, num_channels=1).get_all_samples().data
 
 
 def make_non_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
+    """Helper to generate a mask tensor to mask positions for lengths smaller than the largest length provided."""
     batch_size = lengths.size(0)
     if max_len <= 0:
         max_len = int(lengths.max().item())

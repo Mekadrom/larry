@@ -19,7 +19,13 @@ from larry.common.data.utils import save_parquet_shards
 
 
 class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](HuggingFaceDatasetProvider[C], ABC):
+    """A ``DatasetProvider`` for datasets that need to be downloaded and extracted from various formats manually.
+
+    Essentially replaces arbitrary python code execution scripts in datasets that still require them.
+    """
+
     def __init__(self, config: C) -> None:
+        """Sets up cache and save dirs."""
         super().__init__(config)
 
         self.download_extract_cache_dir = Path(self.config.download_extract_cache_dir).expanduser().resolve()
@@ -27,10 +33,12 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
 
     @property
     def path(self) -> str:
+        """Override of the dataset path for the output dataset to "parquet", which is a special term in datasets."""
         return "parquet"
 
     @property
     def data_files(self) -> str | Sequence[str] | Mapping[str, str | Sequence[str]]:
+        """Builds a mapping of {split: [parquet_globs...]} for the output of this dataset provider."""
         return {
             split: glob.glob(str(self.parquet_dir / f"{split}/{split}-*.parquet"))
             for split in os.listdir(self.parquet_dir)
@@ -40,9 +48,16 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
     @property
     @abstractmethod
     def load_input_data_files(self) -> Mapping[str, str]:
+        """Returns a mapping of {split: [input_files_for_processing...]} as input to this dataset provider."""
         ...
 
     def load_dataset(self) -> DatasetDict | Dataset | IterableDatasetDict | IterableDataset:
+        """Primary entrypoint for ``CachedDatasetProviders``.
+
+        Does all downloads, followed by all extractions, followed by loading "secondary data", then finally saves the
+        dataset as parquets with proper column and types. Each step along the way should support caching and resuming in
+        some manner.
+        """
         os.makedirs(self.download_extract_cache_dir, exist_ok=True)
 
         self.log.info("Downloading...")
@@ -77,19 +92,32 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
         return datasets.load_dataset(**kwargs, streaming=False)
 
     def download(self) -> None:
+        """Performs all downloads in order. Downloaders are instantiated and ran sequentially."""
         for impl, config in self.config.downloader_configs():
             impl_type = Downloader.REGISTRY.resolve(impl)
             impl_type(config, self.download_extract_cache_dir).ensure_downloaded()
 
     def extract(self) -> None:
+        """Performs all extractions in order. Extractors are instantiated and ran sequentially."""
         for impl, config in self.config.extractor_configs():
             impl_type = Extractor.REGISTRY.resolve(impl)
             impl_type(config, self.download_extract_cache_dir).ensure_extracted()
 
     def load_secondary_data(self) -> None:
+        """Optional secondary data.
+
+        Initial preprocessing, additional downloads post-extraction, or any other data manipulation that otherwise
+        couldn't occur in the parquet saving step.
+        """
         ...
 
     def _ensure_parquets(self) -> None:
+        """Loads the dataset input files from one of the supported non-parquet dataset file types
+
+        Supports input files in the formats CSV, JSONL (maybe more) and transforms the dataset using overridden
+        functionality to contain the materialized data for the provider to save as parquets for caching and to also
+        provide as the dataset for either preprocessing or training.
+        """
         os.makedirs(self.parquet_dir, exist_ok=True)
 
         data_files = self.load_input_data_files
@@ -136,15 +164,18 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
             else:
                 split_datasets[input_split] = ds
 
+            # here is where transforming and saving is delegated out from here
             for split, split_ds in split_datasets.items():
                 if self.config.split_column_mappings is not None and split in self.config.split_column_mappings:
                     split = self.config.split_column_mappings[split]
                 self._write_split(split, split_ds)
 
     def _is_complete(self, split: str) -> bool:
+        """Simple helper for determining if a split's complete marker file is present."""
         return (self.parquet_dir / f"{split}.parquets.complete").exists()
 
     def _write_split(self, split: str, split_ds: Dataset) -> None:
+        """Does the mapping of a split using ``transform_batch`` and saves to disk."""
         if self._is_complete(split):
             self.log.info(f"{split} parquets already exist in {self.parquet_dir}")
             return
@@ -183,14 +214,17 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
             Path(f).unlink(missing_ok=True)
 
     def make_features(self, data_files: Mapping[str, str]) -> Features | None:
+        """None will cause datasets to intuit the output features, it is recommended to override to clarify."""
         return None
 
     @staticmethod
     def _matches_split(split: str, batch: list[str]) -> list[bool]:
+        """Fingerprintable non-lambda for filtering a dataset for matching a given split name in a specific column."""
         return [x == split for x in batch]
 
     @abstractmethod
     def cast_cols(self, dataset: Dataset) -> Dataset:
+        """Convenience method for casting columns separately, even after make_features. TODO: remove this"""
         ...
 
     @abstractmethod
@@ -199,14 +233,19 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
 
 
 class MediaCachedDatasetProvider[C: MediaCachedDatasetConfig = MediaCachedDatasetConfig](CachedDatasetProvider[C], ABC):
+    """Specialization of ``CachedDatasetProvider`` for datasets that have specific media columns like audio or image."""
+
     @property
     def media_dir_path(self) -> Path:
+        """Default implementation for saving media files to cache prior to saving into parquets as bytes."""
         return (self.download_extract_cache_dir / self.config.media_dir).expanduser().resolve()
 
     def cast_cols(self, dataset: Dataset) -> Dataset:
+        """Overridden to cast the output media column to the configured FeatureType."""
         return dataset.cast_column(self.config.media_column, self.config.media_type)
 
     def transform_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        """Given the paths in media_path_column are relative to the media_dir_path configured, resolves those paths."""
         batch.update({
             self.config.media_column: [str(self.media_dir_path / p) for p in batch[self.config.media_path_column]]
         })

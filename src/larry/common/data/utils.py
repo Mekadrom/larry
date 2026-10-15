@@ -1,13 +1,12 @@
-from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-import numpy as np
 from datasets import Dataset, DatasetDict, Features
 from tqdm import tqdm
 
 
 def _write_shard(ds: Dataset, num_shards: int, i: int, parquet_dir: Path, prefix: str) -> None:
+    """Helper for writing a dataset shard to file with a specific naming scheme."""
     shard = ds.shard(num_shards, i, contiguous=True)
     shard.to_parquet(
         parquet_dir / f"{prefix}-{i:05d}-of-{num_shards:05d}.parquet"
@@ -22,6 +21,10 @@ def save_parquet_shards(
         writer_batch_size: int,
         num_workers: int = 8,
 ) -> None:
+    """Saves a dataset as manually sharded parquet files in the standard HF parquet format to disk.
+
+    Parallelizes saving using a thread pool.
+    """
     parquet_dir = parent_dir / prefix
     parquet_dir.mkdir(parents=True, exist_ok=True)
 
@@ -42,23 +45,8 @@ def save_parquet_shards(
     (parent_dir / f"{prefix}.parquets.complete").touch(exist_ok=True)
 
 
-def split_by_fractions(dataset: Dataset, fractions: Mapping[str, float]) -> DatasetDict:
-    n = len(dataset)
-
-    # eg for fractions like {"train": 0.98, "val": 0.01, "test": 0.01} produces an array of [0.0, 0.98, 0.99, 1.00]
-    # and then multiplies to the length of the dataset to get something like [0, 9800, 9900, 10000] (for a dataset
-    # of length 10,000) representing each bound of a ranged indices for each split requested (has to cast to int for
-    # rounding)
-    indices = np.cumsum([0.0, *fractions.values()]) * n
-    indices = np.round(indices).astype(int)
-    indices[-1] = n
-    return DatasetDict({
-        name: dataset.select(range(int(a), int(b)))
-        for name, a, b in zip(fractions, indices[:-1], indices[1:])
-    })
-
-
 def features_of(dataset: Dataset | DatasetDict) -> Features:
+    """Extracts features from a dataset, and ensures that each split in a ``DatasetDict`` have the same features."""
     if isinstance(dataset, Dataset):
         return dataset.features
     schemas = {name: split.features for name, split in dataset.items()}

@@ -1,12 +1,24 @@
-import torch
-from torch.utils.data import DataLoader
+from typing import Any, cast
 
+import torch
+from torch.utils.data import DataLoader, Dataset
+
+from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator
 
 
-class CharTokenizer:
+class CharTokenizer(TextTokenizer):
     def encode(self, text: str) -> list[int]:
         return [ord(c) % 7 for c in text]
+
+    def decode(self, token_ids: list[int]) -> str:
+        raise NotImplementedError
+
+    def vocab_size(self) -> int:
+        return 7
+
+    def id_to_piece(self, token_id: int) -> str:
+        raise NotImplementedError
 
 
 ITEMS = [
@@ -28,6 +40,7 @@ def test_collator_pads_and_reports_target_token_count_as_a_plain_int() -> None:
 
 
 def test_target_token_count_survives_dataloader_worker_processes() -> None:
-    loader = DataLoader(ITEMS, batch_size=3, collate_fn=SpeechCTCCollator(CharTokenizer()), num_workers=2)
+    dataset = cast(Dataset[dict[str, Any]], ITEMS)
+    loader = DataLoader(dataset, batch_size=3, collate_fn=SpeechCTCCollator(CharTokenizer()), num_workers=2)
 
     assert [batch["n_target_tokens"] for batch in loader] == [6]

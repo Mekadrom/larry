@@ -4,7 +4,8 @@ import datasets.config
 import pytest
 from datasets import Dataset
 
-from larry.voice.data.dataloading.voice_dataloading import SpeechSourceConfig, index_split_files
+from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
+from larry.voice.data.dataloading.voice_dataloading import index_split_files
 from larry.voice.training.voice_trainers import load_index
 
 

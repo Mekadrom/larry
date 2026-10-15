@@ -11,4 +11,4 @@
 
  - [x] mythicinfinity_libriheavy-test_clean_large-normalized-asr/
  - [x] mythicinfinity_libriheavy-test_other_large-normalized-asr/
- - [ ] mythicinfinity_libriheavy-large-index-asr/
+ - [x] mythicinfinity_libriheavy-large-index-asr/

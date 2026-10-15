@@ -268,13 +268,16 @@ def test_rerun_with_a_fresh_provenance_reuses_the_cached_result(tmp_path: Path) 
     _dataset().save_to_disk(tmp_path / "source")
     config = SingleColumnMapperConfig(**_base(input_column="text", output_column="n", cache_results=True))
 
-    first = LengthMapper(Provenance.new_provenance({}), config).preprocess_dataset(load_from_disk(tmp_path / "source"))
-    second = LengthMapper(Provenance.new_provenance({}), config).preprocess_dataset(load_from_disk(tmp_path / "source"))
+    ancestry = ProvenanceAncestry.from_dict({})
+    first = LengthMapper(Provenance.new_provenance({}, ancestry), config).preprocess_dataset(
+        load_from_disk(tmp_path / "source"))
+    second = LengthMapper(Provenance.new_provenance({}, ancestry), config).preprocess_dataset(
+        load_from_disk(tmp_path / "source"))
 
     assert second._fingerprint == first._fingerprint
 
 
 def test_fresh_provenance_has_no_per_run_fields() -> None:
-    provenance = Provenance.new_provenance({})
+    provenance = Provenance.new_provenance({}, ProvenanceAncestry.from_dict({}))
 
     assert (provenance.produced_on, provenance.git_commit, provenance.git_is_dirty) == (None, None, None)

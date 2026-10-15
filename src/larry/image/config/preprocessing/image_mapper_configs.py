@@ -7,12 +7,14 @@ from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMa
 
 @dataclasses.dataclass(kw_only=True)
 class ImageMapperConfig(SingleColumnMapperConfig):
+    """Superclass for all image mapper configs."""
     input_column: str = "image"
     output_column: str = "image"
 
 
 @dataclasses.dataclass(kw_only=True)
 class UrlImageMapperConfig(UrlMapperConfig, ImageMapperConfig):
+    """Config class for ``UrlImageMapper`` that overrides ``UrlMapperConfig`` fields with sensible defaults."""
     input_column: str = "url"
     output_column: str = "image"
 
@@ -21,6 +23,7 @@ class UrlImageMapperConfig(UrlMapperConfig, ImageMapperConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class ImageResizingMapperConfig(ImageMapperConfig):
+    """Config for the ``ImageResizingMapper`` that sets standard defaults for the larry models concerned with images."""
     width: int = 224
     height: int = 224
     pad_to_equal: bool = True

@@ -2,16 +2,12 @@ import dataclasses
 
 from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig, \
     MapperConfig
-from larry.voice.config.preprocessing.voice_configs import AlignerConfig
+from larry.voice.config.preprocessing.voice_configs import AlignerConfig, SampleRateConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class SampleRateConfig:
-    sample_rate: int = 16000
-
-
-@dataclasses.dataclass(kw_only=True)
-class UrlAudioMapperConfig(UrlMapperConfig, SingleColumnMapperConfig):
+class UrlAudioMapperConfig(UrlMapperConfig):
+    """Config for ``UrlAudioMapper``, setting sensible defaults for config fields from ``UrlMapperConfig``."""
     input_column: str = "url"
     output_column: str = "audio"
 
@@ -20,12 +16,14 @@ class UrlAudioMapperConfig(UrlMapperConfig, SingleColumnMapperConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class AudioDurationMapperConfig(SingleColumnMapperConfig):
+    """Config for ``AudioDurationMapper``, setting sensible defaults for the input and output column names."""
     input_column: str = "audio"
     output_column: str = "duration_s"
 
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechSegmentationAligningMapperConfig(SampleRateConfig, MapperConfig):
+    """Config for ``SpeechSegmentationAligningMapper``, overriding the input/output columns."""
     audio_column: str = "audio"
     text_column: str = "text_original"
 
@@ -35,9 +33,11 @@ class SpeechSegmentationAligningMapperConfig(SampleRateConfig, MapperConfig):
     audio_duration_output_column: str = "duration_s"
 
     def required_input_columns(self) -> list[str]:
+        """Requires audio, text, and any other columns intended to be copied over as input columns."""
         return [self.audio_column, self.text_column, *self.copy_columns]
 
     def required_output_columns(self) -> list[str]:
+        """Sets only the known output columns as required."""
         return [
             "start_s",
             "end_s",
@@ -72,6 +72,7 @@ class SpeechSegmentationAligningMapperConfig(SampleRateConfig, MapperConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class CTCScoreMapperConfig(SampleRateConfig, MapperConfig):
+    """Config for ``CTCScoreMapper``, overriding the required input/output columns."""
     audio_column: str = "audio"
     text_column: str = "text_normalized"
     duration_column: str = "duration_s"
@@ -80,9 +81,11 @@ class CTCScoreMapperConfig(SampleRateConfig, MapperConfig):
     text_output_column: str | None = "text_normalized"
 
     def required_input_columns(self) -> list[str]:
+        """Requires the audio, text, and duration column for mapping."""
         return [self.audio_column, self.text_column, self.duration_column]
 
     def required_output_columns(self) -> list[str]:
+        """Produces primarily the ctc_mismatch score column and optionally the text_normalized column by default."""
         if self.text_output_column:
             return [self.ctc_mismatch_output_column, self.text_output_column]
         return [self.ctc_mismatch_output_column]

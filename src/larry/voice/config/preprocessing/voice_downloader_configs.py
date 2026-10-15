@@ -7,6 +7,7 @@ from larry.common.config.data.downloader_configs import MultiFileDownloaderConfi
 
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSDownloaderConfig:
+    """Base config for SCOTUS downloader implementations."""
     base_url: str
     term_manifest_file_name: str
     docket_manifest_file_name: str
@@ -14,7 +15,10 @@ class SCOTUSDownloaderConfig:
 
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSTermManifestDownloaderConfig(RangedIndexMultiFileDownloaderConfig, SCOTUSDownloaderConfig):
+    """Config for ``SCOTUSTermManifestDownloader``."""
+
     def configs_for(self, range_value: int) -> Sequence[tuple[str, DownloaderConfig]]:
+        """Returns the list of named configs to produce ranged configs for."""
         return [
             ("SingleFileDownloader", SingleFileDownloaderConfig(
                 download_base_url=self.base_url,
@@ -35,4 +39,5 @@ class SCOTUSTermManifestDownloaderConfig(RangedIndexMultiFileDownloaderConfig, S
 
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSDocketManifestDownloaderConfig(MultiFileDownloaderConfig, SCOTUSDownloaderConfig):
+    """Combines ``MultiFileDownloaderConfig`` with ``SCOTUSDownloaderConfig``."""
     ...

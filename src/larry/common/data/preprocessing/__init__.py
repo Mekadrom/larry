@@ -1,7 +1,5 @@
 import argparse
-import glob
 import logging
-import shutil
 from pathlib import Path
 
 from larry.common.data.preprocessing.pipeline import Pipeline
@@ -11,9 +9,11 @@ log = logging.getLogger(__name__)
 
 
 def main() -> None:
+    """Main entrypoint for all dataset preprocessing pipelines."""
+
+    # forcibly walks the module structure to import all classes so registries for different class types are filled out
     import_submodules("larry")
 
-    """Main entrypoint for preprocessing data."""
     argparser = argparse.ArgumentParser(
         prog="preprocessing",
         description="Super entrypoint for all dataset preprocessing; delegates to implementations of Preprocessor "
@@ -52,21 +52,8 @@ def main() -> None:
     output_dir = Path(args.output_dir).expanduser().resolve()
     config_file = Path(args.config_file).expanduser().resolve()
 
+    # override the "clean" flag top False so provenance-only output actually survives
     if args.provenance_only:
         setattr(args, "clean", False)
 
-    if args.clean and output_dir.exists():
-        log.info(f"cleaning up {output_dir}")
-        # remove just split dirs containing parquets; leave readmes and anything else
-        subdirs = [x for x in output_dir.iterdir() if x.is_dir()]
-        for subdir in subdirs:
-            shutil.rmtree(subdir, ignore_errors=True)
-        # to be re-generated
-        (output_dir / "provenance.json").unlink(missing_ok=True)
-        # remove markers
-        completed_files = glob.glob(str(output_dir / "*.complete"))
-        for completed_file in completed_files:
-            Path(completed_file).resolve().unlink()
-
-    p = Pipeline(config_file, output_dir, clean=args.clean, provenance_only=args.provenance_only)
-    p.run()
+    Pipeline(config_file, output_dir, clean=args.clean, provenance_only=args.provenance_only).run()

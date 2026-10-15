@@ -1,7 +1,6 @@
 import csv
 import dataclasses
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
 
 from datasets import Audio, Image
@@ -16,12 +15,16 @@ from larry.voice.config.preprocessing.voice_downloader_configs import SCOTUSTerm
 
 @dataclasses.dataclass(kw_only=True)
 class VoiceDatasetConfig:
+    """Superclass for voice dataset configs."""
     ...
 
 
 @dataclasses.dataclass(kw_only=True)
 class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
-    """https://mozilladatacollective.com/datasets/cmu5jplf300nwmh07iqvk9leo"""
+    """Configures the dataset provider for preprocessing and normalizing Common Voice 27.0 from a provided tar.gz.
+
+    https://mozilladatacollective.com/datasets/cmu5jplf300nwmh07iqvk9leo
+    """
 
     archive_file: str = "downloaded.tar.gz"
     archive_root: str = "cv-corpus-27.0-2026-09-11/en"
@@ -29,9 +32,14 @@ class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
     provider_name: str = "CommonVoiceMediaCachedDatasetProvider"
 
     def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
+        """No download can be done automatically.
+
+        Mozilla Foundation requires authenticated API access and forbids automated script downloading.
+        """
         return []
 
     def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
+        """Configures an extractor for a pre-downloaded archive."""
         return [
             ("SingleFileExtractor", SingleFileExtractorConfig(
                 input_file_name=self.archive_file,
@@ -52,6 +60,7 @@ class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig):
+    """Config for ``SCOTUSManifestCachedDatasetProvider`` to configure its generation of the scotus-manifest dataset."""
     path: str = "parquet"
     base_url: str = "https://www.supremecourt.gov/"
     provider_name: str = "SCOTUSManifestCachedDatasetProvider"
@@ -60,6 +69,7 @@ class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig)
     docket_manifest_file_name: str = "docket_manifest.tsv"
 
     def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
+        """Configures specialized downloader implementations for downloading SCOTUS manifest data."""
         return [
             ("SCOTUSTermManifestDownloader", SCOTUSTermManifestDownloaderConfig(
                 base_url=self.base_url,
@@ -76,6 +86,7 @@ class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig)
         ]
 
     def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
+        """No extraction is required."""
         return []
 
     download_extract_file_type: str = "csv"
@@ -91,6 +102,7 @@ class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig)
 
 @dataclasses.dataclass(kw_only=True)
 class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
+    """Config for ``VCTKCachedDatasetProvider``."""
     download_url: str = "https://datashare.ed.ac.uk"
     archive_file: str = "DS_10283_3443.zip"
     download_path: str = f"download/{archive_file}"
@@ -107,6 +119,7 @@ class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConf
     ))
 
     def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
+        """Defines the config for the downloader to download the datashare archive."""
         return [
             ("SingleFileDownloader", SingleFileDownloaderConfig(
                 download_base_url=self.download_url,
@@ -116,6 +129,7 @@ class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConf
         ]
 
     def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
+        """DS_10283_3443.zip is a nested zip file, so this defines one extractor config for each layer."""
         return [
             ("SingleFileExtractor", SingleFileExtractorConfig(
                 input_file_name=self.archive_file,

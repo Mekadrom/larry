@@ -9,7 +9,7 @@ from accelerate.state import AcceleratorState
 from torch import nn
 
 from larry.common.config.criteria.criterion_configs import CriterionConfig
-from larry.common.config.data.preprocessing.pipeline_config import Provenance
+from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.common.config.model.model_configs import ModelConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.common.criteria.criterion import Criterion
@@ -49,14 +49,23 @@ class ToyCriterion(Criterion[ToyCriterionConfig, ToyModel]):
 
 class NullMetrics(Metrics):
     def add_scalar(self, *args: Any, **kwargs: Any) -> None: ...
+
     def add_image(self, *args: Any, **kwargs: Any) -> None: ...
+
     def add_audio(self, *args: Any, **kwargs: Any) -> None: ...
+
     def add_figure(self, *args: Any, **kwargs: Any) -> None: ...
+
     def add_grad_norms(self, *args: Any, **kwargs: Any) -> None: ...
+
     def add_histogram(self, *args: Any, **kwargs: Any) -> None: ...
+
     def add_hparams(self, *args: Any, **kwargs: Any) -> None: ...
+
     def add_text(self, *args: Any, **kwargs: Any) -> None: ...
+
     def close(self) -> None: ...
+
     def flush(self) -> None: ...
 
 
@@ -86,7 +95,7 @@ class EvalRecordingToyTrainer(ToyTrainer):
 
 
 def provenance() -> Provenance:
-    return Provenance.new_provenance({})
+    return Provenance.new_provenance({}, ProvenanceAncestry.from_dict({}))
 
 
 @pytest.fixture(autouse=True)

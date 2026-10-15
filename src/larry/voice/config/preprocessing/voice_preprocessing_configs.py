@@ -6,6 +6,10 @@ from larry.common.config.data.preprocessing.preprocessor_configs import Preproce
 
 @dataclasses.dataclass(kw_only=True)
 class SpeakerValidationSplittingPreprocessorConfig(PreprocessorConfig):
+    """Config for ``SpeakerValidationSplittingPreprocessor``
+
+    Sets the behavior to a default that fails validation to force configuration to be made intentionally.
+    """
     duration_column: str = "duration_s"
     speaker_id_column: str = "speaker_id"
 

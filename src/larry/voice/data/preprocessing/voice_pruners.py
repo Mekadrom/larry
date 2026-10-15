@@ -10,22 +10,34 @@ from larry.voice.utils import bytes_to_waveforms
 
 
 class VoicePruner[C: VoicePrunerConfig = VoicePrunerConfig](Pruner[C]):
+    """Superclass for voice pruners."""
     ...
 
 
 class AudioDurationColumnPruner(VoicePruner[AudioDurationColumnPrunerConfig]):
+    """Given a column that already contains the duration of a clip in seconds, prunes based on this value.
+
+    TODO: this could probably be a ``ColumnValuesPruner`` with a specific config for the "duration_s" input column.
+    """
+
     def keep_example(self, example: dict[str, Any]) -> bool:
+        """Determines whether an example is within the range of acceptable durations."""
         val = cast(float, example[self.config.input_columns[0]])
         return self.config.min_duration <= val <= self.config.max_duration
 
 
 class AudioQualityPruner(VoicePruner[AudioQualityPrunerConfig]):
+    """Uses a few standards for audio quality by configuration to filter out poor quality examples."""
+
     def keep_example(self, example: dict[str, Any]) -> bool:
+        """Determines whether a clip is acceptable by various quality metrics that proxy human ear evaluation."""
         audio: EncodedAudio = example[self.config.input_columns[0]]
         try:
             waveform = bytes_to_waveforms(audio["bytes"], self.config.sample_rate)[0]
         except (RuntimeError, ValueError) as e:
-            self.log.warning(f"pruning undecodable audio path={audio.get('path')!r} bytes={len(audio['bytes'] or b'')}: {e}")
+            self.log.warning(
+                f"pruning undecodable audio path={audio.get('path')!r} bytes={len(audio['bytes'] or b'')}: {e}"
+            )
             return False
 
         frame, hop = int(0.025 * self.config.sample_rate), int(0.010 * self.config.sample_rate)

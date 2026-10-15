@@ -5,4 +5,5 @@ from larry.image.config.model.image_model_configs import ImageModelConfig
 
 
 class ImageModel[C: ImageModelConfig = ImageModelConfig](LarryModel[C], ABC):
+    """Superclass for all image models."""
     ...

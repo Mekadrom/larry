@@ -2,7 +2,6 @@ import bisect
 import dataclasses
 import difflib
 import logging
-from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -16,6 +15,7 @@ from larry.voice.config.preprocessing.voice_mapper_configs import SpeechSegmenta
 
 @dataclasses.dataclass
 class SpanScore:
+    """Helper dataclass for storing all information required to slice a span of audio."""
     start: float
     end: float
     score: float
@@ -23,6 +23,8 @@ class SpanScore:
 
 
 class Aligner:
+    """Set of helper/utility functions wrapping a pretrained alignment/CTC model for aligning text and speech."""
+
     def __init__(self, config: AlignerConfig, device="cuda", dtype=torch.float16):
         self.config = config
 
@@ -57,11 +59,7 @@ class Aligner:
         return ids or None
 
     @torch.inference_mode()
-    def ctc_emissions(
-            self,
-            waveform: torch.Tensor,
-            progress: Callable[[int, int], None] | None = None
-    ) -> torch.Tensor:
+    def ctc_emissions(self, waveform: torch.Tensor) -> torch.Tensor:
         """Stitched log-probs, [T, C] float32, one row per 20 ms frame. Processes only single examples, not batches."""
         win = int(self.config.chunk_seconds * self.config.sample_rate)
         trim = int(self.config.overlap_seconds * self.config.sample_rate)
@@ -69,6 +67,7 @@ class Aligner:
         hop = win - 2 * trim
         if hop <= 0:
             raise ValueError("chunk_seconds must exceed 2 * overlap_seconds")
+
         if not self.model.config.vocab_size:
             raise ValueError("please load a model that configures a vocab_size on its config")
 
@@ -136,6 +135,7 @@ class Aligner:
             trim_frames: int,
             total_frames: int,
     ) -> None:
+        """Helper for offsetting an audio span's bounds. Mutates the ``out`` and ``filled`` parameters."""
         if start == 0:
             low = 0
         else:
@@ -220,22 +220,27 @@ class Aligner:
         return out
 
     def get_targets_owners(self, words: list[str]) -> tuple[list[int], list[int]]:
+        """Calculates the owner word indices for each token (character) position index."""
         targets = []
         owners = []
         for i, word in enumerate(words):
             ids = self.token_ids(word)
             if ids is None:
                 continue
+
             if targets:
                 targets.append(self.delim)
                 owners.append(-1)
+
             targets.extend(ids)
             # track which word each ctc alignment frame is "owned" by
             owners.extend([i] * len(ids))
+
         return targets, owners
 
     @torch.inference_mode()
     def clip_emissions(self, waveforms: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Performs the forward pass through the alignment model to obtain CTC prediction logits."""
         normalized = []
         for w in waveforms:
             w = w.float()
@@ -275,12 +280,14 @@ class Aligner:
         return float(scores[0].sum())
 
     def mismatch_score(self, emissions: torch.Tensor, forced: float) -> float:
+        """A cost function for a given set of logits and the forced alignment target for a single position."""
         free = float(emissions.max(dim=-1).values.sum())
         return (free - forced) / emissions.shape[0]
 
 
 @dataclasses.dataclass
 class LongAlignmentResult:
+    """Helper dataclass for the result of the alignment of an entire transcript to its entire audio."""
     spans: list[SpanScore | None]
     n_failed_words: int
     greedy_decode_score: float
@@ -288,6 +295,11 @@ class LongAlignmentResult:
 
 
 class LongAlignment:
+    """Helper wrapper around ``Aligner`` for aligning a single, long audio file with a long transcript.
+
+    Produces ``SpanScore`` objects for the aligned parts of speech within the longer input.
+    """
+
     def __init__(
             self,
             config: SpeechSegmentationAligningMapperConfig,
@@ -295,12 +307,14 @@ class LongAlignment:
             emissions: torch.Tensor,
             ref_words: list[str],
     ) -> None:
+        """Simple init."""
         self.config = config
         self.aligner = aligner
         self.emissions = emissions
         self.ref_words = ref_words
 
     def run(self, reuse_result: LongAlignmentResult | None = None) -> LongAlignmentResult:
+        """Runs alignment on the entire speech segment in blocks, producing aligned spans using anchor alignments."""
         block_seconds = self.config.block_seconds
         max_block_seconds = self.config.max_block_seconds
         slack_seconds = self.config.slack_seconds
@@ -373,6 +387,7 @@ class LongAlignment:
             block_frames=3000,
             blocks=None
     ):
+        """Finds a line of words (min_anchor_run words) that line up with CTC predictions as anchors for speech."""
         max_chars_per_frame = self.config.max_chars_per_frame
         min_anchor_run = self.config.min_anchor_run
 
@@ -382,9 +397,11 @@ class LongAlignment:
         for h0, r0, size in blocks:
             if size < min_anchor_run:
                 continue
+
             # Skip the first and last of the run; anchor on each interior word.
             for k in range(1, size - 1):
                 candidates.append((r0 + k, hyp_words[h0 + k][1]))
+
         if not candidates:
             return []
 
@@ -400,29 +417,38 @@ class LongAlignment:
         for ref_i, frame in candidates:
             if ref_i <= last_ref or frame <= last_frame:
                 continue
+
             if frame - last_frame < block_frames and anchors:
                 continue
+
             if cum[ref_i] - cum[last_ref] > (frame - last_frame) * max_chars_per_frame:
                 continue
+
             # the text still to come must also fit in the frames still to come
             if total - cum[ref_i] > (n_frames - frame) * max_chars_per_frame:
                 continue
+
             anchors.append((ref_i, frame))
             last_frame = frame
             last_ref = ref_i
+
         return anchors
 
     def _split_long(self, blocks: list[tuple[int, int, int, int]], max_block_frames) -> list[tuple[int, int, int, int]]:
+        """Using boundaries from alignment calculations, splits long boundaries into smaller plausible sections."""
         out = []
         for w0, w1, f0, f1 in blocks:
             n_frames = f1 - f0
             if n_frames <= max_block_frames or w1 - w0 < 2:
                 out.append((w0, w1, f0, f1))
                 continue
+
             parts = int(np.ceil(n_frames / max_block_frames))
             lens = np.array([len(self.ref_words[i]) + 1 for i in range(w0, w1)], dtype=np.float64)
             cum = np.concatenate([[0.0], np.cumsum(lens)])
-            base_w, base_f = w0, f0
+
+            base_w = w0
+            base_f = f0
             for p in range(parts):
                 last = p == parts - 1
                 target = cum[-1] * (p + 1) / parts
@@ -432,27 +458,34 @@ class LongAlignment:
                 else:
                     wi = min(max(base_w + int(np.searchsorted(cum, target)), w0 + 1), w1)
                     fi = base_f + int(round(n_frames * (p + 1) / parts))
+
                 if wi > w0:
                     out.append((w0, wi, f0, fi))
+
                 w0, f0 = wi, fi
                 if w0 >= w1:
                     break
+
         return out
 
     def _match_blocks(self, hyp_words: list[tuple[str, int, int]]) -> list[difflib.Match]:
+        """Matches strings together."""
         hyp = [w for w, _, _ in hyp_words]
         return difflib.SequenceMatcher(None, hyp, self.ref_words, autojunk=False).get_matching_blocks()
 
 
 class TokenTimeline:
+    """Helper/utility class for the finalized spans for segments from a long speech example."""
     spans: list[SpanScore | None]
     ok_mask: list[bool]
 
     def __init__(self, times: list[SpanScore | None], groups: list[int]) -> None:
+        """Simple init."""
         self.times = times
         self.groups = groups
 
     def fill_gaps(self) -> None:
+        """Algorithm for attempting to extend spans to meet each other with a maximum allowed amount of overlap."""
         n_spans = len(self.times)
         self.spans = [None] * n_spans
         self.ok_mask = [t is not None for t in self.times]

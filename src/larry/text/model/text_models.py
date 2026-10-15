@@ -9,6 +9,7 @@ from larry.text.config.model.text_model_configs import TextModelConfig
 
 @dataclasses.dataclass(kw_only=True)
 class TextGenerationOutput(GenerationOutput):
+    """Helper dataclass for returning the results of the model's generation."""
     sequences: torch.Tensor  # [B*num_samples, T+new]
     prompt_length: int
 
@@ -18,4 +19,5 @@ class TextGenerationOutput(GenerationOutput):
 
 
 class TextModel[C: TextModelConfig = TextModelConfig](LarryModel[C], ABC):
+    """Superclass for text models."""
     ...

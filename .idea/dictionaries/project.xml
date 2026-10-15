@@ -2,9 +2,12 @@
   <dictionary name="project">
     <words>
       <w>Denormalizing</w>
+      <w>Wessler</w>
       <w>adamw</w>
       <w>argparser</w>
       <w>asrctcmismatchcolumnvaluesprunerconfig</w>
+      <w>convs</w>
+      <w>datashare</w>
       <w>freqs</w>
       <w>fsmn</w>
       <w>mblocks</w>
@@ -15,9 +18,11 @@
       <w>reattrs</w>
       <w>sdpa</w>
       <w>slen</w>
+      <w>strided</w>
       <w>subdirs</w>
       <w>vctkcacheddatasetprovider</w>
       <w>vctkcacheddatasetproviderconfig</w>
+      <w>wessler</w>
     </words>
   </dictionary>
 </component>

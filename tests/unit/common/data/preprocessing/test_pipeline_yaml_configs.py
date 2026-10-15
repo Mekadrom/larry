@@ -11,7 +11,7 @@ from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
 from larry.common.data.preprocessing.preprocessors import Preprocessor
-from larry.common.utils import load_yaml_config
+from larry.common.utils import load_yaml_dict
 from larry.common.utils.init_helpers import import_submodules
 
 import_submodules("larry", skip=("larry.common.training", "larry.voice.training", "larry.text.training",
@@ -24,7 +24,7 @@ YAML_FILES = sorted(CONFIG_ROOT.rglob("*.yaml"))
 def _steps() -> list[tuple[str, int, dict[str, Any]]]:
     steps = []
     for path in YAML_FILES:
-        definition = load_yaml_config(path) or {}
+        definition = load_yaml_dict(path) or {}
         for i, step in enumerate(definition.get("pipeline") or []):
             steps.append((str(path.relative_to(CONFIG_ROOT)), i, step))
     return steps
@@ -118,7 +118,7 @@ def test_mapper_column_lists_have_no_duplicates(path: str, index: int, step: dic
 def _row_replacing_steps() -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
     steps = []
     for path in YAML_FILES:
-        definition = load_yaml_config(path) or {}
+        definition = load_yaml_dict(path) or {}
         for step in definition.get("pipeline") or []:
             if "copy_columns" in (step.get("inputs") or {}):
                 steps.append((str(path.relative_to(CONFIG_ROOT)), definition, step))

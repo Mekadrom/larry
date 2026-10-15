@@ -1,4 +1,3 @@
-import dataclasses
 import glob
 import itertools
 from collections.abc import Iterator
@@ -13,22 +12,11 @@ from larry.common.data.samplers import ResumableBatchSampler
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 
 
-@dataclasses.dataclass(kw_only=True)
-class SpeechSourceConfig:
-    name: str
-    index_path: str  # huggingface repo or local dir: rows with id, duration_s, text_original, speaker_id, etc.
-    source_path: str | None = None
-    source_name: str | None = None
-    source_revision: str | None = None
-    split: str = "train"
-    source_split: str = "train"
-    audio_column: str = "audio"
-    duration_column: str = "duration_s"
-    text_column: str = "text_normalized"
-    weight: float = 1.0  # target share of audio time, not of rows
-
-
 def index_split_files(index_path: str, split: str) -> list[str]:
+    """Parses combined split definitions in order to provide all files from these splits.
+
+    Works on split strings like "train.clean+train.other".
+    """
     files: list[str] = []
     for name in split.split("+"):
         found = sorted(glob.glob(str(Path(index_path).expanduser() / name / "*.parquet")))
@@ -38,17 +26,9 @@ def index_split_files(index_path: str, split: str) -> list[str]:
     return files
 
 
-@dataclasses.dataclass(kw_only=True)
-class SpeechMixtureConfig:
-    train_sources: list[SpeechSourceConfig] = dataclasses.field(default_factory=list)
-    eval_sources: list[SpeechSourceConfig] = dataclasses.field(default_factory=list)
-    sample_rate: int = 16000
-    max_batch_seconds: float = 400.0  # padded seconds per batch
-    pool_size: int = 20000  # clips drawn per sampler chunk
-    seed: int = 42
-
-
 class WeightedBucketBatchSampler(ResumableBatchSampler):
+    """Implementation of ``ResumableBatchSampler`` that allows configuration of weights per dataset source."""
+
     def __init__(
             self,
             source_ids: torch.Tensor,
@@ -58,6 +38,7 @@ class WeightedBucketBatchSampler(ResumableBatchSampler):
             pool_size: int,
             seed: int,
     ) -> None:
+        """Parses the configuration into weights per dataset source and initializes the sampler."""
         self.durations = durations.double()
         self.max_batch_seconds = max_batch_seconds
         self.pool_size = pool_size
@@ -86,6 +67,7 @@ class WeightedBucketBatchSampler(ResumableBatchSampler):
         self.start_offset = 0
 
     def start_at(self, consumed_batches: int) -> None:
+        """For resuming, continues from the number of consumed batches by tracking chunks."""
         chunk = 0
         while consumed_batches >= self._batch_count(chunk):
             consumed_batches -= self._batch_count(chunk)
@@ -94,6 +76,7 @@ class WeightedBucketBatchSampler(ResumableBatchSampler):
         self.start_offset = consumed_batches
 
     def _batch_count(self, chunk: int) -> int:
+        """Helper for obtaining the size of a chunk in number of batches."""
         while len(self._batches_per_chunk) <= chunk:
             self._batches_per_chunk.append(len(self._batches(len(self._batches_per_chunk))))
         return self._batches_per_chunk[chunk]
@@ -115,10 +98,12 @@ class WeightedBucketBatchSampler(ResumableBatchSampler):
         return starts
 
     def _permutation(self, s: int, cycle: int) -> torch.Tensor:
+        """Returns random indices from a given source, seeded by the provided cycle."""
         # keyed by (seed, source, cycle) and not by chunk: a cycle read across two chunks must be the same shuffle
         cached = self._permutations.get(s)
         if cached is not None and cached[0] == cycle:
             return cached[1]
+
         seed = int(np.random.SeedSequence([self.seed, s, cycle]).generate_state(1)[0])
         generator = torch.Generator().manual_seed(seed)
         rows = self.rows_by_source[s]
@@ -132,16 +117,20 @@ class WeightedBucketBatchSampler(ResumableBatchSampler):
         parts = []
         position = start
         end = start + count
+
         while position < end:
             cycle, offset = divmod(position, n)
             take = min(n - offset, end - position)
             parts.append(self._permutation(s, cycle)[offset:offset + take])
             position += take
+
         if not parts:
             return torch.empty(0, dtype=torch.long)
+
         return torch.cat(parts)
 
     def _batches(self, chunk: int) -> list[list[int]]:
+        """Returns all batches for a chunk of randomized indices for all sources."""
         counts, generator = self._source_counts(chunk)
         starts = self._start_positions(chunk)
 
@@ -159,7 +148,9 @@ class WeightedBucketBatchSampler(ResumableBatchSampler):
             if len(batch) > 0 and padded_seconds > self.max_batch_seconds:
                 batches.append(batch)
                 batch = []
+
             batch.append(row)
+
         if len(batch) > 0:
             batches.append(batch)
 
@@ -170,16 +161,21 @@ class WeightedBucketBatchSampler(ResumableBatchSampler):
         ]
 
     def __iter__(self) -> Iterator[list[int]]:
+        """Yields batches from chunks."""
         for chunk in itertools.count(self.start_chunk):
             batches = self._batches(chunk)
             yield from batches[self.start_offset if chunk == self.start_chunk else 0:]
 
 
 class SpeechCTCCollator:
+    """Massages sampled examples into stacked batches for training a speech tokenizer with CTC targets."""
+
     def __init__(self, text_tokenizer: TextTokenizer) -> None:
+        """Takes a text tokenizer for the target text."""
         self.text_tokenizer = text_tokenizer
 
     def __call__(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        """Normalizes and converts lists of numbers to tensors where applicable. The true batch is returned."""
         waveforms = [
             item["waveform"]
             for item in items

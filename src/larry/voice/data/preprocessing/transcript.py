@@ -17,6 +17,7 @@ from larry.voice.data.preprocessing.normalization import TextNormalizer
 
 @dataclasses.dataclass
 class Turn:
+    """Helper dataclass for a single speaker: speech turn."""
     speaker: str
     text: str
     line_start: int
@@ -25,6 +26,7 @@ class Turn:
 
 @dataclasses.dataclass
 class FlattenedTranscript:
+    """Helper dataclass for storing the final result of a parsed transcript as various aligned arrays."""
     tokens: list[str] = dataclasses.field(default_factory=list)
     groups: list[int] = dataclasses.field(default_factory=list)
     turn_idx: list[int] = dataclasses.field(default_factory=list)
@@ -34,6 +36,7 @@ class FlattenedTranscript:
 
 
 def pdf_bytes_to_text(data: bytes) -> str:
+    """Utility to parse a pdf into text from raw bytes."""
     exe = shutil.which("pdftotext")
     if exe is None:
         raise RuntimeError("pdftotext not found (apt install poppler-utils)")
@@ -45,6 +48,7 @@ def pdf_bytes_to_text(data: bytes) -> str:
 
 
 class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=True):
+    """Superclass for transcripts, contains helpers for parsing both from raw and from already-parsed transcripts."""
     REGISTRY: ClassVar[TypeRegistry[Transcript]]
 
     _config: C
@@ -57,6 +61,7 @@ class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=
     body_lines: list[str]
 
     def __init__(self, config: C) -> None:
+        """Simple init."""
         self.log = logging.getLogger(type(self).__name__)
         self._config = config
         self.turns = []
@@ -64,19 +69,23 @@ class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=
 
     @property
     def config(self) -> C:
+        """Immutable type-hint getter for the config instance."""
         return self._config
 
     def parse_from_raw(self, raw_text: str) -> None:
+        """Parses a transcript from an unnormalized source."""
         self.raw_text = raw_text
         self.body_lines = self.extract_body_lines(self.raw_text)
         self.parse_turns()
 
     def parse_from_turns(self, turns: list[Turn]) -> None:
+        """Parses a transcript from already normalized turns."""
         self.body_lines = [f"{turn.speaker}: {turn.text}" for turn in turns]
         self.raw_text = "\n".join(self.body_lines)
         self.turns = turns
 
     def flatten(self) -> FlattenedTranscript:
+        """Turns this ``Transcript`` instance into a ``FlattenedTranscript`` instance."""
         group_idx = 0
 
         ftr = FlattenedTranscript()
@@ -94,26 +103,35 @@ class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=
             ftr.speakers.extend([key] * len(toks))
             ftr.roles.extend([role] * len(toks))
             ftr.labels.append(turn.speaker)
+
         return ftr
 
     @abstractmethod
     def extract_body_lines(self, raw: str) -> list[str]:
+        """Overridden by subclasses to return body lines from a raw transcript.
+
+        Body lines are normalized lines containing speaker: speech pairs.
+        """
         ...
 
     @abstractmethod
     def parse_turns(self) -> None:
+        """Overridden by subclasses to parse body lines into speaker turns."""
         ...
 
     @abstractmethod
     def load_appearances(self) -> None:
+        """Called once per transcript to load the bank of all possible speakers for this transcript."""
         ...
 
     @abstractmethod
     def resolve_speaker(self, speaker_raw: str) -> tuple[str, str]:
+        """Resolves a speaker label to the canonical form."""
         ...
 
 
 class NormalizedTokens:
+    """Helper utility class for choosing canonical normalized tokens for readings."""
     tokens: list[str]
     readings: list[list[list[str]]]  # token -> options -> words
     choice: list[int]
@@ -124,6 +142,7 @@ class NormalizedTokens:
     content_mask: list[bool]
 
     def __init__(self, tokens: list[str], normalizer: TextNormalizer) -> None:
+        """For each input token, uses the previous token to collect possible reading variations."""
         self.tokens = tokens
         self.readings = [
             normalizer.normalize_token(token, prev_token)
@@ -134,6 +153,7 @@ class NormalizedTokens:
         self.rebuild()
 
     def rebuild(self) -> None:
+        """Recalculates outputs."""
         self.words = []
         self.owners = []
         self.words_by_token = []
@@ -184,6 +204,7 @@ class NormalizedTokens:
                 score = aligner.path_score(window, candidate)
                 if score is None:
                     continue
+
                 if best_score is None or score > best_score:
                     best = c
                     best_score = score
@@ -195,6 +216,7 @@ class NormalizedTokens:
         return changed
 
     def choose_readings_whole(self, aligner: Aligner, emissions: torch.Tensor) -> list[float | None]:
+        """Does choose_readings' logic, but on the entire emissions for this instance."""
         results: list[float | None] = []
         for t, options in enumerate(self.readings):
             if len(options) < 2:
@@ -208,6 +230,7 @@ class NormalizedTokens:
                 score = aligner.path_score(emissions, self.words)
                 if score is None:
                     continue
+
                 if best_score is None or score > best_score:
                     best = c
                     best_score = score
@@ -219,17 +242,21 @@ class NormalizedTokens:
 
 
 class TokenStream(NormalizedTokens):
+    """Container for a flattened transcript that inherits from ``NormalizedTokens`` to produce a stream of outputs."""
     ftr: FlattenedTranscript
 
     def __init__(self, ftr: FlattenedTranscript, normalizer: TextNormalizer) -> None:
+        """Simple init."""
         self.ftr = ftr
         super().__init__(ftr.tokens, normalizer)
 
     @classmethod
     def from_transcript(cls, tr: Transcript, normalizer: TextNormalizer) -> Self:
+        """Creates a ``TokenStream`` instance from a given ``Transcript`` and ``TextNormalizer``"""
         return cls(tr.flatten(), normalizer)
 
     def fold(self, spans: list[SpanScore | None]) -> list[SpanScore | None]:
+        """Folds a list of spans, limiting or preventing overlaps but closing gaps."""
         acc = {}
         for s, span in enumerate(spans):
             if span is None:
@@ -238,7 +265,8 @@ class TokenStream(NormalizedTokens):
             owner = self.owners[s]
             if owner in acc:
                 a = acc[owner]
-                a.start, a.end = min(a.start, span.start), max(a.end, span.end)
+                a.start = min(a.start, span.start)
+                a.end = max(a.end, span.end)
                 a.score += span.score
                 a.count += span.count
             else:
@@ -252,7 +280,12 @@ class TokenStream(NormalizedTokens):
         return tok_time
 
     def turns(self) -> list[list[int]]:
-        by_turn: list[list[int]] = [[] for _ in self.ftr.labels]
+        """Returns an inversion of the ``FlattenedTranscript`` instance's labels list."""
+        by_turn: list[list[int]] = [
+            []
+            for _ in self.ftr.labels
+        ]
         for t, turn_idx in enumerate(self.ftr.turn_idx):
             by_turn[turn_idx].append(t)
+
         return by_turn

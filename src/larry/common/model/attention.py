@@ -12,7 +12,10 @@ from larry.common.training.qk_clip import QKModule
 
 
 class LarryAttention(nn.Module, QKModule):
+    """Generic attention module. Supports KV cache."""
+
     def __init__(self, config: AttentionModuleConfig):
+        """Initializes all modules required for the provided configuration."""
         super().__init__()
         self.config = config
 
@@ -29,6 +32,7 @@ class LarryAttention(nn.Module, QKModule):
         # number of times to repeat k/v heads to match q heads
         if self.n_heads % self.n_query_groups != 0:
             raise ValueError(f"n_heads ({self.n_heads}) must be divisible by n_query_groups ({self.n_query_groups})")
+
         self.n_rep = self.n_heads // self.n_query_groups
 
         self.rotary_embedding = None
@@ -64,6 +68,10 @@ class LarryAttention(nn.Module, QKModule):
             position_ids: torch.Tensor | None = None,
             position_offset: int = 0
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Given queries and keys, applies the configured RoPE manipulations.
+
+        TODO: support 3-axis or n-axis m-rope (for image RoPE; global position dims, and row/column position dims)
+        """
         if self.config.use_split_rope and self.rotary_global and self.rotary_local and position_ids is not None:
             # (N, t, 2) = [:, :, 0] global, [:, :, 1] local (local may be fractional)
             global_pids = position_ids[..., 0].to(queries.device).float()
@@ -80,11 +88,13 @@ class LarryAttention(nn.Module, QKModule):
             # rotate_queries_or_keys supports offset parameter for cached generation
             queries = self.rotary_embedding.rotate_queries_or_keys(queries, offset=position_offset)
             keys = self.rotary_embedding.rotate_queries_or_keys(keys, offset=position_offset)
+
         return queries, keys
 
     def _kv_cache(
             self, kv_cache: KVCache | None, k: torch.Tensor, v: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """If the KV cache contains KV tensors, prepends those to the input sequence. Apply after rotary embedding."""
         if kv_cache is not None and kv_cache.key_cache is not None and kv_cache.value_cache is not None:
             if self.n_rep > 1:
                 k = k.repeat_interleave(self.n_rep, dim=1)
@@ -100,6 +110,7 @@ class LarryAttention(nn.Module, QKModule):
         return k, v
 
     def _sliced_causal_mask(self, q_seq_len: int, k_seq_len: int) -> torch.Tensor:
+        """Produces a causal mask from the cached single large causal mask using input q and k sequence lengths."""
         eff_offset = max(k_seq_len - q_seq_len, 0)  # query positions relative to key positions
         required_size = max(eff_offset + q_seq_len, k_seq_len)
 
@@ -111,10 +122,12 @@ class LarryAttention(nn.Module, QKModule):
                     f"Increase MegaTransformerBlockConfig.max_position_embeddings to "
                     f"at least {required_size}. Or fix your batch collation."
                 )
+
             new_size = max(required_size, 2 * self.causal_mask.shape[-1])
             self.causal_mask = torch.tril(
                 torch.ones(new_size, new_size, device=self.causal_mask.device, dtype=self.causal_mask.dtype)
             ).view(1, 1, new_size, new_size)
+
         return self.causal_mask[:, :, eff_offset:eff_offset + q_seq_len, :k_seq_len]
 
     def _masked_attention(
@@ -124,6 +137,7 @@ class LarryAttention(nn.Module, QKModule):
             causal_mask: torch.Tensor | None,
             active_mask: torch.Tensor | None
     ) -> torch.Tensor:
+        """Performs manual masked attention. Does not use SDPA. Uses both provided masks."""
         attention_scores = torch.matmul(queries, keys.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.d_queries)
 
@@ -132,6 +146,7 @@ class LarryAttention(nn.Module, QKModule):
 
         if active_mask is not None:
             attention_scores = attention_scores.masked_fill(active_mask.unsqueeze(1).unsqueeze(2) == 0, float("-inf"))
+
         return attention_scores
 
     def _qk_max_logit(
@@ -140,6 +155,7 @@ class LarryAttention(nn.Module, QKModule):
             causal_mask: torch.Tensor | None,
             active_mask: torch.Tensor | None
     ) -> None:
+        """Saves the maximum logit value from the attention scores for QK clipping."""
         with torch.no_grad():
             attention_scores = self._masked_attention(q.float(), k.float(), causal_mask, active_mask)
 
@@ -162,6 +178,12 @@ class LarryAttention(nn.Module, QKModule):
             encoder_attention_mask: torch.Tensor | None = None,
             position_ids: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, KVCache | None]:
+        """Main forward pass to multi-head attention.
+
+        Supports GQA and causal or bidirectional attention. Defaults to using SDPA, only uses manual/materialized
+        attention calculation for QK logit clipping when using muon. Supports KV caching, returns a simple tuple of the
+        output logits/projected scores and the updated KVCache object.
+        """
         is_cross_attention = encoder_hidden_states is not None
         kv_input = encoder_hidden_states if is_cross_attention else hidden_states
 
@@ -180,6 +202,8 @@ class LarryAttention(nn.Module, QKModule):
         values = values.view(batch_size, -1, self.n_query_groups, self.d_values).permute(0, 2, 1, 3).contiguous()
 
         # apply rope with position offset for correct positions during generation
+        # apply prior to KV cache prefixing using the position_offset to avoid recalculating rotary embedding for cached
+        # values that already have this embedding applied
         if self.rotary_embedding is not None:
             queries, keys = self._apply_rotary_embedding(queries, keys, position_ids, position_offset)
 
@@ -245,6 +269,7 @@ class FSMNAttention(LarryAttention):
     """Self-attention plus an FSMN memory branch (SAN-M): a depthwise conv over time, added to the attention output."""
 
     def __init__(self, config: FSMNAttentionConfig) -> None:
+        """Sets up the additional conv memory modules."""
         super().__init__(config)
         d_model = config.d_model
         kernel_size = config.fsmn_kernel_size
@@ -256,21 +281,29 @@ class FSMNAttention(LarryAttention):
         self.fsmn_padding = (left, kernel_size - 1 - left)
         self.memory_dropout = nn.Dropout(config.proj_dropout_p)
 
-    def forward(
+    def forward(  # pyright: ignore[reportIncompatibleMethodOverride]
             self,
             hidden_states: torch.Tensor,
             attention_mask: torch.Tensor | None = None,
             position_ids: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, None]:
+        """Delegates to the super forward, applies the local convolutional "memory" module pass afterward.
+
+        Applies convolutional local-context logits as residual. Does not support KV caching, and is bidirectional
+        attention and cannot be overridden.
+        """
         attended, _ = super().forward(
             hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
         )
         memory = self._memory(hidden_states, attention_mask)
+
+        # apply memory as residual; doesn't support KV cache
         return attended + memory, None
 
     def _memory(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor | None) -> torch.Tensor:
+        """Applies a memory projection as a linear convolution."""
         memory_in = self.memory_proj(hidden_states)  # [B, T, D]
 
         # the conv mixes neighboring frames and ignores the attention mask, so padded frames
