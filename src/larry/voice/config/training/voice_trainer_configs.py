@@ -17,6 +17,7 @@ class SpeechTokenizerTrainerConfig(VoiceTrainerConfig):
     """Config for ``SpeechTokenizerTrainer`` to configure the training and eval dataset sources."""
 
     tokenizer_model_path: str
+    speaker_mapping_path: str
 
     speed_augment_factors: list[float] = dataclasses.field(default_factory=lambda: [
         1.0

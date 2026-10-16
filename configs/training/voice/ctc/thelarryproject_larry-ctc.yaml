@@ -4,12 +4,16 @@ training:
 model:
   name: SpeechTokenizerModel
   config: SpeechTokenizerModelConfig
+  overrides:
+    n_spec_freq_masks: 0
+    n_spec_time_masks: 0
 
 trainer:
   name: SpeechTokenizerTrainer
   config: SpeechTokenizerTrainerConfig
   overrides:
     tokenizer_model_path: "/home/zadar/.cache/larry/tokenizers/ctc/larry-ctc-sp512.model"
+    speaker_mapping_path: "/home/zadar/.cache/larry/mappings/speaker/asr/global_speaker_mapping.csv"
     muon_last_layer_names:
       - ctc_head.weight
     lr: 5.0e-4
@@ -22,9 +26,7 @@ trainer:
     eval_steps: 2000
     viz_steps: 1000
     speed_augment_factors:
-      - 0.9
       - 1.0
-      - 1.1
     dataset_config:
       sample_rate: 16000
       max_batch_seconds: 900
@@ -51,6 +53,7 @@ trainer:
         - name: lj-speech
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
           weight: 0.01
+          speaker_id_column: ~
         - name: libriheavy-large-index-asr
           index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
           source_path: mythicinfinity/libriheavy
@@ -66,7 +69,7 @@ trainer:
         - name: vctk
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
           split: validation
-        - name: cv27-index-asr
+        - name: cv27
           index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mozilla-foundation_cv27-index-asr/
           split: validation
           source_path: /home/zadar/.cache/larry/datasets/normalized/voice/mozilla-foundation_cv27-normalized/
@@ -78,5 +81,7 @@ trainer:
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/openslr_librispeech-asr-normalized-asr-validation/
         - name: libriheavy-test-clean-large
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mythicinfinity_libriheavy-test_clean_large-normalized-asr/
+          speaker_namespace: libriheavy-large-index-asr
         - name: libriheavy-test-other-large
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mythicinfinity_libriheavy-test_other_large-normalized-asr/
+          speaker_namespace: libriheavy-large-index-asr

@@ -2,6 +2,7 @@ import dataclasses
 import functools
 import json
 import logging
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sized
 from pathlib import Path
@@ -15,7 +16,7 @@ from accelerate.scheduler import AcceleratedScheduler
 from datasets import load_dataset
 from torch import nn
 from torch.optim import AdamW, Muon, Optimizer
-from torch.optim.lr_scheduler import ConstantLR, CosineAnnealingLR, LinearLR, LRScheduler, SequentialLR
+from torch.optim.lr_scheduler import LambdaLR, LRScheduler
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
@@ -210,31 +211,31 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
             weight_decay=self.config.weight_decay
         )
 
-    def make_lr_scheduler(self, optimizer: Optimizer) -> LRScheduler:
-        """Instantiates all (if any) LR schedulers.
+    def lr_factor(self, step: int) -> float:
+        """The LR multiplier at an optimizer step: linear warmup, then constant or cosine decay to ``min_lr``.
 
-        Has logic to break a configured warmup_steps into the originally configured LR scheduler prefaced with a linear
-        LR schedule.
+        Allows resuming - restores only the step count and the schedule comes from the current config.
         """
-        if self.config.lr_scheduler_name == "cosine":
-            main = CosineAnnealingLR(
-                optimizer,
-                T_max=self.total_steps - self.config.warmup_steps,
-                eta_min=self.config.min_lr
-            )
-        else:
-            if self.config.lr_scheduler_name != "constant":
-                self.log.warning(
-                    f"Unrecognized lr_scheduler: {self.config.lr_scheduler_name}; "
-                    f"defaulting to 'constant'"
-                )
-            main = ConstantLR(optimizer, factor=1.0)
+        config = self.config
+        if step < config.warmup_steps:
+            return 1e-8 + (1.0 - 1e-8) * step / config.warmup_steps
 
-        if self.config.warmup_steps:
-            warmup = LinearLR(optimizer, start_factor=1e-8, end_factor=1.0, total_iters=self.config.warmup_steps)
-            return SequentialLR(optimizer, schedulers=[warmup, main], milestones=[self.config.warmup_steps])
+        if config.lr_scheduler_name == "constant":
+            return 1.0
+        if config.lr_scheduler_name != "cosine":
+            raise ValueError(f"Unrecognized lr_scheduler_name: {config.lr_scheduler_name}")
 
-        return main
+        decay_start = config.warmup_steps if config.decay_start_step is None else config.decay_start_step
+        if step < decay_start:
+            return 1.0
+        progress = min(1.0, (step - decay_start) / max(1, self.total_steps - decay_start))
+        min_factor = config.min_lr / config.lr
+        return min_factor + (1.0 - min_factor) * 0.5 * (1.0 + math.cos(math.pi * progress))
+
+    def make_lr_scheduler(self, optimizer: Optimizer) -> LRScheduler:
+        """Instantiates the LR scheduler for one optimizer from ``lr_factor``."""
+        # a plain function, not the bound method, so LambdaLR doesn't put its __dict__ into the saved state
+        return LambdaLR(optimizer, lambda step: self.lr_factor(step))
 
     def load(self, resume_dir: str | None = None) -> None:
         """Loads the train state from the specified ``resume_dir``."""

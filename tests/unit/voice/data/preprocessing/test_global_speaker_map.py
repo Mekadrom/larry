@@ -1,0 +1,137 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
+
+from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
+from larry.voice.data.preprocessing.global_speaker_map import GlobalSpeakerMapping, GlobalSpeakerMappingCreator
+
+
+def _index(root: Path, split: str, speaker_ids: list[Any], files: int = 1) -> str:
+    """Writes an index split as ``files`` parquet shards holding only a speaker_id column."""
+    (root / split).mkdir(parents=True, exist_ok=True)
+    per_file = -(-len(speaker_ids) // files)
+    for i in range(files):
+        chunk = speaker_ids[i * per_file:(i + 1) * per_file]
+        pq.write_table(pa.table({"speaker_id": chunk}), root / split / f"{i:05d}.parquet")
+    return str(root)
+
+
+def _create(tmp_path: Path, sources: list[SpeechSourceConfig]) -> GlobalSpeakerMapping:
+    GlobalSpeakerMappingCreator(sources, tmp_path / "out" / "speakers").run()
+    return GlobalSpeakerMapping.from_csv(tmp_path / "out" / "speakers.csv")
+
+
+def test_csv_round_trip_keeps_every_key_and_id(tmp_path: Path) -> None:
+    mapping = GlobalSpeakerMapping()
+    for key in ["vctk:p225", "vctk:p226", "lj-speech:0"]:
+        mapping.add_item(key)
+
+    mapping.save_csv(tmp_path / "speakers")
+    loaded = GlobalSpeakerMapping.from_csv(tmp_path / "speakers.csv")
+
+    assert loaded.ids == mapping.ids
+    assert loaded.items == mapping.items
+
+
+def test_add_item_returns_the_existing_id_for_a_known_key() -> None:
+    mapping = GlobalSpeakerMapping()
+
+    assert [mapping.add_item(k) for k in ["a", "b", "a"]] == [0, 1, 0]
+    assert len(mapping) == 2
+
+
+def test_csv_with_a_gap_in_ids_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "speakers.csv"
+    path.write_text("key,id\na,0\nb,2\n")
+
+    with pytest.raises(ValueError, match="dense"):
+        GlobalSpeakerMapping.from_csv(path)
+
+
+def test_speakers_are_deduplicated_across_shards_and_splits(tmp_path: Path) -> None:
+    root = tmp_path / "vctk"
+    _index(root, "train.a", ["p2", "p1", "p2"], files=2)
+    _index(root, "train.b", ["p1", "p3"])
+
+    mapping = _create(tmp_path, [SpeechSourceConfig(name="vctk", index_path=str(root), split="train.a+train.b")])
+
+    assert mapping.items == ["vctk:p1", "vctk:p2", "vctk:p3"]
+
+
+def test_train_and_eval_sources_with_the_same_name_share_ids(tmp_path: Path) -> None:
+    root = tmp_path / "vctk"
+    _index(root, "train", ["p1", "p2"])
+    _index(root, "validation", ["p2", "p9"])
+
+    mapping = _create(tmp_path, [
+        SpeechSourceConfig(name="vctk", index_path=str(root), split="train"),
+        SpeechSourceConfig(name="vctk", index_path=str(root), split="validation"),
+    ])
+
+    assert mapping.items == ["vctk:p1", "vctk:p2", "vctk:p9"]
+
+
+def test_speaker_namespace_shares_ids_between_differently_named_sources(tmp_path: Path) -> None:
+    train = _index(tmp_path / "heavy", "train", ["100", "200"])
+    test = _index(tmp_path / "heavy_test", "train", ["200", "300"])
+
+    mapping = _create(tmp_path, [
+        SpeechSourceConfig(name="heavy", index_path=train),
+        SpeechSourceConfig(name="heavy-test", index_path=test, speaker_namespace="heavy"),
+    ])
+
+    assert mapping.items == ["heavy:100", "heavy:200", "heavy:300"]
+
+
+def test_same_speaker_string_in_different_sources_gets_different_ids(tmp_path: Path) -> None:
+    a = _index(tmp_path / "a", "train", ["1"])
+    b = _index(tmp_path / "b", "train", ["1"])
+
+    mapping = _create(tmp_path, [
+        SpeechSourceConfig(name="a", index_path=a),
+        SpeechSourceConfig(name="b", index_path=b),
+    ])
+
+    assert mapping["a:1"] != mapping["b:1"]
+
+
+def test_single_speaker_source_gets_one_id(tmp_path: Path) -> None:
+    mapping = _create(tmp_path, [
+        SpeechSourceConfig(name="lj-speech", index_path=str(tmp_path / "missing"), speaker_id_column=None),
+    ])
+
+    assert len(mapping) == 1
+    assert mapping.items[0].startswith("lj-speech:")
+
+
+def test_integer_speaker_ids_keep_zero_and_skip_missing(tmp_path: Path) -> None:
+    root = _index(tmp_path / "ls", "train", [0, 84, None, 84])
+
+    mapping = _create(tmp_path, [SpeechSourceConfig(name="ls", index_path=root)])
+
+    assert mapping.items == ["ls:0", "ls:84"]
+
+
+def test_ids_do_not_depend_on_string_hash_randomization(tmp_path: Path) -> None:
+    root = _index(tmp_path / "src", "train", [f"speaker{i}" for i in range(200)])
+    script = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig\n"
+        "from larry.voice.data.preprocessing.global_speaker_map import GlobalSpeakerMappingCreator\n"
+        f"GlobalSpeakerMappingCreator([SpeechSourceConfig(name='s', index_path={root!r})], Path(sys.argv[1])).run()\n"
+    )
+    outputs = []
+    for seed in ("1", "2"):
+        prefix = tmp_path / f"seed{seed}"
+        subprocess.run([sys.executable, "-c", script, str(prefix)], check=True,
+                       env={**os.environ, "PYTHONHASHSEED": seed})
+        outputs.append(prefix.with_suffix(".csv").read_text())
+
+    assert outputs[0] == outputs[1]

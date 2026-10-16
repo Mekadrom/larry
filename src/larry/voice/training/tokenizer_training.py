@@ -1,7 +1,7 @@
 import argparse
-import collections
 import dataclasses
 import logging
+from collections import Counter
 from pathlib import Path
 
 import pyarrow.compute as pc
@@ -26,12 +26,12 @@ class SourceText:
     name: str
     weight: float
     seconds: float
-    counts: collections.Counter[str]
+    counts: Counter[str]
 
 
 def read_source(source: SpeechSourceConfig) -> SourceText:
     """For all examples in a provided source dataset, count up sentence occurrences."""
-    counts: collections.Counter[str] = collections.Counter()
+    counts: Counter[str] = Counter()
     seconds = 0.0
     columns = [source.text_column, source.duration_column]
     for file in index_split_files(source.index_path, source.split):
@@ -42,7 +42,7 @@ def read_source(source: SpeechSourceConfig) -> SourceText:
     return SourceText(source.name, source.weight, seconds, counts)
 
 
-def weighted_frequencies(sources: list[SourceText]) -> collections.Counter[str]:
+def weighted_frequencies(sources: list[SourceText]) -> Counter[str]:
     """Produced frequencies per sentence weighted by the size of the source dataset."""
     total_weight = sum(s.weight for s in sources if s.seconds > 0)
     total_seconds = sum(s.seconds for s in sources)
@@ -57,7 +57,7 @@ def weighted_frequencies(sources: list[SourceText]) -> collections.Counter[str]:
 
     scale = 1.0 / min(factors.values())
 
-    frequencies: collections.Counter[str] = collections.Counter()
+    frequencies: Counter[str] = Counter()
     for s in sources:
         if s.name not in factors:
             continue
@@ -66,13 +66,13 @@ def weighted_frequencies(sources: list[SourceText]) -> collections.Counter[str]:
         for text, n in s.counts.items():
             frequencies[text] += round(n * per_occurrence)
 
-    return collections.Counter({
+    return Counter({
         t: max(1, round(f))
         for t, f in frequencies.items()
     })
 
 
-def write_tsv(frequencies: collections.Counter[str], tsv: Path) -> None:
+def write_tsv(frequencies: Counter[str], tsv: Path) -> None:
     """Exports the frequencies to a TSV file that the SentencePiece trainer can ingest."""
     tsv.parent.mkdir(parents=True, exist_ok=True)
     with open(tsv, "w", encoding="utf-8") as f:
@@ -107,7 +107,7 @@ def train_tokenizer(sources: list[SpeechSourceConfig], output_prefix: Path, voca
 
 
 def main() -> None:
-    """Main entrypoint for training a tokenizer on a target training config's exact weighted dataset mixture."""
+    # main entrypoint for training a tokenizer on a target training config's exact weighted dataset mixture
     import_submodules("larry", skip=(
         "larry.common.training",
         "larry.voice.training",

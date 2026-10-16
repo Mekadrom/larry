@@ -47,3 +47,4 @@ class LarryTrainerConfig(Registrable, ABC, root=True):
 
     warmup_steps: int = 0
     lr_scheduler_name: Literal["constant", "cosine"] = "constant"
+    decay_start_step: int | None = None

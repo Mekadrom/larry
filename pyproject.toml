@@ -101,3 +101,5 @@ preprocessing = "larry.common.data.preprocessing:main"
 training = "larry.common.training:main"
 # uv run tokenizer-training --help
 tokenizer-training = "larry.voice.training.tokenizer_training:main"
+# uv run global-speaker-map --help
+global-speaker-map = "larry.voice.data.preprocessing.global_speaker_map:main"

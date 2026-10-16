@@ -1,0 +1,153 @@
+import argparse
+import csv
+import logging
+import os
+from pathlib import Path
+from typing import Self
+
+import pyarrow.parquet as pq
+
+from larry.common.config.training import build_trainer_config
+from larry.common.utils import load_yaml_dict
+from larry.common.utils.init_helpers import import_submodules
+from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
+from larry.voice.config.training.voice_trainer_configs import SpeechTokenizerTrainerConfig
+from larry.voice.data.dataloading.voice_dataloading import index_split_files
+
+log = logging.getLogger(__name__)
+
+
+class GlobalSpeakerMapping:
+    """Wrapper/helper for a mapping of string "source:speaker_id" to unique, globally densified integer id."""
+
+    def __init__(self) -> None:
+        """Simple init."""
+        self.ids: dict[str, int] = {}
+        self.items: list[str] = []
+
+    def add_item(self, item: str) -> int:
+        """Returns the item's id, assigning the next one if it is new."""
+        id_ = self.ids.get(item)
+        if id_ is None:
+            id_ = self.ids[item] = len(self.items)
+            self.items.append(item)
+        return id_
+
+    def __getitem__(self, item: str) -> int:
+        """Returns the integer id for an item."""
+        return self.ids[item]
+
+    def __len__(self) -> int:
+        """Returns the number of unique items in this mapping."""
+        return len(self.items)
+
+    def save_csv(self, output_prefix: Path) -> None:
+        """Generates a CSV file from this mapping."""
+        with open(output_prefix.with_suffix(".csv"), mode="w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=["key", "id"])
+            writer.writeheader()
+            writer.writerows([{"key": item, "id": i} for item, i in self.ids.items()])
+
+    @classmethod
+    def from_csv(cls, file_path: Path) -> Self:
+        """Creates a mapping from a saved CSV file."""
+        instance = cls()
+        with open(file_path, newline='', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            rows = sorted((int(row["id"]), row["key"]) for row in reader)
+            if [id_ for id_, _ in rows] != list(range(len(rows))):
+                raise ValueError(f"{file_path} ids are not a dense 0..n-1 range")
+
+            for _, key in rows:
+                instance.add_item(key)
+
+        return instance
+
+
+class GlobalSpeakerMappingCreator:
+    """Runner for producing a global speaker mapping from a specified training dataset."""
+
+    def __init__(self, sources: list[SpeechSourceConfig], output_prefix: Path) -> None:
+        """Simple init."""
+        self.sources = sources
+        self.output_prefix = output_prefix
+
+    def run(self) -> None:
+        """Performs global speaker mapping by collecting sets of speaker IDs from dataset sources."""
+        os.makedirs(self.output_prefix.parent, exist_ok=True)
+
+        # sources sharing a namespace (e.g. a train split and its eval split) share speaker ids
+        mapping = GlobalSpeakerMapping()
+        for source in self.sources:
+            for speaker_id in self.read_source(source):
+                mapping.add_item(f"{self.namespace(source)}:{speaker_id}")
+
+        mapping.save_csv(self.output_prefix)
+
+    @staticmethod
+    def namespace(source: SpeechSourceConfig) -> str:
+        """The scope a source's speaker ids are unique within."""
+        return source.speaker_namespace or source.name
+
+    @staticmethod
+    def read_source(source: SpeechSourceConfig) -> list[str]:
+        """For all examples in a provided source dataset, collect unique speaker_id occurrences."""
+        if source.speaker_id_column is None:
+            return [f"{source.name}_speaker_id"]
+
+        speaker_ids = set()
+        for file in index_split_files(source.index_path, source.split):
+            for batch in pq.ParquetFile(file).iter_batches(columns=[source.speaker_id_column], batch_size=65536):
+                # some sources store integer ids; a falsiness check would drop speaker 0
+                column = batch.column(source.speaker_id_column).to_pylist()
+                speaker_ids.update(str(t) for t in column if t is not None and t != "")
+
+        return sorted(speaker_ids)
+
+
+def main() -> None:
+    """Main entrypoint for building a speaker id map over an entire dataset mixture."""
+    import_submodules("larry", skip=(
+        "larry.common.training",
+        "larry.voice.training",
+        "larry.text.training",
+        "larry.image.training"
+    ))
+
+    argparser = argparse.ArgumentParser(
+        prog="global-speaker-map",
+        description="Produces a global speaker mapping of (source, speaker_id_str): speaker_id_int.",
+    )
+    argparser.add_argument(
+        "--config_file",
+        type=Path,
+        required=True,
+        help="The training config.yaml whose train_sources to build the mapping from.",
+    )
+    argparser.add_argument(
+        "--output_prefix",
+        type=Path,
+        required=False,
+        help="Where to write <prefix>.csv; defaults to the config's speaker_mapping_path without its .csv suffix.",
+    )
+    args = argparser.parse_args()
+
+    definition = load_yaml_dict(Path(args.config_file).expanduser().resolve())
+    trainer_config = build_trainer_config(definition.get("trainer", {}))
+
+    if not isinstance(trainer_config, SpeechTokenizerTrainerConfig):
+        raise TypeError(f"expected a SpeechTokenizerTrainerConfig, got {type(trainer_config).__name__}")
+
+    output_prefix = args.output_prefix
+    if output_prefix is None:
+        if not trainer_config.speaker_mapping_path:
+            raise ValueError("pass --output_prefix or set speaker_mapping_path in the training config")
+
+        output_prefix = Path(trainer_config.speaker_mapping_path).with_suffix("")
+
+    output_prefix = Path(output_prefix).expanduser().resolve()
+
+    GlobalSpeakerMappingCreator(
+        trainer_config.mixture_config.train_sources + trainer_config.mixture_config.eval_sources,
+        output_prefix
+    ).run()

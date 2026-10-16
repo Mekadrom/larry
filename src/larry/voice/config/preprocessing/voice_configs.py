@@ -27,6 +27,8 @@ class SpeechSourceConfig:
     source_split: str = "train"
     audio_column: str = "audio"
     duration_column: str = "duration_s"
+    speaker_id_column: str | None = "speaker_id"  # where None means no speaker id column (single speaker source)
+    speaker_namespace: str | None = None  # scope that speaker ids are unique within; None means the source name
     text_column: str = "text_normalized"
     weight: float = 1.0  # target share of audio time, not of rows
 
