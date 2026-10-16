@@ -139,6 +139,8 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
         self._step_open = False
 
+        self._compile_and_save_provenance()
+
     @property
     def model(self) -> M:
         """Immutable type-hint getter for the model instance."""
