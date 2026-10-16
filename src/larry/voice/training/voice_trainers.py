@@ -2,7 +2,7 @@ import dataclasses
 import functools
 import json
 from abc import ABC
-from collections.abc import Mapping, Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,7 +11,7 @@ from datasets import Audio, load_dataset
 from datasets import Dataset as HFDataset
 from huggingface_hub import hf_hub_download
 from rapidfuzz.distance import Levenshtein
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
 
 from larry.common.config.criteria.criterion_configs import CTCCriterionConfig
@@ -19,19 +19,23 @@ from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.criteria.criterion import Criterion
 from larry.common.metrics.metrics import MetricDict, ScalarMetricEntry
 from larry.common.model.model import LarrySpeechTokenizerModelOutput
-from larry.common.training.trainers import LarryTrainer, VizCallback, StepOutput
+from larry.common.training.trainers import LarryTrainer, StepOutput, VizCallback
 from larry.text.tokenizer.text_tokenizer import SentencePieceTokenizer, TextTokenizer
 from larry.voice.config.model.voice_model_configs import SpeechTokenizerModelConfig
 from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
-from larry.voice.config.training.voice_trainer_configs import VoiceTrainerConfig, SpeechTokenizerTrainerConfig
+from larry.voice.config.training.voice_trainer_configs import SpeechTokenizerTrainerConfig, VoiceTrainerConfig
 from larry.voice.criteria.ctc import CTCCriterion
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
-from larry.voice.data.dataloading.voice_dataloading import WeightedBucketBatchSampler, SpeechCTCCollator, \
-    index_split_files
+from larry.voice.data.dataloading.voice_dataloading import (
+    SpeechCTCCollator,
+    WeightedBucketBatchSampler,
+    index_split_files,
+)
 from larry.voice.model.fsq import code_counts, codebook_statistics
 from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
 from larry.voice.model.voice_models import VoiceModel
-from larry.voice.training.voice_viz_callbacks import SpeechTokenizerVizCallback, collapse
+from larry.voice.training.voice_viz_callbacks import SpeechTokenizerVizCallback
+from larry.voice.utils import collapse_ctc_emissions
 
 WHISPER_NORMALIZER_REPO = "openai/whisper-small"
 WHISPER_NORMALIZER_REVISION = "973afd24965f72e36ca33b3055d56a652f456b4d"
@@ -40,6 +44,7 @@ WHISPER_NORMALIZER_REVISION = "973afd24965f72e36ca33b3055d56a652f456b4d"
 @dataclasses.dataclass
 class ErrorCounts:
     """Helper dataclass for containing the results of an evaluation from the configured whisper model."""
+
     word_errors: int
     words: int
     char_errors: int
@@ -60,7 +65,19 @@ def load_index(config: SpeechSourceConfig) -> HFDataset:
 
 class VoiceTrainer[M: VoiceModel, C: VoiceTrainerConfig = VoiceTrainerConfig](LarryTrainer[M, C], ABC):
     """Superclass for voice trainers."""
+
     ...
+
+
+def _normalize_for_scoring(whisper_normalizer: EnglishTextNormalizer, text: str) -> str:
+    """Whisper normalization: lowercase, fillers dropped, numbers as digits, American spellings, no punctuation."""
+    return whisper_normalizer(text)
+
+
+@functools.cache
+def _normalize_reference_for_scoring(whisper_normalizer: EnglishTextNormalizer, text: str) -> str:
+    """``normalize_for_scoring`` for references, which repeat at every eval."""
+    return _normalize_for_scoring(whisper_normalizer, text)
 
 
 class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerTrainerConfig]):
@@ -177,27 +194,19 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
         targets = batch["targets"].cpu()
         target_lengths = batch["target_lengths"].cpu().tolist()
         rows = []
-        for i, (n_frames, n_targets) in enumerate(zip(frame_lengths, target_lengths)):
-            hypothesis = self.tokenizer.decode(collapse(greedy[i, :n_frames], blank))
+        for i, (n_frames, n_targets) in enumerate(zip(frame_lengths, target_lengths, strict=False)):
+            hypothesis = self.tokenizer.decode(collapse_ctc_emissions(greedy[i, :n_frames], blank))
             reference = self.tokenizer.decode(targets[i, :n_targets].tolist())
             raw = self._error_counts(hypothesis, reference)
             normalized = self._error_counts(
-                self._normalize_for_scoring(hypothesis), self._normalize_reference_for_scoring(reference)
+                _normalize_for_scoring(self.whisper_normalizer, hypothesis),
+                _normalize_reference_for_scoring(self.whisper_normalizer, reference),
             )
             rows.append([dataclasses.astuple(raw), dataclasses.astuple(normalized)])
 
         errors = statistics["error_counts"]
         batch_errors = torch.tensor(rows, dtype=errors.dtype, device=errors.device)
         errors.index_add_(0, batch["source_ids"].to(errors.device), batch_errors)
-
-    def _normalize_for_scoring(self, text: str) -> str:
-        """Whisper normalization: lowercase, fillers dropped, numbers as digits, American spellings, no punctuation."""
-        return self.whisper_normalizer(text)
-
-    @functools.lru_cache(maxsize=None)
-    def _normalize_reference_for_scoring(self, text: str) -> str:
-        """``normalize_for_scoring`` for references, which repeat at every eval."""
-        return self._normalize_for_scoring(text)
 
     @staticmethod
     def _error_counts(hypothesis: str, reference: str) -> ErrorCounts:
@@ -219,7 +228,7 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
         for name, value in codebook_statistics(counts.sum(dim=0), dims, levels).items():
             metrics.add_metric(ScalarMetricEntry(tag=f"eval/fsq/{name}", scalar=value))
 
-        for source, source_counts in zip(self.config.mixture_config.eval_sources, counts):
+        for source, source_counts in zip(self.config.mixture_config.eval_sources, counts, strict=False):
             for name, value in codebook_statistics(source_counts, dims, levels).items():
                 if not name.startswith("dim"):
                     metrics.add_metric(ScalarMetricEntry(tag=f"eval/fsq/{name}/{source.name}", scalar=value))
@@ -227,16 +236,16 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
         errors = statistics["error_counts"]
         groups = [("", errors.sum(dim=0))] + [
             (f"/{source.name}", source_errors)
-            for source, source_errors in zip(self.config.mixture_config.eval_sources, errors)
+            for source, source_errors in zip(self.config.mixture_config.eval_sources, errors, strict=False)
         ]
 
         for suffix, group in groups:
-            for variant, (word_errors, words, char_errors, chars) in zip(("", "_normalized"), group.tolist()):
+            for variant, (wers, words, cers, chars) in zip(("", "_normalized"), group.tolist(), strict=False):
                 if words > 0:
-                    metrics.add_metric(ScalarMetricEntry(tag=f"eval/wer{variant}{suffix}", scalar=word_errors / words))
+                    metrics.add_metric(ScalarMetricEntry(tag=f"eval/wer{variant}{suffix}", scalar=wers / words))
 
                 if chars > 0:
-                    metrics.add_metric(ScalarMetricEntry(tag=f"eval/cer{variant}{suffix}", scalar=char_errors / chars))
+                    metrics.add_metric(ScalarMetricEntry(tag=f"eval/cer{variant}{suffix}", scalar=cers / chars))
 
         return metrics
 

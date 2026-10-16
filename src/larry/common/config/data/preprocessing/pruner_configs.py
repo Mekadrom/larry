@@ -7,6 +7,7 @@ from larry.common.config.data.preprocessing.preprocessor_configs import Preproce
 @dataclasses.dataclass(kw_only=True)
 class PrunerConfig(PreprocessorConfig):
     """Superclass for configs for all ``Pruner`` implementations, configuring any number of input columns."""
+
     input_columns: list[str] = dataclasses.field(default_factory=list)
     prune_nulls: bool = True
 
@@ -14,6 +15,7 @@ class PrunerConfig(PreprocessorConfig):
 @dataclasses.dataclass(kw_only=True)
 class ColumnValuesPrunerConfig(PrunerConfig):
     """Config class for ``ColumnValuesPruner``, allowing configuration of slightly complex logic for pruning rows."""
+
     op: Literal["matches", "nmatches", "in_range", "nin_range"]
     multiple_inputs_behavior: Literal["any", "all"] = "any"
     op_config: dict[str, Any] = dataclasses.field(default_factory=lambda: {
@@ -29,6 +31,7 @@ class ASRCTCMismatchColumnValuesPrunerConfig(ColumnValuesPrunerConfig):
 
     Configures for a matcher to prune rows where the ctc_mismatch is greater than 0.5.
     """
+
     input_columns: list[str] = dataclasses.field(default_factory=lambda: [
         "ctc_mismatch"
     ])

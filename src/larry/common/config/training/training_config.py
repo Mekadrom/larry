@@ -1,14 +1,14 @@
 import dataclasses
 import logging
 from pathlib import Path
-from typing import Literal, Any
+from typing import Any, Literal
 
 from accelerate import PartialState
 from datasets.naming import camelcase_to_snakecase
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
-from larry.common.config.training import build_trainer_config, build_model_config
-from larry.common.metrics.metrics import WandBMetrics, TensorBoardMetrics, Metrics, NoneMetrics
+from larry.common.config.training import build_model_config, build_trainer_config
+from larry.common.metrics.metrics import Metrics, NoneMetrics, TensorBoardMetrics, WandBMetrics
 from larry.common.training import trainers
 from larry.common.training.training_model import LarryModel
 from larry.common.utils import load_yaml_dict
@@ -24,15 +24,19 @@ _metrics: FactoryRegistry[Metrics] = {
 @dataclasses.dataclass(kw_only=True)
 class TrainingRunConfig:
     """Config for the entire training pipeline."""
+
     metrics_backend: Literal["wandb", "tensorboard", "db"] = "wandb"
 
     provenance: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 class TrainingRunState:
+    """Helper class for parsing the config for a training run."""
+
     config: TrainingRunConfig
 
     def __init__(self, config_file: Path, log_dir: Path, resume_dir: str | None = None) -> None:
+        """Parses the specified config file into a ``TrainingRunConfig`` object. Also instantiates the trainer."""
         self.log = logging.getLogger(type(self).__name__)
 
         self.log.info(f"Loading pipeline file from yaml config_file={config_file}")

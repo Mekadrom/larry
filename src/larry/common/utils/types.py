@@ -1,6 +1,6 @@
 import inspect
 from collections.abc import Callable
-from typing import Literal, TypedDict, ClassVar
+from typing import ClassVar, Literal, TypedDict
 
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
@@ -19,6 +19,7 @@ type FactoryRegistry[T] = StringRegistry[Factory[T]]
 
 class TypeRegistry[T](dict[str, type[T]]):
     """Helper type for registries."""
+
     _all_imported: ClassVar[bool] = False
 
     def __init__(self, base: type[T]) -> None:
@@ -53,12 +54,14 @@ type PreparedState = tuple[nn.Module, AcceleratedOptimizer, DataLoader, DataLoad
 
 class EncodedImage(TypedDict):
     """Helper dataclass type for a pair of (bytes, path) representing an image."""
+
     bytes: bytes
     path: str | None
 
 
 class EncodedAudio(TypedDict):
     """Helper dataclass type for a pair of (bytes, path) representing audio."""
+
     bytes: bytes
     path: str | None
 

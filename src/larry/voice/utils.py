@@ -35,3 +35,9 @@ def make_non_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
     seq_length_expand = lengths.unsqueeze(-1)
     mask = seq_range_expand >= seq_length_expand
     return ~mask
+
+
+def collapse_ctc_emissions(frames: torch.Tensor, blank: int) -> list[int]:
+    """Collapses consecutive values into single frames and removes blank indices."""
+    ids = torch.unique_consecutive(frames)
+    return ids[ids != blank].tolist()

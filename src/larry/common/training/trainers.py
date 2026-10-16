@@ -5,7 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sized
 from pathlib import Path
-from typing import Any, ClassVar, Self, cast, Concatenate
+from typing import Any, ClassVar, Concatenate, Self, cast
 
 import torch
 from accelerate import Accelerator
@@ -14,8 +14,8 @@ from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
 from datasets import load_dataset
 from torch import nn
-from torch.optim import Optimizer, Muon, AdamW
-from torch.optim.lr_scheduler import LRScheduler, ConstantLR, CosineAnnealingLR, LinearLR, SequentialLR
+from torch.optim import AdamW, Muon, Optimizer
+from torch.optim.lr_scheduler import ConstantLR, CosineAnnealingLR, LinearLR, LRScheduler, SequentialLR
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
@@ -25,8 +25,8 @@ from larry.common.criteria import criterion
 from larry.common.data.samplers import ResumableBatchSampler, ShuffledBatchSampler
 from larry.common.metrics.metrics import MetricDict, Metrics, ScalarMetricEntry
 from larry.common.model.model import LarryModelOutput
-from larry.common.training.callbacks import TrainingCallback, ModelInitLoggingCallback
-from larry.common.training.qk_clip import QKClipHandler, QKClipCallback
+from larry.common.training.callbacks import ModelInitLoggingCallback, TrainingCallback
+from larry.common.training.qk_clip import QKClipCallback, QKClipHandler
 from larry.common.training.training_model import LarryModel
 from larry.common.training.viz_callbacks import VizCallback
 from larry.common.utils import git_utils
@@ -42,6 +42,7 @@ def _reduce_sum(accelerator: Accelerator, tensor: torch.Tensor) -> torch.Tensor:
 @dataclasses.dataclass(kw_only=True)
 class StepOutput:
     """Wrapper dataclass for the output of a forward pass."""
+
     loss: torch.Tensor
     metrics: MetricDict
     sample_losses: torch.Tensor | None = None
@@ -50,6 +51,7 @@ class StepOutput:
 
 class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Registrable, ABC, root=True):
     """Superclass for all trainers."""
+
     REGISTRY: ClassVar[TypeRegistry[TrainerBase]]
 
     _model: M
@@ -391,7 +393,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
         if group_names:
             groups = _reduce_sum(self.accelerator, groups)
-            for name, (loss_sum, token_count) in zip(group_names, groups.tolist()):
+            for name, (loss_sum, token_count) in zip(group_names, groups.tolist(), strict=False):
                 if token_count > 0:
                     eval_metrics.add_metric(ScalarMetricEntry(tag=f"eval/loss/{name}", scalar=loss_sum / token_count))
             total = groups.sum(dim=0)
@@ -548,7 +550,6 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
     def _compile_and_save_provenance(self) -> None:
         """Saves a separate json file that records the sources of this saved dataset."""
-
         self.provenance.populate_mutables()
         (Path(self.metrics.log_dir).expanduser().resolve() / "provenance.json").write_text(json.dumps(
             dataclasses.asdict(self.provenance),
@@ -561,18 +562,22 @@ class TrainState:
     """Dataclass for a trainer's training state. Allows resuming."""
 
     def __init__(self) -> None:
+        """Simple init."""
         self.global_step = 0
         self.tokens_seen = 0
 
     def state_dict(self) -> dict[str, Any]:
+        """Converts to dict for saving."""
         return vars(self).copy()
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
+        """Converts from dict for loading."""
         vars(self).update(d)
 
 
 class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](TrainerBase[M, C], ABC):
     """Implements a few abstract methods from ``TrainerBase`` with sensible defaults."""
+
     accelerator: Accelerator
 
     def make_dataset_dict(self) -> Mapping[str, Dataset]:
@@ -585,7 +590,7 @@ class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Tr
         return DataLoader(
             train,
             batch_sampler=ShuffledBatchSampler(
-                len(cast(Sized, train)), self.config.train_batch_size, self.config.seed
+                len(cast(Sized, cast(object, train))), self.config.train_batch_size, self.config.seed
             ),
             collate_fn=self.make_collate_fn(),
             num_workers=self.config.num_dataloader_workers,

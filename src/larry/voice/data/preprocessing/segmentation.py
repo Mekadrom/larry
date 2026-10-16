@@ -4,7 +4,7 @@ import logging
 import torch
 
 from larry.voice.config.preprocessing.voice_mapper_configs import SpeechSegmentationAligningMapperConfig
-from larry.voice.data.preprocessing.alignment import TokenTimeline, SpanScore
+from larry.voice.data.preprocessing.alignment import SpanScore, TokenTimeline
 from larry.voice.data.preprocessing.normalization import ABBREVIATIONS
 from larry.voice.data.preprocessing.transcript import TokenStream
 
@@ -12,6 +12,7 @@ from larry.voice.data.preprocessing.transcript import TokenStream
 @dataclasses.dataclass
 class Segment:
     """Helper dataclass for storing all data relevant to a single segment of speech."""
+
     audio: torch.Tensor
     text: str
     text_normalized: str
@@ -74,10 +75,7 @@ class Segmenter:
                     if self._is_sentence_end(tokens[c])
                 ]
 
-                if pause or not stops:
-                    cut = len(cur)
-                else:
-                    cut = stops[-1] + 1
+                cut = len(cur) if pause or not stops else stops[-1] + 1
 
                 # sentence cut leaves a remainder that's still too long with t; cut everything instead
                 if cut < len(cur) and cur_span.end - spans[cur[cut]].start > cap:

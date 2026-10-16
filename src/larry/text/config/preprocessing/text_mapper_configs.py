@@ -1,12 +1,12 @@
 import dataclasses
 
-from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig, \
-    MapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, UrlMapperConfig
 
 
 @dataclasses.dataclass(kw_only=True)
 class UrlTextMapperConfig(UrlMapperConfig):
     """Config for ``UrlTextMapper`` instances, setting sensible defaults for fields in ``UrlMapperConfig``."""
+
     input_column: str = "url"
     output_column: str = "text"
 
@@ -15,7 +15,8 @@ class UrlTextMapperConfig(UrlMapperConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSTranscriptPdfTextMapperConfig(MapperConfig):
-    """Config for ``SCOTUSTranscriptPdfTextMapper`` instances, setting defaults and adding new fields and constants. """
+    """Config for ``SCOTUSTranscriptPdfTextMapper`` instances, setting defaults and adding new fields and constants."""
+
     pdf_bytes_column: str = "pdf_bytes"
     docket_column: str = "docket"
     date_argued_column: str = "date_argued"
@@ -35,6 +36,7 @@ class SCOTUSTranscriptPdfTextMapperConfig(MapperConfig):
 @dataclasses.dataclass(kw_only=True)
 class TextTokenizingMapperConfig(SingleColumnMapperConfig):
     """Config for ``TextTokenizingMapper`` instances, setting sensible defaults and requiring a tokenizer value."""
+
     tokenizer: str
     input_column: str = "text"
     output_column: str = "input_ids"

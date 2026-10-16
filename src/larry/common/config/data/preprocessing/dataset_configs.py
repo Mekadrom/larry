@@ -1,10 +1,10 @@
 import dataclasses
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
-from datasets import Split, Image, Audio
+from datasets import Audio, Image, Split
 
 from larry.common.config.data.downloader_configs import DownloaderConfig
 from larry.common.config.data.extractor_configs import ExtractorConfig
@@ -15,6 +15,7 @@ from larry.common.utils.types import TypeRegistry
 @dataclasses.dataclass(kw_only=True)
 class DatasetConfig(Registrable, root=True):
     """Superclass for configs for all dataset providers for preprocessing pipelines only."""
+
     REGISTRY: ClassVar[TypeRegistry[DatasetConfig]]
 
     provider_name: str = "HuggingFaceDatasetProvider"
@@ -32,6 +33,7 @@ class DatasetConfig(Registrable, root=True):
 @dataclasses.dataclass(kw_only=True)
 class DefaultDatasetConfig(DatasetConfig):
     """Default impl for dataset providers that use the simple huggingface route for providing a dataset."""
+
     ...
 
 
@@ -41,6 +43,7 @@ class CachedDatasetConfig(DatasetConfig, ABC):
 
     Used to replace any datasets that originally required arbitrary python code execution, essentially.
     """
+
     path: str = "parquet"
     split: str | Split | list[str] | list[Split] | None = None
 
@@ -84,6 +87,7 @@ class MediaCachedDatasetConfig(CachedDatasetConfig, ABC):
 
     E.g. images or audio.
     """
+
     media_dir: str
     media_type: Audio | Image
     media_column: str

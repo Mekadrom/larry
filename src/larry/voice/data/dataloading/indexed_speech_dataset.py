@@ -71,7 +71,7 @@ class IndexedSpeechDataset(Dataset[dict[str, Any]]):
         """Provides new columns for the source dataset ID and duration for each example."""
         source_ids = []
         durations = []
-        for s, (config, index) in enumerate(zip(self.configs, self.indexes)):
+        for s, (config, index) in enumerate(zip(self.configs, self.indexes, strict=False)):
             table = cast(pa.Table, index.select_columns([config.duration_column]).with_format("arrow")[:])
             column = table.column(config.duration_column).to_numpy()
             durations.append(torch.from_numpy(column).double())

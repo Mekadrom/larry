@@ -1,3 +1,5 @@
+from typing import Any
+
 import torch
 import torch.nn.functional as F
 
@@ -15,7 +17,7 @@ class CTCCriterion(Criterion[CTCCriterionConfig, SpeechTokenizerModel]):
             model_output: LarrySpeechTokenizerModelOutput,
             targets: torch.Tensor,
             target_lengths: torch.Tensor,
-            **batch_kwargs,
+            **batch_kwargs: Any,
     ) -> torch.Tensor:
         """Simple forward through the shared ``_ctc_loss`` helper function.
 

@@ -6,16 +6,18 @@ from typing import Any
 from datasets import Audio, Image
 
 from larry.common.config.data.downloader_configs import DownloaderConfig, SingleFileDownloaderConfig
-from larry.common.config.data.extractor_configs import SingleFileExtractorConfig, ExtractorConfig
-from larry.common.config.data.preprocessing.dataset_configs import MediaCachedDatasetConfig, \
-    CachedDatasetConfig
-from larry.voice.config.preprocessing.voice_downloader_configs import SCOTUSTermManifestDownloaderConfig, \
-    SCOTUSDocketManifestDownloaderConfig
+from larry.common.config.data.extractor_configs import ExtractorConfig, SingleFileExtractorConfig
+from larry.common.config.data.preprocessing.dataset_configs import CachedDatasetConfig, MediaCachedDatasetConfig
+from larry.voice.config.preprocessing.voice_downloader_configs import (
+    SCOTUSDocketManifestDownloaderConfig,
+    SCOTUSTermManifestDownloaderConfig,
+)
 
 
 @dataclasses.dataclass(kw_only=True)
 class VoiceDatasetConfig:
     """Superclass for voice dataset configs."""
+
     ...
 
 
@@ -61,6 +63,7 @@ class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig):
     """Config for ``SCOTUSManifestCachedDatasetProvider`` to configure its generation of the scotus-manifest dataset."""
+
     path: str = "parquet"
     base_url: str = "https://www.supremecourt.gov/"
     provider_name: str = "SCOTUSManifestCachedDatasetProvider"
@@ -103,6 +106,7 @@ class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig)
 @dataclasses.dataclass(kw_only=True)
 class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
     """Config for ``VCTKCachedDatasetProvider``."""
+
     download_url: str = "https://datashare.ed.ac.uk"
     archive_file: str = "DS_10283_3443.zip"
     download_path: str = f"download/{archive_file}"

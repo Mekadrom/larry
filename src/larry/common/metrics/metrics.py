@@ -4,16 +4,17 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from collections import UserDict
-from collections.abc import Iterable, Callable
-from typing import Any, Literal, assert_never
+from collections.abc import Callable, Iterable
+from typing import Any, Literal, assert_never, cast
 
 import librosa
 import numpy as np
 import torch
-from PIL import Image, ImageOps, ImageDraw, ImageFont
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from torch import nn
+from torch.utils.tensorboard import SummaryWriter
 
 from larry.common.utils.convert_np import make_np
 from larry.common.utils.types import Color
@@ -35,8 +36,10 @@ def _patch_image(
     """Performs a provided transform on an image with validation."""
     if img_array.dtype != np.uint8:
         raise ValueError(f"expected uint8, got {img_array.dtype}")
+
     if not (img_array.ndim == 2 or (img_array.ndim == 3 and img_array.shape[2] in (3, 4))):
         raise ValueError(f"expected (H, W), (H, W, 3), or (H, W, 4); got {img_array.shape}")
+
     img = Image.fromarray(img_array)
     img = img_transform(img)
     return np.array(img)
@@ -162,6 +165,7 @@ def prepare_audio_and_mels(
 @dataclasses.dataclass(kw_only=True)
 class MetricEntry[V](ABC):
     """Superclass for all MetricEntry events."""
+
     tag: str
 
     @property
@@ -174,6 +178,7 @@ class MetricEntry[V](ABC):
 @dataclasses.dataclass(kw_only=True)
 class TextMetricEntry(MetricEntry[str]):
     """A text MetricEntry implementation."""
+
     text: str
 
     @property
@@ -185,6 +190,7 @@ class TextMetricEntry(MetricEntry[str]):
 @dataclasses.dataclass(kw_only=True)
 class ScalarMetricEntry(MetricEntry[float | int]):
     """Any number/scalar MetricEntry value."""
+
     scalar: float | int
 
     @property
@@ -212,6 +218,7 @@ class CountableMetricEntry[V](MetricEntry[V], ABC):
 @dataclasses.dataclass(kw_only=True)
 class AggregateMetricEntry(CountableMetricEntry[float | int]):
     """An aggregate scalar/number MetricEntry."""
+
     average_reduce: Literal["all", "none"] = "all"
     alert_naninf: bool = True
 
@@ -246,6 +253,7 @@ class AggregateMetricEntry(CountableMetricEntry[float | int]):
 @dataclasses.dataclass(kw_only=True)
 class BatchMetricEntry(MetricEntry[list], ABC):
     """A batch of various MetricEntry values that is itself a MetricEntry."""
+
     metrics_list: list = dataclasses.field(default_factory=list)
 
     @property
@@ -260,6 +268,7 @@ class BatchMetricEntry(MetricEntry[list], ABC):
 
 class ImageMetric(MetricEntry[torch.Tensor]):
     """A MetricEntry containing an image."""
+
     image: torch.Tensor
 
     @property
@@ -271,6 +280,7 @@ class ImageMetric(MetricEntry[torch.Tensor]):
 @dataclasses.dataclass(kw_only=True)
 class CaptionedImageMetric(MetricEntry[tuple[ImageMetric, str]]):
     """A MetricEntry wrapping an ImageMetric with an additional caption value."""
+
     image: ImageMetric
     caption: str
 
@@ -283,6 +293,7 @@ class CaptionedImageMetric(MetricEntry[tuple[ImageMetric, str]]):
 @dataclasses.dataclass(kw_only=True)
 class AudioMetric(MetricEntry[torch.Tensor]):
     """A MetricEntry containing audio and its sample rate."""
+
     audio: torch.Tensor
     sample_rate: int
 
@@ -295,6 +306,7 @@ class AudioMetric(MetricEntry[torch.Tensor]):
 @dataclasses.dataclass(kw_only=True)
 class CaptionedAudioMetric(MetricEntry[tuple[AudioMetric, str]]):
     """A MetricEntry wrapping an AudioMetric with an additional caption value."""
+
     audio: AudioMetric
     caption: str
 
@@ -317,9 +329,11 @@ class MetricDict(UserDict[str, MetricEntry]):
         if key in self.data:
             existing = self.data[key]
             if isinstance(item, BatchMetricEntry) and isinstance(existing, BatchMetricEntry):
-                existing.add_(item)
+                # noinspection PyUnnecessaryCast
+                cast(BatchMetricEntry, existing).add_(item)
             elif isinstance(item, CountableMetricEntry) and isinstance(existing, CountableMetricEntry):
-                existing.add_(item)
+                # noinspection PyUnnecessaryCast
+                cast(CountableMetricEntry, existing).add_(item)
             else:
                 raise ValueError(
                     f"Unsupported metric type: {type(item.value).__name__} "
@@ -332,9 +346,9 @@ class MetricDict(UserDict[str, MetricEntry]):
         """Delegates to the __setitem__ function."""
         self[m.tag] = m
 
-    def add_metrics(self, l: Iterable[MetricEntry]) -> None:
+    def add_metrics(self, metrics: Iterable[MetricEntry]) -> None:
         """Delegates to the add_metric function in a loop for an Iterable of MetricEntry objects."""
-        for m in l:
+        for m in metrics:
             self.add_metric(m)
 
 
@@ -347,7 +361,7 @@ class Metrics(ABC):
         os.makedirs(log_dir, exist_ok=True)
 
     @abstractmethod
-    def add_scalar(self, tag: str, value: float, step: int, **kwargs) -> None:
+    def add_scalar(self, tag: str, value: float, step: int, **kwargs: Any) -> None:
         """For logging numbers as scalars."""
         ...
 
@@ -362,7 +376,7 @@ class Metrics(ABC):
             label: str | None = None,
             label_kwargs: dict[str, Any] | None = None,
             label_padding_kwargs: dict[str, Any] | None = None,
-            **kwargs
+            **kwargs: Any,
     ) -> None:
         """For logging native images and optional captions."""
         ...
@@ -378,23 +392,23 @@ class Metrics(ABC):
             mels_tag: str | None = None,
             caption: str | None = None,
             caption_tag: str | None = None,
-            **kwargs
+            **kwargs: Any,
     ) -> None:
         """For logging native audio and optional captions and/or mels."""
         ...
 
     @abstractmethod
-    def add_figure(self, tag: str, figure: Figure, step: int, **kwargs) -> None:
+    def add_figure(self, tag: str, figure: Figure, step: int, **kwargs: Any) -> None:
         """For logging a figure."""
         ...
 
     @abstractmethod
-    def add_text(self, tag: str, text: str | Any, step: int, **kwargs) -> None:
+    def add_text(self, tag: str, text: str | Any, step: int, **kwargs: Any) -> None:
         """For logging text."""
         ...
 
     @abstractmethod
-    def add_histogram(self, tag: str, values: np.ndarray, step: int, **kwargs) -> None:
+    def add_histogram(self, tag: str, values: np.ndarray, step: int, **kwargs: Any) -> None:
         """For logging a tensor or array as a histogram."""
         ...
 
@@ -405,7 +419,7 @@ class Metrics(ABC):
             metrics: dict[str, bool | str | float | int | None],
             step: int,
             hparam_domain_discrete: dict[str, list[Any]] | None = None,
-            **kwargs
+            **kwargs: Any,
     ) -> None:
         """For logging the hyperparameters for a run and results."""
         ...
@@ -466,16 +480,15 @@ class Metrics(ABC):
 class TensorBoardMetrics(Metrics):
     """Tensorboard metrics backend implementation."""
 
-    def __init__(self, log_dir: str, writer=None) -> None:
+    def __init__(self, log_dir: str, writer: SummaryWriter | None = None) -> None:
         """Sets up the SummaryWriter"""
         super().__init__(log_dir=log_dir)
         if writer is not None:
             self._writer = writer
         else:
-            from torch.utils.tensorboard import SummaryWriter
             self._writer = SummaryWriter(log_dir=log_dir)
 
-    def add_scalar(self, tag: str, value: float, step: int, **kwargs) -> None:
+    def add_scalar(self, tag: str, value: float, step: int, **kwargs: Any) -> None:
         """Logs a scalar to Tensorboard."""
         self._writer.add_scalar(tag, value, step)
 
@@ -489,7 +502,7 @@ class TensorBoardMetrics(Metrics):
             label: str | None = None,
             label_kwargs: dict[str, Any] | None = None,
             label_padding_kwargs: dict[str, Any] | None = None,
-            **kwargs
+            **kwargs: Any
     ) -> None:
         """Logs an image with an optional caption to Tensorboard."""
         img_array = prepare_image_add_label(img_array, label, label_kwargs, label_padding_kwargs)
@@ -507,7 +520,7 @@ class TensorBoardMetrics(Metrics):
             mels_tag: str | None = None,
             caption: str | None = None,
             caption_tag: str | None = None,
-            **kwargs
+            **kwargs: Any
     ) -> None:
         """Logs audio with optional captions or mels to Tensorboard."""
         audio_array, mels_fig = prepare_audio_and_mels(audio_array, sample_rate, mels)
@@ -522,15 +535,15 @@ class TensorBoardMetrics(Metrics):
         # noinspection PyTypeChecker
         self._writer.add_audio(tag, audio_array, step, sample_rate=sample_rate)
 
-    def add_figure(self, tag: str, figure: Figure, step: int, **kwargs) -> None:
+    def add_figure(self, tag: str, figure: Figure, step: int, **kwargs: Any) -> None:
         """Logs a figure to Tensorboard."""
         self._writer.add_figure(tag, figure, step)
 
-    def add_text(self, tag: str, text: str | Any, step: int, **kwargs) -> None:
+    def add_text(self, tag: str, text: str | Any, step: int, **kwargs: Any) -> None:
         """Logs text to Tensorboard."""
         self._writer.add_text(tag, str(text), step)
 
-    def add_histogram(self, tag: str, values: np.ndarray, step: int, **kwargs) -> None:
+    def add_histogram(self, tag: str, values: np.ndarray, step: int, **kwargs: Any) -> None:
         """Logs an array of values as a histogram to Tensorboard."""
         self._writer.add_histogram(tag, values, step)
 
@@ -540,7 +553,7 @@ class TensorBoardMetrics(Metrics):
             metrics: dict[str, bool | str | float | int | None],
             step: int,
             hparam_domain_discrete: dict[str, list[Any]] | None = None,
-            **kwargs
+            **kwargs: Any
     ) -> None:
         """Logs hyperparameters and/or run results to Tensorboard."""
         self._writer.add_hparams(hparams, metrics, step, hparam_domain_discrete, **kwargs)
@@ -568,7 +581,7 @@ class TensorBoardMetrics(Metrics):
         self.add_scalar(f"{prefix}/total", norms.pow(2).sum().sqrt().item(), step)
         self.add_histogram(f"{prefix}/per_param", norms.numpy(), step)
         if per_param_scalars:
-            for name, n in zip(names, norms.tolist()):
+            for name, n in zip(names, norms.tolist(), strict=False):
                 self.add_scalar(f"{prefix}/{name}", n, step)
 
     def flush(self) -> None:
@@ -583,7 +596,7 @@ class TensorBoardMetrics(Metrics):
 class WandBMetrics(TensorBoardMetrics):
     """Weights and Biases metric backend implementation."""
 
-    def __init__(self, log_dir: str, **wandb_kwargs) -> None:
+    def __init__(self, log_dir: str, **wandb_kwargs: Any) -> None:
         """Sets up the wandb backend using its library."""
         if wandb is None:
             raise ImportError("WandBMetrics requires wandb; pip install wandb")
@@ -611,7 +624,7 @@ class WandBMetrics(TensorBoardMetrics):
             label: str | None = None,
             label_kwargs: dict[str, Any] | None = None,
             label_padding_kwargs: dict[str, Any] | None = None,
-            **kwargs
+            **kwargs: Any
     ) -> None:
         """Logs an image with an optional caption to wandb."""
         if wandb is None:
@@ -629,7 +642,7 @@ class WandBMetrics(TensorBoardMetrics):
             mels_tag: str | None = None,
             caption: str | None = None,
             caption_tag: str | None = None,
-            **kwargs
+            **kwargs: Any
     ) -> None:
         """Logs audio with optional captions or mels to wandb."""
         if wandb is None:
@@ -657,7 +670,7 @@ class WandBMetrics(TensorBoardMetrics):
 class NoneMetrics(Metrics):
     """For processes on devices when world_size > 1. Logging should only occur after the gather. Does nothing."""
 
-    def add_scalar(self, tag: str, value: float, step: int, **kwargs) -> None:
+    def add_scalar(self, tag: str, value: float, step: int, **kwargs: Any) -> None:
         """No-op."""
         pass
 
@@ -671,7 +684,7 @@ class NoneMetrics(Metrics):
             label: str | None = None,
             label_kwargs: dict[str, Any] | None = None,
             label_padding_kwargs: dict[str, Any] | None = None,
-            **kwargs
+            **kwargs: Any
     ) -> None:
         """No-op."""
         pass
@@ -686,20 +699,20 @@ class NoneMetrics(Metrics):
             mels_tag: str | None = None,
             caption: str | None = None,
             caption_tag: str | None = None,
-            **kwargs
+            **kwargs: Any
     ) -> None:
         """No-op."""
         pass
 
-    def add_figure(self, tag: str, figure: Figure, step: int, **kwargs) -> None:
+    def add_figure(self, tag: str, figure: Figure, step: int, **kwargs: Any) -> None:
         """No-op."""
         pass
 
-    def add_text(self, tag: str, text: str | Any, step: int, **kwargs) -> None:
+    def add_text(self, tag: str, text: str | Any, step: int, **kwargs: Any) -> None:
         """No-op."""
         pass
 
-    def add_histogram(self, tag: str, values: np.ndarray, step: int, **kwargs) -> None:
+    def add_histogram(self, tag: str, values: np.ndarray, step: int, **kwargs: Any) -> None:
         """No-op."""
         pass
 
@@ -709,7 +722,7 @@ class NoneMetrics(Metrics):
             metrics: dict[str, bool | str | float | int | None],
             step: int,
             hparam_domain_discrete: dict[str, list[Any]] | None = None,
-            **kwargs
+            **kwargs: Any
     ) -> None:
         """No-op."""
         pass

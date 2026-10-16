@@ -11,17 +11,22 @@ from urllib.parse import quote, urljoin
 import requests
 from tqdm import tqdm
 
-from larry.common.config.data.downloader_configs import DownloaderConfig, SingleFileDownloaderConfig, \
-    MultiFileDownloaderConfig, RangedIndexMultiFileDownloaderConfig, SingleFileBackupDownloaderConfig
+from larry.common.config.data.downloader_configs import (
+    DownloaderConfig,
+    MultiFileDownloaderConfig,
+    RangedIndexMultiFileDownloaderConfig,
+    SingleFileBackupDownloaderConfig,
+    SingleFileDownloaderConfig,
+)
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
-
 
 # TODO: merge with UrlMapper somehow or have them backed by the same downloading helper to deduplicate code
 
 
 class Downloader[C: DownloaderConfig = DownloaderConfig](Registrable, ABC, root=True):
     """Superclass for all downloaders."""
+
     REGISTRY: ClassVar[TypeRegistry[Downloader]]
 
     _config: C
@@ -130,13 +135,20 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
         with requests.get(url, stream=True, timeout=self.download_timeout, headers={"User-Agent": UA}) as response:
             response.raise_for_status()
             total = int(response.headers.get("Content-Length", 0)) or None
-            with open(file_path, 'wb') as stream:
-                with tqdm(total=total, unit="B", unit_scale=True, unit_divisor=1024, desc=str(file_path.name)) as pbar:
-                    for chunk in response.iter_content(chunk_size=1024 * 1024):
-                        stream.write(chunk)
-                        pbar.update(len(chunk))
+            with open(file_path, 'wb') as stream, tqdm(
+                    total=total,
+                    unit="B",
+                    unit_scale=True,
+                    unit_divisor=1024,
+                    desc=str(file_path.name)
+            ) as pbar:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    stream.write(chunk)
+                    pbar.update(len(chunk))
+
         if return_contents:
             return file_path.read_bytes()
+
         return None
 
     def _validate(self, content: bytes) -> bool:
@@ -258,7 +270,8 @@ class RangedIndexMultiFileDownloader[C: RangedIndexMultiFileDownloaderConfig = R
         if "-" in range_desc:
             n_min, n_max = (int(s.strip()) for s in range_desc.strip().split("-"))
             return range(n_min, n_max + 1)
+
         elif "," in range_desc:
             return [int(s.strip()) for s in range_desc.strip().split(",")]
-        
+
         return [int(range_desc.strip())]

@@ -10,7 +10,6 @@ log = logging.getLogger(__name__)
 
 def main() -> None:
     """Main entrypoint for all dataset preprocessing pipelines."""
-
     # forcibly walks the module structure to import all classes so registries for different class types are filled out
     import_submodules("larry")
 
@@ -54,6 +53,6 @@ def main() -> None:
 
     # override the "clean" flag top False so provenance-only output actually survives
     if args.provenance_only:
-        setattr(args, "clean", False)
+        args.clean = False
 
     Pipeline(config_file, output_dir, clean=args.clean, provenance_only=args.provenance_only).run()

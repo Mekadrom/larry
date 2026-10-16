@@ -1,7 +1,6 @@
 """This module converts objects into numpy arrays. Copied from torch.utils.tensorboard._convert_np."""
 
 import numpy as np
-
 import torch
 
 

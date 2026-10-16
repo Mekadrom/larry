@@ -1,21 +1,25 @@
 import json
 import logging
-from abc import ABC
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
 import jsonpath_ng
 import numpy as np
 import pyarrow as pa
-from datasets import Dataset, Features, Value, DatasetDict, Audio, concatenate_datasets
+from datasets import Audio, Dataset, DatasetDict, Features, Value, concatenate_datasets
 from datasets.fingerprint import Hasher
 from datasets.table import InMemoryTable
 from jsonpath_ng import JSONPath
 
 from larry.common.config.data.preprocessing import pipeline_config
-from larry.common.config.data.preprocessing.preprocessor_configs import RemoveColumnsPreprocessorConfig, \
-    NestedExtractionPreprocessorConfig, PreprocessorConfig, ColumnCastingPreprocessorConfig, \
-    ColumnRenamingPreprocessorConfig, RowIndexAssigningPreprocessorConfig
+from larry.common.config.data.preprocessing.preprocessor_configs import (
+    ColumnCastingPreprocessorConfig,
+    ColumnRenamingPreprocessorConfig,
+    NestedExtractionPreprocessorConfig,
+    PreprocessorConfig,
+    RemoveColumnsPreprocessorConfig,
+    RowIndexAssigningPreprocessorConfig,
+)
 from larry.common.data.utils import features_of
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
@@ -23,6 +27,7 @@ from larry.common.utils.types import TypeRegistry
 
 class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
     """Super class for all step implementations for dataset preprocessing."""
+
     REGISTRY: ClassVar[TypeRegistry[Preprocessor]]
 
     _config: C
@@ -99,6 +104,7 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
         """Requires a specified input column and one or more configured mapping queries."""
         if not self.config.input_column:
             raise ValueError(f"input_column must be specified for {self.__class__.__name__}")
+
         if not self.config.json_path_to_output_column_mappings:
             raise ValueError(f"json_path_to_output_column_mappings must be specified for {self.__class__.__name__}")
 
@@ -123,6 +129,7 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
         features = features_of(dataset).copy()
         for mapping in self.config.json_path_to_output_column_mappings:
             features[mapping["outputColumn"]] = Value("string")
+
         return features
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
@@ -142,14 +149,16 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
         return collected
 
     @staticmethod
-    def _match_query(query: JSONPath, example: str):
+    def _match_query(query: JSONPath, example: str) -> str | None:
         """Helper for using the jsonpath query to find the first match."""
         matches = query.find(example)
         if len(matches) > 1:
             raise ValueError(f"Cannot expand the results of filter: {query}; should return either 0 or 1 records")
+
         matches = matches[0].value if matches else None
         if isinstance(matches, str) and matches.strip() == "":
             matches = None
+
         return matches
 
 
@@ -175,6 +184,7 @@ class ColumnCastingPreprocessor(Preprocessor[ColumnCastingPreprocessorConfig]):
                 dataset = dataset.remove_columns(k)
             else:
                 dataset = dataset.cast_column(k, Value(v))
+
         return dataset
 
 
@@ -192,10 +202,8 @@ class ColumnRenamingPreprocessor(Preprocessor[ColumnRenamingPreprocessorConfig])
         Supports removing a column if the target name is ``None`` (in yaml, nulls are "~").
         """
         for k, v in self.config.column_name_mappings.items():
-            if v is None:
-                dataset = dataset.remove_columns(k)
-            else:
-                dataset = dataset.rename_column(k, v)
+            dataset = dataset.remove_columns(k) if v is None else dataset.rename_column(k, v)
+
         return dataset
 
 
@@ -214,6 +222,7 @@ class RowIndexAssigningPreprocessor(Preprocessor[RowIndexAssigningPreprocessorCo
                 s: self._assign_rows(ds)
                 for s, ds in dataset.items()
             })
+
         return self._assign_rows(dataset)
 
     def _assign_rows(self, dataset: Dataset) -> Dataset:
@@ -224,6 +233,7 @@ class RowIndexAssigningPreprocessor(Preprocessor[RowIndexAssigningPreprocessorCo
         # noinspection PyProtectedMember
         if dataset._indices is not None:
             dataset = dataset.flatten_indices(writer_batch_size=self.config.writer_batch_size)
+
         lengths = [len(chunk) for chunk in dataset.data.column(0).chunks]
 
         # get chunk slice start indices
@@ -232,7 +242,7 @@ class RowIndexAssigningPreprocessor(Preprocessor[RowIndexAssigningPreprocessorCo
         # take chunks out of the arange to produce sets of arrays spanning the unique integer ID ranges for each chunk
         # of the dataset (instead of assigning to each in one big go, which requires copying the whole data for workers)
         column = pa.chunked_array(
-            [pa.array(np.arange(s, s + n, dtype=np.int64)) for s, n in zip(starts, lengths)],
+            [pa.array(np.arange(s, s + n, dtype=np.int64)) for s, n in zip(starts, lengths, strict=False)],
             type=pa.int64(),
         )
 

@@ -4,13 +4,17 @@ import torch
 
 from larry.common.data.preprocessing.pruners import Pruner
 from larry.common.utils.types import EncodedAudio
-from larry.voice.config.preprocessing.voice_pruner_configs import AudioDurationColumnPrunerConfig, \
-    AudioQualityPrunerConfig, VoicePrunerConfig
+from larry.voice.config.preprocessing.voice_pruner_configs import (
+    AudioDurationColumnPrunerConfig,
+    AudioQualityPrunerConfig,
+    VoicePrunerConfig,
+)
 from larry.voice.utils import bytes_to_waveforms
 
 
 class VoicePruner[C: VoicePrunerConfig = VoicePrunerConfig](Pruner[C]):
     """Superclass for voice pruners."""
+
     ...
 
 

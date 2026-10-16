@@ -22,7 +22,7 @@ def load_yaml_dict(yaml_file: Path) -> dict[str, Any]:
             raise
 
 
-def set_seed_everywhere(seed: int):
+def set_seed_everywhere(seed: int) -> None:
     """Set seed for all random number generators (that I could find)."""
     random.seed(seed)
 

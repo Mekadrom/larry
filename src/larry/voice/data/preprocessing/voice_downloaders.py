@@ -8,10 +8,11 @@ from datetime import datetime
 from pathlib import Path
 
 from larry.common.config.data.downloader_configs import SingleFileBackupDownloaderConfig
-from larry.common.data.downloaders import MultiFileDownloader, RangedIndexMultiFileDownloader, \
-    SingleFileBackupDownloader
-from larry.voice.config.preprocessing.voice_downloader_configs import SCOTUSDocketManifestDownloaderConfig, \
-    SCOTUSTermManifestDownloaderConfig
+from larry.common.data.downloaders import MultiFileDownloader, RangedIndexMultiFileDownloader, SingleFileBackupDownloader
+from larry.voice.config.preprocessing.voice_downloader_configs import (
+    SCOTUSDocketManifestDownloaderConfig,
+    SCOTUSTermManifestDownloaderConfig,
+)
 
 # ex: "href='../audio/1234/az_0-9.ext'"
 #                     term/docket

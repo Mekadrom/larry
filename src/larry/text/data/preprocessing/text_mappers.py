@@ -8,8 +8,7 @@ from transformers import AutoTokenizer
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
-from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, \
-    UrlTextMapperConfig
+from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, UrlTextMapperConfig
 
 
 class UrlTextMapper(UrlMapper[str, UrlTextMapperConfig], SingleColumnMapper[str, str | None, UrlTextMapperConfig]):

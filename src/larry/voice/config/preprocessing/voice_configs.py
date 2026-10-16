@@ -9,12 +9,14 @@ from larry.common.utils.types import TypeRegistry
 @dataclasses.dataclass(kw_only=True)
 class SampleRateConfig:
     """Provides a config with a sample rate."""
+
     sample_rate: int = 16000
 
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechSourceConfig:
     """A config dataclass for configuring a single dataset source."""
+
     name: str
     index_path: str  # huggingface repo or local dir: rows with id, duration_s, text_original, speaker_id, etc.
     source_path: str | None = None
@@ -32,6 +34,7 @@ class SpeechSourceConfig:
 @dataclasses.dataclass(kw_only=True)
 class SpeechMixtureConfig(SampleRateConfig):
     """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
+
     train_sources: list[SpeechSourceConfig] = dataclasses.field(default_factory=list)
     eval_sources: list[SpeechSourceConfig] = dataclasses.field(default_factory=list)
     max_batch_seconds: float = 400.0  # padded seconds per batch
@@ -42,12 +45,14 @@ class SpeechMixtureConfig(SampleRateConfig):
 @dataclasses.dataclass(kw_only=True)
 class VoiceConfig(PreprocessorConfig, SampleRateConfig):
     """Superclass for all voice preprocessor configs."""
+
     ...
 
 
 @dataclasses.dataclass(kw_only=True)
 class AlignerConfig(Registrable, SampleRateConfig, root=True):
     """Helper dataclass for configuring an aligner that wraps an alignment model."""
+
     REGISTRY: ClassVar[TypeRegistry[AlignerConfig]]
 
     stride: int = 320
@@ -61,6 +66,7 @@ class AlignerConfig(Registrable, SampleRateConfig, root=True):
 @dataclasses.dataclass(kw_only=True)
 class TranscriptConfig:
     """Configures a transcript parser."""
+
     REGISTRY: ClassVar[TypeRegistry[TranscriptConfig]]
     ...
 
@@ -68,4 +74,5 @@ class TranscriptConfig:
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSTranscriptConfig(TranscriptConfig):
     """Configures the SCOTUSTranscript parser class specifically."""
+
     max_note_lines: int = 4

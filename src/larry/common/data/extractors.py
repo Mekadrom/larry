@@ -4,7 +4,7 @@ import tarfile
 import zipfile
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import cast, BinaryIO, ClassVar
+from typing import BinaryIO, ClassVar, cast
 
 from tqdm import tqdm
 
@@ -15,6 +15,7 @@ from larry.common.utils.types import TypeRegistry
 
 class Extractor[C: ExtractorConfig](Registrable, ABC, root=True):
     """Superclass for extractors."""
+
     REGISTRY: ClassVar[TypeRegistry[Extractor]]
 
     _config: C
@@ -40,7 +41,7 @@ class Extractor[C: ExtractorConfig](Registrable, ABC, root=True):
 class SingleFileExtractor(Extractor[SingleFileExtractorConfig]):
     """Extractor implementation responsible for extracting a single archive file."""
 
-    def __init__(self, config: SingleFileExtractorConfig, extract_cache_abs_dir: Path):
+    def __init__(self, config: SingleFileExtractorConfig, extract_cache_abs_dir: Path) -> None:
         """Sets up this instance's config."""
         super().__init__(config, extract_cache_abs_dir)
         self.input_file_path = self.extract_cache_dir / config.input_file_name
@@ -71,17 +72,15 @@ class SingleFileExtractor(Extractor[SingleFileExtractorConfig]):
         name = file_path.name
         if name.endswith((".tar", ".tar.gz", ".tgz", ".tar.xz", ".tar.bz2")):
             total = os.path.getsize(file_path)
-            with open(file_path, "rb") as stream:
-                with tqdm.wrapattr(
-                        stream,
-                        "read",
-                        total=total,
-                        unit="B",
-                        unit_scale=True,
-                        desc=str(file_path)
-                ) as pbar:
-                    with tarfile.open(fileobj=cast(BinaryIO, pbar), mode="r|*") as tar:
-                        tar.extractall(output_dir)
+            with open(file_path, "rb") as stream, tqdm.wrapattr(
+                    stream,
+                    "read",
+                    total=total,
+                    unit="B",
+                    unit_scale=True,
+                    desc=str(file_path)
+            ) as pbar, tarfile.open(fileobj=cast(BinaryIO, pbar), mode="r|*") as tar:
+                tar.extractall(output_dir)
         elif name.endswith(".zip"):
             with zipfile.ZipFile(file_path) as archive:
                 members = archive.infolist()

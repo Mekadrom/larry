@@ -1,21 +1,21 @@
 from typing import Any
 
 from datasets import Dataset, DatasetDict
-from datasets.features.features import Value, Features
+from datasets.features.features import Features, Value
 
 from larry.common.data.preprocessing.mappers import Mapper
 from larry.text.config.preprocessing.text_mapper_configs import SCOTUSTranscriptPdfTextMapperConfig
 from larry.voice.config.preprocessing.scotus.scotus_mapper_configs import SCOTUSSpeechSegmentationAligningMapperConfig
 from larry.voice.config.preprocessing.voice_configs import SCOTUSTranscriptConfig
 from larry.voice.data.preprocessing import scotus_transcript as scotus_transcript
-from larry.voice.data.preprocessing.normalization import TextNormalizer, SCOTUSTextNormalizer
+from larry.voice.data.preprocessing.normalization import SCOTUSTextNormalizer, TextNormalizer
 from larry.voice.data.preprocessing.scotus_transcript import SCOTUSTranscript
-from larry.voice.data.preprocessing.transcript import pdf_bytes_to_text, Transcript, Turn
+from larry.voice.data.preprocessing.transcript import Transcript, Turn, pdf_bytes_to_text
 from larry.voice.data.preprocessing.voice_mappers import SpeechSegmentationAligningMapper
 
 
 class SCOTUSTranscriptPdfTextMapper(Mapper[SCOTUSTranscriptPdfTextMapperConfig]):
-    """Specialized instance of ``Mapper`` for producing semi-normalized SCOTUS transcript text.
+    r"""Specialized instance of ``Mapper`` for producing semi-normalized SCOTUS transcript text.
 
     Takes a PDF (in bytes) and converts it to stage-direction/play script-style speaker-turn ordered dialog with
     directions, headers, and the ending word index removed.
@@ -54,7 +54,7 @@ class SCOTUSTranscriptPdfTextMapper(Mapper[SCOTUSTranscriptPdfTextMapperConfig])
         pdf_bytes_in = batch[self.config.pdf_bytes_column]
         docket_in = batch[self.config.docket_column]
         date_argued_in = batch[self.config.date_argued_column]
-        for pdf_bytes, docket, date_argued in zip(pdf_bytes_in, docket_in, date_argued_in):
+        for pdf_bytes, docket, date_argued in zip(pdf_bytes_in, docket_in, date_argued_in, strict=False):
             # delegates most of the real work to a somewhat generalized transcript parser that has been overridden
             # for SCOTUS-specific idiosyncrasies
             tr = scotus_transcript.SCOTUSTranscript(SCOTUSTranscriptConfig(), docket, date_argued)
@@ -93,9 +93,9 @@ class SCOTUSSpeechSegmentationAligningMapper(
 ):
     """Configuring override of ``SpeechSegmentationAligningMapper``.
 
-     Defines what instance of ``TextNormalizer`` and ``Transcript`` to use, providing instances of each to the
-     superclass containing the real logic for splitting a transcript and its audio into corresponding aligned segments.
-     """
+    Defines what instance of ``TextNormalizer`` and ``Transcript`` to use, providing instances of each to the
+    superclass containing the real logic for splitting a transcript and its audio into corresponding aligned segments.
+    """
 
     def make_normalizer(self) -> TextNormalizer:
         """Instantiates a simple override implementation of ``TextNormalizer``, ``SCOTUSTextNormalizer.

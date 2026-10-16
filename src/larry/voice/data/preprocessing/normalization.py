@@ -169,7 +169,6 @@ class TextNormalizer:
 
     def normalize_token(self, token: str, prev_token: str | None = None) -> list[list[str]]:
         """One original token -> zero or more CTC-alphabet words."""
-
         roman = self._roman_readings(token, prev_token)
         if roman is not None:
             return roman
@@ -360,6 +359,8 @@ class TextNormalizer:
 
 
 class SCOTUSTextNormalizer(TextNormalizer):
+    """Override to replace number handling."""
+
     def number_token(self, token: str) -> str | None:
         """Override to normalize dockets that may look like years to be read as dockets potentially."""
         m = re.fullmatch(r"(\d{1,2})-(\d{3,4})", token.replace(",", ""))

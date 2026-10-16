@@ -11,49 +11,56 @@ from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
 from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
 from larry.voice.training import voice_trainers
+from larry.voice.utils import collapse_ctc_emissions
 
 
 class VoiceVizCallback(trainers.VizCallback, ABC):
     """Superclass for voice viz callbacks."""
+
     ...
 
 
 def pick_rows(offsets: list[int], per_source: int) -> list[int]:
+    """Picks the same rows from each dataset source for visualization."""
     rows: list[int] = []
-    for start, end in zip(offsets, offsets[1:]):
+    for start, end in zip(offsets, offsets[1:], strict=False):
         span = end - start
         rows += sorted({start + (j * span) // per_source for j in range(min(per_source, span))})
+
     return rows
 
 
-def collapse(frames: torch.Tensor, blank: int) -> list[int]:
-    ids = torch.unique_consecutive(frames)
-    return ids[ids != blank].tolist()
-
-
 def forced_path(log_probs: torch.Tensor, target: torch.Tensor, blank: int) -> torch.Tensor | None:
+    """Judges CTC emissions for the ground truth labels per position to find where it aligns them."""
     if len(target) == 0:
         return None
+
     try:
         path, _ = AF.forced_align(log_probs.unsqueeze(0), target.unsqueeze(0).int(), blank=blank)
     except RuntimeError:
         return None
+
     return path[0]
 
 
 def token_starts(frames: torch.Tensor, blank: int) -> list[tuple[int, int]]:
+    """For non-blank provided tokens, returns the frame where each token appears first."""
     starts: list[tuple[int, int]] = []
     previous = blank
     for t, token in enumerate(frames.tolist()):
         if token != blank and token != previous:
             starts.append((t, token))
+
         previous = token
+
     return starts
 
 
 def timeline(frames: torch.Tensor | None, blank: int, tokenizer: TextTokenizer, frame_seconds: float) -> str:
+    """Produces the alignment provided with timings prefixing each token."""
     if frames is None:
         return "(no alignment)"
+
     return " ".join(
         f"`{t * frame_seconds:.2f}` {tokenizer.id_to_piece(token)}"
         for t, token in token_starts(frames, blank)
@@ -71,6 +78,7 @@ def alignment_figure(
         greedy_text: str,
         label_rows: int = 3,
 ) -> Figure:
+    """Makes a figure of mels with the top containing the target transcript and alignments and the greedy output."""
     n_mels = mels.shape[0]
     band = n_mels * 0.12 * label_rows
     top = n_mels + band
@@ -171,7 +179,7 @@ class SpeechTokenizerVizCallback(VoiceVizCallback):
                 )
 
             target_text = tokenizer.decode(target.tolist())
-            greedy_text = tokenizer.decode(collapse(greedy, blank))
+            greedy_text = tokenizer.decode(collapse_ctc_emissions(greedy, blank))
             trainer.metrics.add_text(f"{tag}/ctc", "  \n".join([
                 f"**target:** {target_text}",
                 f"**greedy:** {greedy_text}",

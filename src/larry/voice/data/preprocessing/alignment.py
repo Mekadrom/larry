@@ -16,6 +16,7 @@ from larry.voice.config.preprocessing.voice_mapper_configs import SpeechSegmenta
 @dataclasses.dataclass
 class SpanScore:
     """Helper dataclass for storing all information required to slice a span of audio."""
+
     start: float
     end: float
     score: float
@@ -25,7 +26,14 @@ class SpanScore:
 class Aligner:
     """Set of helper/utility functions wrapping a pretrained alignment/CTC model for aligning text and speech."""
 
-    def __init__(self, config: AlignerConfig, device="cuda", dtype=torch.float16):
+    def __init__(
+            self,
+            config: AlignerConfig,
+            device: str | int | torch.device = "cuda",
+            dtype: torch.dtype = torch.float16
+    ) -> None:
+        """Loads the alignment model and processor."""
+        self.log = logging.getLogger(__name__)
         self.config = config
 
         self.frame_seconds = self.config.stride / self.config.sample_rate
@@ -45,8 +53,6 @@ class Aligner:
         # defaults are for facebook/wav2vec2-large-960h-lv60-self
         self.blank = self.vocab.get("<pad>", 0)
         self.delim = self.vocab.get("|", 4)
-
-        self.log = logging.getLogger(__name__)
 
     def token_ids(self, word: str) -> list[int] | None:
         """Character ids for one normalized word; None if any character is out of vocab."""
@@ -107,7 +113,7 @@ class Aligner:
 
             logits = self.model(x.to(self.dtype)).logits.float()
             log_probs = torch.log_softmax(logits, dim=-1)
-            for s, chunk_log_probs in zip(group, log_probs):
+            for s, chunk_log_probs in zip(group, log_probs, strict=False):
                 self._place(out, filled, s, chunk_log_probs, trim_frames, total_frames)
 
         for s in tail:
@@ -136,10 +142,7 @@ class Aligner:
             total_frames: int,
     ) -> None:
         """Helper for offsetting an audio span's bounds. Mutates the ``out`` and ``filled`` parameters."""
-        if start == 0:
-            low = 0
-        else:
-            low = trim_frames
+        low = 0 if start == 0 else trim_frames
 
         frame_start = start // self.config.stride
         high = min(total_frames, frame_start + log_probs.shape[0])
@@ -200,7 +203,7 @@ class Aligner:
 
         # use list instead of tuple for mutability
         out: list[SpanScore | None] = [None] * len(words)
-        for span, word_idx in zip(spans, owners):
+        for span, word_idx in zip(spans, owners, strict=False):
             if word_idx < 0:
                 continue
 
@@ -288,6 +291,7 @@ class Aligner:
 @dataclasses.dataclass
 class LongAlignmentResult:
     """Helper dataclass for the result of the alignment of an entire transcript to its entire audio."""
+
     spans: list[SpanScore | None]
     n_failed_words: int
     greedy_decode_score: float
@@ -384,15 +388,16 @@ class LongAlignment:
             self,
             hyp_words: list[tuple[str, int, int]],
             n_frames: int,
-            block_frames=3000,
-            blocks=None
-    ):
+            block_frames: int = 3000,
+            blocks: list[difflib.Match] | None = None
+    ) -> list[tuple[int, int]]:
         """Finds a line of words (min_anchor_run words) that line up with CTC predictions as anchors for speech."""
         max_chars_per_frame = self.config.max_chars_per_frame
         min_anchor_run = self.config.min_anchor_run
 
         if blocks is None:
             blocks = self._match_blocks(hyp_words)
+
         candidates = []
         for h0, r0, size in blocks:
             if size < min_anchor_run:
@@ -434,7 +439,11 @@ class LongAlignment:
 
         return anchors
 
-    def _split_long(self, blocks: list[tuple[int, int, int, int]], max_block_frames) -> list[tuple[int, int, int, int]]:
+    def _split_long(
+            self,
+            blocks: list[tuple[int, int, int, int]],
+            max_block_frames: int
+    ) -> list[tuple[int, int, int, int]]:
         """Using boundaries from alignment calculations, splits long boundaries into smaller plausible sections."""
         out = []
         for w0, w1, f0, f1 in blocks:
@@ -476,6 +485,7 @@ class LongAlignment:
 
 class TokenTimeline:
     """Helper/utility class for the finalized spans for segments from a long speech example."""
+
     spans: list[SpanScore | None]
     ok_mask: list[bool]
 
@@ -546,7 +556,7 @@ class TokenTimeline:
                     if start is not None and end is not None:
                         self.spans[k] = SpanScore(start, max(start, end), 0.0, 1)
                     else:
-                        raise ValueError(f"could not determine start and end for filled gap")
+                        raise ValueError("could not determine start and end for filled gap")
             i = j
 
         # repair

@@ -1,5 +1,4 @@
-"""
-KV Cache implementations for efficient autoregressive generation.
+"""KV Cache implementations for efficient autoregressive generation.
 
 Two strategies:
 1. HuginnKVCache: Shared cache across iterations with circular buffer (default, efficient)
@@ -26,6 +25,7 @@ class KVCache:
     - key_cache: (batch_size, n_kv_heads, seq_len, d_queries)
     - value_cache: (batch_size, n_kv_heads, seq_len, d_values)
     """
+
     key_cache: torch.Tensor | None = None
     value_cache: torch.Tensor | None = None
 
@@ -41,8 +41,7 @@ class KVCache:
             new_keys: torch.Tensor,
             new_values: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Append new keys and values to the cache.
+        """Append new keys and values to the cache.
 
         Args:
             new_keys: New keys, shape (batch, n_kv_heads, new_seq, d_queries)
@@ -50,6 +49,7 @@ class KVCache:
 
         Returns:
             Full key and value tensors including the new tokens.
+
         """
         if self.key_cache is None or self.value_cache is None:
             self.key_cache = new_keys
@@ -60,7 +60,7 @@ class KVCache:
 
         return self.key_cache, self.value_cache
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear the cache."""
         self.key_cache = None
         self.value_cache = None
@@ -69,6 +69,7 @@ class KVCache:
 @dataclasses.dataclass
 class LayerKVCache:
     """KV cache for all layers in a transformer stack."""
+
     layer_caches: dict[int, KVCache] = dataclasses.field(default_factory=dict)
 
     def get_layer(self, layer_idx: int) -> KVCache:
@@ -84,7 +85,7 @@ class LayerKVCache:
             return 0
         return next(iter(self.layer_caches.values())).seq_len
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all layer caches."""
         for cache in self.layer_caches.values():
             cache.clear()
@@ -108,6 +109,7 @@ class HuginnKVCache:
     - slot_caches[slot_idx] = LayerKVCache
     - At iteration i, use slot_caches[i % cache_budget]
     """
+
     cache_budget: int = 16  # Number of circular buffer slots
     slot_caches: dict[int, LayerKVCache] = dataclasses.field(default_factory=dict)
 
@@ -129,7 +131,7 @@ class HuginnKVCache:
             return 0
         return next(iter(self.slot_caches.values())).seq_len
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all slot caches."""
         for cache in self.slot_caches.values():
             cache.clear()
@@ -146,6 +148,7 @@ class PerIterationKVCache:
     Structure:
     - iteration_caches[iteration_idx] = LayerKVCache
     """
+
     max_iterations: int = 64
     iteration_caches: dict[int, LayerKVCache] = dataclasses.field(default_factory=dict)
 
@@ -166,7 +169,7 @@ class PerIterationKVCache:
             return 0
         return next(iter(self.iteration_caches.values())).seq_len
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all iteration caches."""
         for cache in self.iteration_caches.values():
             cache.clear()
@@ -181,7 +184,9 @@ class RecurrentKVCache:
         strategy: "huginn" (default, shared cache) or "per_iteration" (separate caches)
         cache_budget: For huginn strategy, number of circular buffer slots (default 16)
         max_iterations: For per_iteration strategy, maximum iterations to cache
+
     """
+
     strategy: str = "huginn"
     cache_budget: int = 16
     max_iterations: int = 64
@@ -189,7 +194,7 @@ class RecurrentKVCache:
     _huginn_cache: HuginnKVCache | None = dataclasses.field(default=None, init=False)
     _per_iter_cache: PerIterationKVCache | None = dataclasses.field(default=None, init=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Required to have the underlying cache implementation initialized from config."""
         if self.strategy == "huginn":
             self._huginn_cache = HuginnKVCache(cache_budget=self.cache_budget)
@@ -217,7 +222,7 @@ class RecurrentKVCache:
         else:
             raise self._throw_state()
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear the cache."""
         if self.strategy == "huginn" and self._huginn_cache:
             self._huginn_cache.clear()

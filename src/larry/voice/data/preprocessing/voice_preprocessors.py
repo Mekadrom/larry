@@ -14,7 +14,7 @@ class SpeakerValidationSplittingPreprocessor(Preprocessor[SpeakerValidationSplit
 
     def validate(self) -> None:
         """Validate that the config is for one mode or the other fully."""
-        if not self.config.mode or not self.config.mode in ["random", "matching"]:
+        if not self.config.mode or self.config.mode not in ["random", "matching"]:
             raise ValueError("mode must specified and one of [random, matching]")
         if self.config.mode == "random" and not self.config.validation_percent:
             raise ValueError(f"random mode requires setting validation_percent for {type(self).__name__}")
@@ -45,7 +45,7 @@ class SpeakerValidationSplittingPreprocessor(Preprocessor[SpeakerValidationSplit
 
         if isinstance(dataset, DatasetDict):
             raise ValueError(
-                f"dataset is already split; further splitting behavior is undefined, please specify operate_on_split"
+                "dataset is already split; further splitting behavior is undefined, please specify operate_on_split"
             )
 
         is_train = None

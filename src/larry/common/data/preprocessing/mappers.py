@@ -2,11 +2,15 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import torch.cuda
-from datasets import Dataset, Features, DatasetDict, concatenate_datasets
+from datasets import Dataset, DatasetDict, Features, concatenate_datasets
 from datasets.features.features import FeatureType
 
-from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, ValueOverrideMapperConfig, \
-    MapperConfig, CompositeIDMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import (
+    CompositeIDMapperConfig,
+    MapperConfig,
+    SingleColumnMapperConfig,
+    ValueOverrideMapperConfig,
+)
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 
@@ -102,7 +106,7 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
         pairs them with the column_name to create a dict batch to provide to the _preprocess_batch function instead.
         """
         *columns, rank = args
-        return self._preprocess_batch(dict(zip(self.input_columns, columns)), rank)
+        return self._preprocess_batch(dict(zip(self.input_columns, columns, strict=False)), rank)
 
     def _preprocess_batch(self, batch: dict[str, list[Any]], rank: int | None) -> dict[str, list[Any]]:
         """Wrapper/helper that makes sure this mapper instance uses the correct device according to the device index.
@@ -145,7 +149,7 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
         n = sum(dataset.data.column(c).null_count for c in self.output_columns)
         if self.config.filter_null_outputs and n > 0:
             return dataset.filter(
-                lambda *cols: [all(v is not None for v in row) for row in zip(*cols)],
+                lambda *cols: [all(v is not None for v in row) for row in zip(*cols, strict=False)],
                 input_columns=self.output_columns,
                 batched=True,
                 batch_size=self.config.batch_size,
@@ -249,6 +253,6 @@ class CompositeIDMapper(Mapper[CompositeIDMapperConfig]):
         return {
             self.config.id_output_column: [
                 self.config.delim.join(str(i) for i in example_inputs)
-                for example_inputs in zip(*input_columns)
+                for example_inputs in zip(*input_columns, strict=False)
             ]
         }

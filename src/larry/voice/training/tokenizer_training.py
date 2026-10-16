@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 @dataclasses.dataclass
 class SourceText:
     """Helper dataclass for counting how many times the exact same sentence has occurred."""
+
     name: str
     weight: float
     seconds: float

@@ -24,6 +24,7 @@ class ModelInitLoggingCallback(TrainingCallback):
     """Implementation of ``TrainingCallback`` that logs metrics once at training start (step 0)."""
 
     def __init__(self) -> None:
+        """Simple init."""
         self.log = logging.getLogger(type(self).__name__)
 
     def on_step_begin(self, trainer: trainers.TrainerBase, step: int) -> MetricDict | None:

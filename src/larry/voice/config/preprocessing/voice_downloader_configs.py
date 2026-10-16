@@ -1,13 +1,18 @@
 import dataclasses
 from collections.abc import Sequence
 
-from larry.common.config.data.downloader_configs import MultiFileDownloaderConfig, RangedIndexMultiFileDownloaderConfig, \
-    DownloaderConfig, SingleFileDownloaderConfig
+from larry.common.config.data.downloader_configs import (
+    DownloaderConfig,
+    MultiFileDownloaderConfig,
+    RangedIndexMultiFileDownloaderConfig,
+    SingleFileDownloaderConfig,
+)
 
 
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSDownloaderConfig:
     """Base config for SCOTUS downloader implementations."""
+
     base_url: str
     term_manifest_file_name: str
     docket_manifest_file_name: str
@@ -40,4 +45,5 @@ class SCOTUSTermManifestDownloaderConfig(RangedIndexMultiFileDownloaderConfig, S
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSDocketManifestDownloaderConfig(MultiFileDownloaderConfig, SCOTUSDownloaderConfig):
     """Combines ``MultiFileDownloaderConfig`` with ``SCOTUSDownloaderConfig``."""
+
     ...

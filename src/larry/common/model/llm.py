@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from larry.common.config.model.model_configs import LLMBlockModuleConfig, AttentionModuleConfig
+from larry.common.config.model.model_configs import AttentionModuleConfig, LLMBlockModuleConfig
 from larry.common.model.attention import LarryAttention
 
 
@@ -31,7 +31,9 @@ class LarrySimpleEncoderBlock(nn.Module):
 
 class LarrySimpleDecoderBlock(nn.Module):
     """Simple transformer decoder block consisting of self attention, cross attention, and an MLP with post-norms."""
+
     def __init__(self, config: LLMBlockModuleConfig) -> None:
+        """Initializes a decoder block module with self attention, cross attention, and an MLP with post-norm."""
         super().__init__()
 
         self.self_attn = LarryAttention(AttentionModuleConfig.from_child(config))

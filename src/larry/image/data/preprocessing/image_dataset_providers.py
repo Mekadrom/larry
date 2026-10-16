@@ -13,4 +13,5 @@ class GoogleDOCCIMediaCachedDatasetProvider(MediaCachedDatasetProvider[GoogleDOC
 
     @property
     def load_input_data_files(self) -> Mapping[str, str]:
+        """Returns the descriptions file, which is jsonlines, to start as the raw dataset."""
         return {"train": str(self.download_extract_cache_dir / self.config.descriptions_file)}

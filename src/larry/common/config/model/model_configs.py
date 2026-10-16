@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Literal, Self, ClassVar
+from typing import ClassVar, Literal, Self
 
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
@@ -12,6 +12,7 @@ class ModelConfig(Registrable, root=True):
     Includes configuration for a maximum sequence length (since all ``LarryModel`` implementations work on sequential,
     varying length data) and a base d_model.
     """
+
     REGISTRY: ClassVar[TypeRegistry[ModelConfig]]
 
     d_model: int = 16
@@ -22,6 +23,7 @@ class ModelConfig(Registrable, root=True):
 @dataclasses.dataclass(kw_only=True)
 class AttentionModuleConfig(ModelConfig):
     """Config class for all ``LarryModel`` implementations which require configuring ``LarryAttention`` submodules."""
+
     n_query_groups: int = 1
     n_heads: int = 16
     use_qkv_bias: bool = False
@@ -41,14 +43,14 @@ class AttentionModuleConfig(ModelConfig):
     def from_child(cls, config: AttentionModuleConfig) -> Self:
         """Instantiates an instance of ``AttentionModuleConfig``.
 
-         Uses the applicable values from an instance of a subclass of ``AttentionModuleConfig`` to override defaults.
-         """
+        Uses the applicable values from an instance of a subclass of ``AttentionModuleConfig`` to override defaults.
+        """
         config_dict = dataclasses.asdict(config)
         dummy = dataclasses.asdict(cls())
         return cls(**{
             k: config_dict.get(k, v)
             for k, v in dummy.items()
-            if k in config_dict.keys()
+            if k in config_dict
         })
 
 
@@ -58,6 +60,7 @@ class LLMBlockModuleConfig(AttentionModuleConfig):
 
     For use in configuring block modules containing both instance(s) of an ``LarryAttention`` and an FFN.
     """
+
     mlp_dropout_p: float = 0.1
 
 
@@ -68,5 +71,6 @@ class FSMNAttentionConfig(AttentionModuleConfig):
     For use in configuring the specialized implementation of ``LarryAttention``, ``FSMNAttention`` which incorporates a
     CNN FSMN memory branch, and overrides the default value for ``is_causal`` to False for bidirectional attention.
     """
+
     fsmn_kernel_size: int = 31
     is_causal: bool = False

@@ -11,13 +11,14 @@ import torch
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
 from larry.voice.config.preprocessing.voice_configs import TranscriptConfig
-from larry.voice.data.preprocessing.alignment import SpanScore, Aligner
+from larry.voice.data.preprocessing.alignment import Aligner, SpanScore
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 
 
 @dataclasses.dataclass
 class Turn:
     """Helper dataclass for a single speaker: speech turn."""
+
     speaker: str
     text: str
     line_start: int
@@ -27,6 +28,7 @@ class Turn:
 @dataclasses.dataclass
 class FlattenedTranscript:
     """Helper dataclass for storing the final result of a parsed transcript as various aligned arrays."""
+
     tokens: list[str] = dataclasses.field(default_factory=list)
     groups: list[int] = dataclasses.field(default_factory=list)
     turn_idx: list[int] = dataclasses.field(default_factory=list)
@@ -49,6 +51,7 @@ def pdf_bytes_to_text(data: bytes) -> str:
 
 class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=True):
     """Superclass for transcripts, contains helpers for parsing both from raw and from already-parsed transcripts."""
+
     REGISTRY: ClassVar[TypeRegistry[Transcript]]
 
     _config: C
@@ -132,6 +135,7 @@ class Transcript[C: TranscriptConfig = TranscriptConfig](Registrable, ABC, root=
 
 class NormalizedTokens:
     """Helper utility class for choosing canonical normalized tokens for readings."""
+
     tokens: list[str]
     readings: list[list[list[str]]]  # token -> options -> words
     choice: list[int]
@@ -146,7 +150,7 @@ class NormalizedTokens:
         self.tokens = tokens
         self.readings = [
             normalizer.normalize_token(token, prev_token)
-            for token, prev_token in zip(tokens, [None] + tokens)
+            for token, prev_token in zip(tokens, [None] + tokens, strict=False)
         ]
 
         self.choice = [0] * len(self.readings)
@@ -243,6 +247,7 @@ class NormalizedTokens:
 
 class TokenStream(NormalizedTokens):
     """Container for a flattened transcript that inherits from ``NormalizedTokens`` to produce a stream of outputs."""
+
     ftr: FlattenedTranscript
 
     def __init__(self, ftr: FlattenedTranscript, normalizer: TextNormalizer) -> None:

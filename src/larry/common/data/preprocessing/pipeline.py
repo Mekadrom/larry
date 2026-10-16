@@ -19,6 +19,7 @@ from larry.common.data.utils import save_parquet_shards
 
 class Pipeline:
     """Management class for preprocessing pipelines; handles configuration loading/parsing and final output saving."""
+
     output_dir: Path
     state: pipeline_config.PipelineState
     provenance_only: bool
@@ -64,7 +65,7 @@ class Pipeline:
         try:
             self.preprocess_all()
             self.log.info("Preprocessing finished.")
-        except:
+        except Exception:
             self.log.exception("Error during preprocessing:")
             sys.exit(-2)
 
@@ -154,7 +155,7 @@ class Pipeline:
         indices[-1] = n
         return DatasetDict({
             name: dataset.select(range(int(a), int(b)))
-            for name, a, b in zip(fractions, indices[:-1], indices[1:])
+            for name, a, b in zip(fractions, indices[:-1], indices[1:], strict=False)
         })
 
     def _save_shards(self, dataset: DatasetDict) -> None:

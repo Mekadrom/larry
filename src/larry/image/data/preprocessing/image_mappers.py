@@ -2,16 +2,16 @@ import io
 
 import datasets
 import torch
-from PIL import Image
 from datasets.features.features import FeatureType
+from PIL import Image
 from torchvision import transforms
-from torchvision.io import encode_jpeg, decode_image, ImageReadMode
+from torchvision.io import ImageReadMode, decode_image, encode_jpeg
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
 from larry.common.utils.types import EncodedImage
-from larry.image.config.preprocessing.image_mapper_configs import UrlImageMapperConfig, ImageResizingMapperConfig
+from larry.image.config.preprocessing.image_mapper_configs import ImageResizingMapperConfig, UrlImageMapperConfig
 from larry.image.data.preprocessing import image_transforms as larry_image_transforms
 
 

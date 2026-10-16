@@ -8,6 +8,7 @@ from larry.common.training import trainers
 
 class TrainingRun:
     """Wraps a trainer with the run config and state."""
+
     state: training_config.TrainingRunState
     config: training_config.TrainingRunConfig
     trainer: trainers.TrainerBase
@@ -26,6 +27,6 @@ class TrainingRun:
         try:
             self.trainer.run()
             self.log.info("Training run finished.")
-        except:
+        except Exception:
             self.log.exception("Error during training run:")
             sys.exit(-2)

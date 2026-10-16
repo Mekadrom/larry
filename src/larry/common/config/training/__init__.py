@@ -8,6 +8,7 @@ log = logging.getLogger(__name__)
 
 
 def build_trainer_config(trainer_config_dict: dict[str, Any]) -> LarryTrainerConfig:
+    """Utility method for constructing a trainer config instance from a dictionary."""
     trainer_config_type_name = trainer_config_dict.get("config")
     trainer_config_type = LarryTrainerConfig.REGISTRY.resolve(trainer_config_type_name)
 
@@ -21,6 +22,7 @@ def build_trainer_config(trainer_config_dict: dict[str, Any]) -> LarryTrainerCon
 
 
 def build_model_config(model_config_dict: dict[str, Any]) -> ModelConfig:
+    """Utility method for constructing a model config instance from a dictionary."""
     model_config_type_name = model_config_dict.get("config")
     model_config_type = ModelConfig.REGISTRY.resolve(model_config_type_name)
 

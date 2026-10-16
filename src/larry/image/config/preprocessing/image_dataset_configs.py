@@ -1,17 +1,21 @@
 import dataclasses
 from collections.abc import Sequence
 
-from datasets import Image, Audio
+from datasets import Audio, Image
 
-from larry.common.config.data.downloader_configs import MultiFileDownloaderConfig, SingleFileDownloaderConfig, \
-    DownloaderConfig
-from larry.common.config.data.extractor_configs import SingleFileExtractorConfig, ExtractorConfig
-from larry.common.config.data.preprocessing.dataset_configs import MediaCachedDatasetConfig, DatasetConfig
+from larry.common.config.data.downloader_configs import (
+    DownloaderConfig,
+    MultiFileDownloaderConfig,
+    SingleFileDownloaderConfig,
+)
+from larry.common.config.data.extractor_configs import ExtractorConfig, SingleFileExtractorConfig
+from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig, MediaCachedDatasetConfig
 
 
 @dataclasses.dataclass
 class ImageDatasetConfig(DatasetConfig):
     """Superclass config for all image dataset configs."""
+
     ...
 
 

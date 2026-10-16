@@ -201,7 +201,6 @@ class SpeechTokenizerModel(VoiceModel[SpeechTokenizerModelConfig], PyTorchModelH
 
     def forward(self, waveforms: torch.Tensor, waveform_lengths: torch.Tensor) -> LarrySpeechTokenizerModelOutput:
         """Given waveforms, produces a model output contained both the bottleneck token IDs and CTC ASR predictions."""
-
         mels, mel_lengths = self.frontend(waveforms, waveform_lengths)
         if self.training and (self.config.n_spec_time_masks > 0 or self.config.n_spec_freq_masks > 0):
             mels = self._spec_augment(

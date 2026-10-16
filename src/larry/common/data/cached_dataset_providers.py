@@ -1,14 +1,14 @@
 import glob
 import logging
 import os.path
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from functools import partial
 from pathlib import Path
 from typing import Any
 
 import datasets
-from datasets import DatasetDict, Dataset, IterableDatasetDict, IterableDataset, Features
+from datasets import Dataset, DatasetDict, Features, IterableDataset, IterableDatasetDict
 from datasets.table import embed_table_storage
 
 from larry.common.config.data.preprocessing.dataset_configs import CachedDatasetConfig, MediaCachedDatasetConfig
@@ -229,6 +229,7 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
 
     @abstractmethod
     def transform_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        """For transforming the raw TSV/CSV/whatever dataset into the materialized form."""
         ...
 
 

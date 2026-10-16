@@ -9,6 +9,7 @@ from larry.common.utils.types import TypeRegistry
 @dataclasses.dataclass(kw_only=True)
 class DownloaderConfig(Registrable, root=True):
     """Superclass for configs for all ``Downloader`` implementations."""
+
     REGISTRY: ClassVar[TypeRegistry[DownloaderConfig]]
 
     busy_wait: float = 0.0
@@ -18,6 +19,7 @@ class DownloaderConfig(Registrable, root=True):
 @dataclasses.dataclass(kw_only=True)
 class SingleFileDownloaderConfig(DownloaderConfig):
     """Superclass for configs for all ``SingleFileDownloader`` implementations."""
+
     download_base_url: str
     output_file_name: str
     download_path: str | None = None
@@ -29,6 +31,7 @@ class SingleFileDownloaderConfig(DownloaderConfig):
 @dataclasses.dataclass(kw_only=True)
 class SingleFileBackupDownloaderConfig(SingleFileDownloaderConfig):
     """Placeholder subclass for ``SingleFileBackupDownloader`` in case it ever needs additional specific config."""
+
     ...
 
 
@@ -36,19 +39,18 @@ class SingleFileBackupDownloaderConfig(SingleFileDownloaderConfig):
 class MultiFileDownloaderConfig(DownloaderConfig):
     """Config class for ``MultiFileDownloader``.
 
-     Allows for the configuration of multiple ordered delegate ``SingleFileDownloaderConfigs``.
-     """
+    Allows for the configuration of multiple ordered delegate ``SingleFileDownloaderConfigs``.
+    """
+
     configs: Sequence[tuple[str, SingleFileDownloaderConfig]] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(kw_only=True)
 class RangedIndexMultiFileDownloaderConfig(MultiFileDownloaderConfig):
-    """Config class for ``RangedIndexMultiFileDownloader``.
-
-    Allows for the overriding of a function to return a ranged set of ``DownloaderConfig`` instances.
-    """
+    """Config class for ``RangedIndexMultiFileDownloader``."""
 
     def configs_for(self, range_value: int) -> Sequence[tuple[str, DownloaderConfig]]:
+        """Allows for overriding to return a ranged set of ``DownloaderConfig`` instances."""
         ...
 
     range_desc: str

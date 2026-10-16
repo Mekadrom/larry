@@ -7,4 +7,5 @@ from larry.image.model.image_models import ImageModel
 
 class ImageTrainer[M: ImageModel, C: ImageLarryTrainerConfig = ImageLarryTrainerConfig](LarryTrainer[M, C], ABC):
     """Superclass for all image trainers."""
+
     ...

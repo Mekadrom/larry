@@ -1,12 +1,13 @@
 import dataclasses
 
-from larry.common.config.model.model_configs import ModelConfig, LLMBlockModuleConfig
+from larry.common.config.model.model_configs import LLMBlockModuleConfig, ModelConfig
 from larry.voice.config.preprocessing.voice_configs import SampleRateConfig
 
 
 @dataclasses.dataclass(kw_only=True)
 class VoiceModelConfig(ModelConfig, SampleRateConfig):
     """Superclass for voice model configs, setting global defaults."""
+
     n_fft: int = 1024
     n_mels: int = 100
     hop_length: int = 160
@@ -15,12 +16,14 @@ class VoiceModelConfig(ModelConfig, SampleRateConfig):
 @dataclasses.dataclass(kw_only=True)
 class ASRVoiceModelConfig(VoiceModelConfig):
     """Override for ``VoiceModelConfig`` that changes the n_fft for ASR models."""
+
     n_fft: int = 400
 
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechTokenizerModelConfig(ASRVoiceModelConfig, LLMBlockModuleConfig):
     """Combines the ``ASRVoiceModelConfig`` and ``LLMBlockModuleConfig`` to configure a ``SpeechTokenizerModel``."""
+
     subsampler_stride: int = 2
     n_query_groups: int = 16
 

@@ -2,7 +2,7 @@ import copy
 import dataclasses
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Self
 
@@ -21,6 +21,7 @@ class ProvenanceAncestry:
 
     Shared by preprocessing and training pipelines.
     """
+
     datasets: set[str]
     models: set[str]
 
@@ -33,14 +34,17 @@ class ProvenanceAncestry:
 
     @classmethod
     def from_dict(cls, a_dict: dict[str, Any]) -> Self:
+        """Creates a new ``ProvenanceAncestry`` instance using the provided dictionary as field values."""
         datasets = a_dict.get("datasets")
         if datasets is None:
             datasets = set()
+
         datasets = set(datasets)
 
         models = a_dict.get("models")
         if models is None:
             models = set()
+
         models = set(models)
         return cls(datasets=datasets, models=models)
 
@@ -48,6 +52,7 @@ class ProvenanceAncestry:
 @dataclasses.dataclass(kw_only=True)
 class Provenance:
     """Helper dataclass for tracking the provenance of outputs of either preprocessing or training pipelines."""
+
     id_columns: list[str]
     ancestry: ProvenanceAncestry
     produced_on: str | None = None
@@ -72,7 +77,7 @@ class Provenance:
 
     def populate_mutables(self) -> None:
         """Populates instantaneous information onto ``self``."""
-        self.produced_on = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.produced_on = datetime.now(UTC).isoformat(timespec="seconds")
 
         repo_state = git_utils.git_info()
         if repo_state is not None:
@@ -96,6 +101,7 @@ class PipelineConfig:
 
 class PipelineState:
     """Delegate for pipeline and preprocessing config parsing functionality and state storage for a run."""
+
     config: PipelineConfig
     dataset_provider: DatasetProvider
     pipeline: list[Preprocessor]
@@ -117,7 +123,7 @@ class PipelineState:
         dataset_config_dict: dict[str, Any] = definition.get("dataset", {})
 
         dataset_config_type_name = dataset_config_dict.get("config")
-        dataset_config_split_fractions = dataset_config_dict.get("splits", None)
+        dataset_config_split_fractions = dataset_config_dict.get("splits")
         self.fractions: dict[str, float] | None = None
         if dataset_config_split_fractions:
             self.fractions = {i["name"]: i["part"] for i in dataset_config_split_fractions}

@@ -1,6 +1,6 @@
 import dataclasses
 from abc import ABC
-from typing import Literal, Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
@@ -9,6 +9,7 @@ from larry.common.utils.types import TypeRegistry
 @dataclasses.dataclass(kw_only=True)
 class LarryTrainerConfig(Registrable, ABC, root=True):
     """Superclass config for all ``TrainerBase`` and ``LarryTrainer`` implementations."""
+
     REGISTRY: ClassVar[TypeRegistry[LarryTrainerConfig]]
 
     dataset_config: dict[str, Any] = dataclasses.field(default_factory=dict)

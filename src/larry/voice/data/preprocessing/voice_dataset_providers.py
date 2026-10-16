@@ -3,16 +3,20 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from datasets import Features, Value, Dataset
+from datasets import Dataset, Features, Value
 from torchcodec.decoders import AudioDecoder
 
-from larry.common.data.cached_dataset_providers import MediaCachedDatasetProvider, CachedDatasetProvider
-from larry.voice.config.preprocessing.voice_dataset_configs import CommonVoiceDatasetConfig, \
-    SCOTUSManifestCachedDatasetConfig, VCTKCachedDatasetProviderConfig
+from larry.common.data.cached_dataset_providers import CachedDatasetProvider, MediaCachedDatasetProvider
+from larry.voice.config.preprocessing.voice_dataset_configs import (
+    CommonVoiceDatasetConfig,
+    SCOTUSManifestCachedDatasetConfig,
+    VCTKCachedDatasetProviderConfig,
+)
 
 
 class CommonVoiceMediaCachedDatasetProvider(MediaCachedDatasetProvider[CommonVoiceDatasetConfig]):
     """For extracting an already-downloaded Common Voice 27.0 archive and turning it into an HF dataset of parquets."""
+
     _archive_root: Path
     _audio_durations: dict[str, float]
 
@@ -59,7 +63,7 @@ class CommonVoiceMediaCachedDatasetProvider(MediaCachedDatasetProvider[CommonVoi
         """Supermethod pulls the media by path into the batch, this implementation joins duration_s."""
         batch = super().transform_batch(batch)
         batch.update({
-            "duration_s": [self._get_audio_duration(p, a) for p, a in zip(batch["path"], batch["audio"])]
+            "duration_s": [self._get_audio_duration(p, a) for p, a in zip(batch["path"], batch["audio"], strict=False)]
         })
         return batch
 
@@ -74,6 +78,7 @@ class CommonVoiceMediaCachedDatasetProvider(MediaCachedDatasetProvider[CommonVoi
 
 class SCOTUSManifestCachedDatasetProvider(CachedDatasetProvider[SCOTUSManifestCachedDatasetConfig]):
     """Downloads and loads the SCOTUS manifest as a dataset with only URLs, no materialized audio."""
+
     _archive_root: Path
 
     def __init__(self, config: SCOTUSManifestCachedDatasetConfig) -> None:

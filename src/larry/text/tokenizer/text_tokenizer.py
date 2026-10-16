@@ -1,4 +1,4 @@
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from typing import ClassVar
 
 import sentencepiece
@@ -9,6 +9,7 @@ from larry.common.utils.types import TypeRegistry
 
 class TextTokenizer(Registrable, ABC, root=True):
     """Superclass for wrapping text tokenizers trained within this project."""
+
     REGISTRY: ClassVar[TypeRegistry[TextTokenizer]]
 
     @abstractmethod

@@ -317,12 +317,13 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
         return start, end
 
     @staticmethod
-    def _looks_like_note_text(text):
+    def _looks_like_note_text(text: str) -> str | None:
         """If a given line looks like a stage direction or note, returns that text. Otherwise, returns None.
 
         Example:
             MR. SPEAKER: Chief Justice, what do we do?
             (Chief Justice Roberts pulls out lightsaber) <- stage direction line
+
         """
         # match opening and closing parentheses appearing uninterrupted in one line
         m = _NOTE_CLOSED.match(text)
@@ -486,7 +487,7 @@ class SCOTUSTranscript(Transcript[SCOTUSTranscriptConfig]):
             return f"scotus:{self.docket}:{up}", "unknown"
 
         if up == "THE COURT":
-            return f"scotus:unknown", "unknown"
+            return "scotus:unknown", "unknown"
 
         surname = up.split()[-1].strip(".,")
         if _BENCH_TITLE.match(up):

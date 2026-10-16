@@ -6,6 +6,7 @@ from larry.voice.config.preprocessing.voice_mapper_configs import SpeechSegmenta
 @dataclasses.dataclass(kw_only=True)
 class SCOTUSSpeechSegmentationAligningMapperConfig(SpeechSegmentationAligningMapperConfig):
     """Configures a ``SCOTUSSpeechSegmentationAligningMapper``."""
+
     text_column: str = "transcript"
     pdf_bytes_column: str = "pdf_bytes"
     date_argued_column: str = "date_argued"

@@ -6,7 +6,7 @@ from torchvision.transforms.v2 import functional as TVF
 class PadToEqualSize(nn.Module):
     """A custom torchvision transform that intelligently pads on all 4 sides as required."""
 
-    def __init__(self, fill_value: float = 0.0, padding_mode: str = "constant"):
+    def __init__(self, fill_value: float = 0.0, padding_mode: str = "constant") -> None:
         """Configures the padding transform to run on images."""
         super().__init__()
         self.fill_value = fill_value

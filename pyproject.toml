@@ -45,6 +45,7 @@ torchaudio = { index = "pytorch-cu130" }
 
 [tool.ruff]
 line-length = 122
+exclude = ["tests"]
 
 [tool.ruff.lint]
 select = [

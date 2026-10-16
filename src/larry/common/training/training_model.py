@@ -1,7 +1,7 @@
 import dataclasses
 import logging
-from abc import abstractmethod, ABC
-from typing import ClassVar
+from abc import ABC, abstractmethod
+from typing import Any, ClassVar
 
 import torch
 from torch import nn
@@ -14,6 +14,7 @@ from larry.common.utils.types import TypeRegistry
 @dataclasses.dataclass(kw_only=True)
 class GenerationOutput:
     """Superclass for any sort of model output from models/modules in this project."""
+
     ...
 
 
@@ -27,7 +28,7 @@ class GenerativeModel[I, O: GenerationOutput](ABC):
             *,
             num_samples: int = 1,
             generator: torch.Generator | None = None,
-            **sampling_kwargs
+            **sampling_kwargs: Any
     ) -> O:
         """Accepts various configurations and evaluates a model with successive iterative state to generate outputs."""
         ...
@@ -35,9 +36,10 @@ class GenerativeModel[I, O: GenerationOutput](ABC):
 
 class LarryModel[C: ModelConfig = ModelConfig](nn.Module, Registrable, ABC, root=True):
     """Superclass for most models in this project that need a config and device."""
+
     REGISTRY: ClassVar[TypeRegistry[LarryModel]]
 
-    def __init__(self, config: C):
+    def __init__(self, config: C) -> None:
         """Simple init to provide a config and logger."""
         self.log = logging.getLogger(type(self).__name__)
 

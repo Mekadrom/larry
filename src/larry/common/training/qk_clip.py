@@ -2,11 +2,12 @@ import torch
 from torch import nn
 
 from larry.common.metrics.metrics import MetricDict, ScalarMetricEntry
-from larry.common.training import trainers, callbacks
+from larry.common.training import callbacks, trainers
 
 
 class QKModule:
     """Marker interface for attention modules to inherit from and define fields on (duck typing also does this)."""
+
     q_proj: nn.Linear
     k_proj: nn.Linear
     d_queries: int
@@ -133,7 +134,7 @@ class QKClipHandler:
 class QKClipCallback(callbacks.TrainingCallback):
     """Arms the probe before the forward, applies the clip after optimizer.step()."""
 
-    def __init__(self, handler: QKClipHandler):
+    def __init__(self, handler: QKClipHandler) -> None:
         """Simply sets a delegate handler."""
         self.handler = handler
 

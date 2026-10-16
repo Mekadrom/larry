@@ -1,14 +1,11 @@
 import logging
-from abc import ABC
-from abc import abstractmethod
-from collections.abc import Sequence, Mapping
+from abc import ABC, abstractmethod
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
-from typing import Union
 
 import datasets
-from datasets import DatasetDict, Dataset, IterableDatasetDict, IterableDataset, NamedSplit
-from datasets import Split
+from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, NamedSplit, Split
 
 from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig
 from larry.common.utils.registrable import Registrable
@@ -17,6 +14,7 @@ from larry.common.utils.types import TypeRegistry
 
 class DatasetProvider[C: DatasetConfig = DatasetConfig](Registrable, ABC, root=True):
     """Superclass for all dataset providers for training or preprocessing pipelines."""
+
     REGISTRY: ClassVar[TypeRegistry[DatasetProvider]]
 
     _config: C
@@ -32,7 +30,7 @@ class DatasetProvider[C: DatasetConfig = DatasetConfig](Registrable, ABC, root=T
         return self._config
 
     @abstractmethod
-    def load_dataset(self) -> Union[DatasetDict, Dataset, IterableDatasetDict, IterableDataset]:
+    def load_dataset(self) -> DatasetDict | Dataset | IterableDatasetDict | IterableDataset:
         """Primary entrypoint for consumers of the dataset provider.
 
         The assumption for consumers of this method's outputs is that all work needed to be done prior to preprocessing

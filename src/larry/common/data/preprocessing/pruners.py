@@ -40,8 +40,8 @@ class Pruner[C: PrunerConfig = PrunerConfig](Preprocessor[C]):
         """
         names = self.config.input_columns
         keep = []
-        for values in zip(*columns):
-            row = dict(zip(names, values))
+        for values in zip(*columns, strict=False):
+            row = dict(zip(names, values, strict=False))
             keep.append(self._keep_example(row))
         return keep
 
@@ -66,7 +66,7 @@ class Pruner[C: PrunerConfig = PrunerConfig](Preprocessor[C]):
 class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
     """Pruner implementation that does complex logic to determine if a row should be kept based on its values."""
 
-    def __init__(self, provenance: Provenance, config: ColumnValuesPrunerConfig):
+    def __init__(self, provenance: Provenance, config: ColumnValuesPrunerConfig) -> None:
         """Sets up the delegate operation for determining whether to keep or prune rows."""
         super().__init__(provenance, config)
         op_name = self.config.op
@@ -145,16 +145,12 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
         if example is None:
             return False
 
-        min_value: float | None = op_config.get("min_value", None)
-        max_value: float | None = op_config.get("max_value", None)
+        min_value: float | None = op_config.get("min_value")
+        max_value: float | None = op_config.get("max_value")
 
-        if min_value is not None:
-            if example <= min_value:
-                return False
-        if max_value is not None:
-            if example >= max_value:
-                return False
-        return True
+        if min_value is not None and example <= min_value:
+            return False
+        return not (max_value is not None and example >= max_value)
 
     @classmethod
     def op_nin_range(cls, op_config: dict[str, Any], example: Any) -> bool:

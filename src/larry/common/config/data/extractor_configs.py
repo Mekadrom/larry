@@ -1,25 +1,26 @@
 import dataclasses
 import logging
-from collections.abc import Sequence
 
 
 @dataclasses.dataclass(kw_only=True)
 class ExtractorConfig:
     """Superclass for all configs for ``Extractor`` implementations."""
+
     ...
 
 
 @dataclasses.dataclass(kw_only=True)
 class SingleFileExtractorConfig(ExtractorConfig):
     """Config class for all ``SingleFileExtractor`` implementations."""
+
     input_file_name: str
     archive_root: str
 
     def __post_init__(self) -> None:
         """Required in order to default the value of ``archive_root``.
 
-         Defaults to a supposedly sensible value consisting of the target archive name minus its file extension.
-         """
+        Defaults to a supposedly sensible value consisting of the target archive name minus its file extension.
+        """
         self.archive_root = self.archive_root or self._strip_archive_suffix(self.input_file_name)
 
     @staticmethod

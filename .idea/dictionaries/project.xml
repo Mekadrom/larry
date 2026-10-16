@@ -6,6 +6,7 @@
       <w>adamw</w>
       <w>argparser</w>
       <w>asrctcmismatchcolumnvaluesprunerconfig</w>
+      <w>cers</w>
       <w>convs</w>
       <w>datashare</w>
       <w>freqs</w>
@@ -22,6 +23,7 @@
       <w>subdirs</w>
       <w>vctkcacheddatasetprovider</w>
       <w>vctkcacheddatasetproviderconfig</w>
+      <w>wers</w>
       <w>wessler</w>
     </words>
   </dictionary>

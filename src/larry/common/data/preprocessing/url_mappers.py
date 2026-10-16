@@ -9,7 +9,7 @@ import requests
 from datasets import Value
 from datasets.features.features import FeatureType
 
-from larry.common.config.data.preprocessing.mapper_configs import UrlMapperConfig, UrlBytesMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import UrlBytesMapperConfig, UrlMapperConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import SingleColumnMapper
 
@@ -35,10 +35,7 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
         connection pooling/sharing via a ``Session`` and a configurable busy wait sleep timer for throttling scraping.
         """
         url_hash = str(hashlib.sha256(example.encode('utf-8')).hexdigest())
-        if self.download_cache_dir is not None:
-            cache_file_path = self.download_cache_dir / url_hash
-        else:
-            cache_file_path = None
+        cache_file_path = self.download_cache_dir / url_hash if self.download_cache_dir is not None else None
 
         content = None
         if cache_file_path is not None and cache_file_path.exists() and os.path.getsize(cache_file_path) > 0:
@@ -160,11 +157,10 @@ class UrlBytesMapper(UrlMapper[bytes, UrlBytesMapperConfig]):
 
     def validate_content(self, example: str, content: bytes) -> None:
         """Validates conditionally that the bytes in the response start with some expected content prefix."""
-        if self.config.validate_starts_with is not None:
-            if not content.startswith(self.config.validate_starts_with.encode()):
-                raise ValueError(
-                    f"did not start with {self.config.validate_starts_with}: {example} - {str(content)[:200]!r}"
-                )
+        if self.config.validate_starts_with and not content.startswith(self.config.validate_starts_with.encode()):
+            raise ValueError(
+                f"did not start with {self.config.validate_starts_with}: {example} - {str(content)[:200]!r}"
+            )
 
     def extract_content(self, example: str, content: bytes) -> bytes:
         """Identity to extract bytes from a URL."""

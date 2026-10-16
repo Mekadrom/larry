@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Literal, Any
+from typing import Any, Literal
 
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
 
@@ -10,6 +10,7 @@ class SpeakerValidationSplittingPreprocessorConfig(PreprocessorConfig):
 
     Sets the behavior to a default that fails validation to force configuration to be made intentionally.
     """
+
     duration_column: str = "duration_s"
     speaker_id_column: str = "speaker_id"
 

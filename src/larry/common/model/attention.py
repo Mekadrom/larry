@@ -2,8 +2,7 @@ import math
 
 import torch
 import torch.nn.functional as F
-from rotary_embedding_torch import RotaryEmbedding
-from rotary_embedding_torch import apply_rotary_emb
+from rotary_embedding_torch import RotaryEmbedding, apply_rotary_emb
 from torch import nn
 
 from larry.common.config.model.model_configs import AttentionModuleConfig, FSMNAttentionConfig
@@ -14,7 +13,7 @@ from larry.common.training.qk_clip import QKModule
 class LarryAttention(nn.Module, QKModule):
     """Generic attention module. Supports KV cache."""
 
-    def __init__(self, config: AttentionModuleConfig):
+    def __init__(self, config: AttentionModuleConfig) -> None:
         """Initializes all modules required for the provided configuration."""
         super().__init__()
         self.config = config

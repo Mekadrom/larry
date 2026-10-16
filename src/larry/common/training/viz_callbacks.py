@@ -1,10 +1,10 @@
 import logging
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 
 import torch
 
 from larry.common.metrics.metrics import MetricDict
-from larry.common.training import trainers, callbacks
+from larry.common.training import callbacks, trainers
 
 
 class VizCallback(callbacks.TrainingCallback, ABC):

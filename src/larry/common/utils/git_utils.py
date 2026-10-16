@@ -8,6 +8,7 @@ import git
 @dataclasses.dataclass
 class RepoState:
     """Helper dataclass for storing git information."""
+
     git_commit: str
     git_dirty: bool
 

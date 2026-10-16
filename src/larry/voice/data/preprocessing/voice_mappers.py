@@ -1,13 +1,13 @@
 import io
 import re
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
 
 import av
 import torch
-from datasets import Dataset, Audio, DatasetDict
-from datasets.features.features import FeatureType, Value, Features
+from datasets import Audio, Dataset, DatasetDict
+from datasets.features.features import Features, FeatureType, Value
 from torchcodec.decoders import AudioDecoder
 from torchcodec.encoders import AudioEncoder
 
@@ -18,13 +18,16 @@ from larry.common.data.preprocessing.url_mappers import UrlMapper
 from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedAudio
 from larry.voice.config.preprocessing.voice_configs import AlignerConfig
-from larry.voice.config.preprocessing.voice_mapper_configs import UrlAudioMapperConfig, AudioDurationMapperConfig, \
-    SpeechSegmentationAligningMapperConfig, \
-    CTCScoreMapperConfig
-from larry.voice.data.preprocessing.alignment import LongAlignment, TokenTimeline, Aligner
+from larry.voice.config.preprocessing.voice_mapper_configs import (
+    AudioDurationMapperConfig,
+    CTCScoreMapperConfig,
+    SpeechSegmentationAligningMapperConfig,
+    UrlAudioMapperConfig,
+)
+from larry.voice.data.preprocessing.alignment import Aligner, LongAlignment, TokenTimeline
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 from larry.voice.data.preprocessing.segmentation import Segmenter
-from larry.voice.data.preprocessing.transcript import TokenStream, Turn, Transcript, NormalizedTokens
+from larry.voice.data.preprocessing.transcript import NormalizedTokens, TokenStream, Transcript, Turn
 from larry.voice.utils import bytes_to_waveforms
 
 _ALIGNERS: dict[str, Aligner] = {}
@@ -134,7 +137,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         aligner = _lazy_get_aligner(self.config.aligner_config, self.device_index)
         normalizer = _lazy_get_normalizer(self.config, self.make_normalizer)
 
-        for i, (audio, text) in enumerate(zip(audios, texts)):
+        for i, (audio, text) in enumerate(zip(audios, texts, strict=False)):
             waveform = bytes_to_waveforms(audio["bytes"], self.config.sample_rate)[0]
             emissions = aligner.ctc_emissions(waveform)
 
@@ -193,7 +196,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         tr.load_appearances()
         return tr
 
-    def output_features(self, dataset):
+    def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
         """Manually sets features for all known output columns, including copied columns from parent rows."""
         src = features_of(dataset).copy()
         return Features({
@@ -301,7 +304,7 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
             return
 
         emissions = aligner.clip_emissions(waveforms)
-        for i, emission in zip(indices, emissions):
+        for i, emission in zip(indices, emissions, strict=False):
             text = texts[i]
             if text is None:
                 continue
@@ -312,10 +315,7 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
 
             results = tokens.choose_readings_whole(aligner, emission)
             normalized[i] = " ".join(tokens.words)
-            if results and results[-1] is not None:
-                forced = results[-1]
-            else:
-                forced = aligner.path_score(emission, tokens.words)
+            forced = results[-1] if results and results[-1] is not None else aligner.path_score(emission, tokens.words)
 
             if forced is not None:
                 scores[i] = aligner.mismatch_score(emission, forced)

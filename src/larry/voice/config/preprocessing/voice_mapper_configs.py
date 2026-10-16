@@ -1,13 +1,13 @@
 import dataclasses
 
-from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig, \
-    MapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, UrlMapperConfig
 from larry.voice.config.preprocessing.voice_configs import AlignerConfig, SampleRateConfig
 
 
 @dataclasses.dataclass(kw_only=True)
 class UrlAudioMapperConfig(UrlMapperConfig):
     """Config for ``UrlAudioMapper``, setting sensible defaults for config fields from ``UrlMapperConfig``."""
+
     input_column: str = "url"
     output_column: str = "audio"
 
@@ -17,6 +17,7 @@ class UrlAudioMapperConfig(UrlMapperConfig):
 @dataclasses.dataclass(kw_only=True)
 class AudioDurationMapperConfig(SingleColumnMapperConfig):
     """Config for ``AudioDurationMapper``, setting sensible defaults for the input and output column names."""
+
     input_column: str = "audio"
     output_column: str = "duration_s"
 
@@ -24,6 +25,7 @@ class AudioDurationMapperConfig(SingleColumnMapperConfig):
 @dataclasses.dataclass(kw_only=True)
 class SpeechSegmentationAligningMapperConfig(SampleRateConfig, MapperConfig):
     """Config for ``SpeechSegmentationAligningMapper``, overriding the input/output columns."""
+
     audio_column: str = "audio"
     text_column: str = "text_original"
 
@@ -73,6 +75,7 @@ class SpeechSegmentationAligningMapperConfig(SampleRateConfig, MapperConfig):
 @dataclasses.dataclass(kw_only=True)
 class CTCScoreMapperConfig(SampleRateConfig, MapperConfig):
     """Config for ``CTCScoreMapper``, overriding the required input/output columns."""
+
     audio_column: str = "audio"
     text_column: str = "text_normalized"
     duration_column: str = "duration_s"
