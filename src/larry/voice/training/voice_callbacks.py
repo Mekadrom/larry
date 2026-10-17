@@ -1,4 +1,5 @@
 import contextlib
+import dataclasses
 import random
 from collections import defaultdict
 from collections.abc import Generator
@@ -102,6 +103,15 @@ class PooledActivations:
         return {name: torch.cat(self.pooled[name]) for name in self.layers}
 
 
+@dataclasses.dataclass(frozen=True)
+class ProbeResult:
+    """Accuracies of one probe at its early stopped weights, and the step those weights come from."""
+
+    train_accuracy: float
+    test_accuracy: float
+    best_step: int
+
+
 class SpeakerLeakageProbesCallback(TrainingCallback):
     """Trains a linear and non-linear probe on speaker identification on the specified modules' activations."""
 
@@ -114,6 +124,7 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
         self.labels = torch.empty(0, dtype=torch.long)
         self.n_speakers = 0
         self.train_rows = torch.empty(0, dtype=torch.long)
+        self.validation_rows = torch.empty(0, dtype=torch.long)
         self.test_rows = torch.empty(0, dtype=torch.long)
 
     def _initialize_from_eval_dataset(self, trainer: voice_trainers.SpeechTokenizerTrainer) -> None:
@@ -125,7 +136,7 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
         _, durations = validation.source_ids_and_durations()
         batches = trainer.duration_batches(durations[rows])
         self.labels = labels[torch.tensor([p for batch in batches for p in batch], dtype=torch.long)]
-        self.train_rows, self.test_rows = self._split_rows(self.labels)
+        self.train_rows, self.validation_rows, self.test_rows = self._split_rows(self.labels)
 
         self.loader = DataLoader(
             Subset(validation, rows),
@@ -152,19 +163,22 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
 
         return rows, torch.tensor(labels, dtype=torch.long)
 
-    def _split_rows(self, labels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Splits row positions into probe train and test sets per speaker, so every speaker is in both."""
+    def _split_rows(self, labels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Splits row positions into probe train, validation, and test sets per speaker, so every speaker is in all."""
         generator = torch.Generator().manual_seed(self.config.seed)
         train: list[torch.Tensor] = [torch.empty(0, dtype=torch.long)]
+        validation: list[torch.Tensor] = [torch.empty(0, dtype=torch.long)]
         test: list[torch.Tensor] = [torch.empty(0, dtype=torch.long)]
         for speaker in range(self.n_speakers):
             rows = torch.nonzero(labels == speaker).flatten()
             rows = rows[torch.randperm(len(rows), generator=generator)]
             n_test = max(1, round(len(rows) * self.config.test_fraction))
+            n_validation = max(1, round(len(rows) * self.config.validation_fraction))
             test.append(rows[:n_test])
-            train.append(rows[n_test:])
+            validation.append(rows[n_test:n_test + n_validation])
+            train.append(rows[n_test + n_validation:])
 
-        return torch.cat(train), torch.cat(test)
+        return torch.cat(train), torch.cat(validation), torch.cat(test)
 
     def on_step_end(self, trainer: trainers.TrainerBase, train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """Every ``probe_every`` steps, trains speaker ID probes.
@@ -188,13 +202,15 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
         metric_dict = MetricDict()
         metric_dict.add_metric(ScalarMetricEntry(tag="eval/speaker_probe/chance", scalar=1.0 / self.n_speakers))
         for layer, features in self._extract_features(trainer).items():
-            accuracies = self._probe_accuracies(features, trainer.accelerator.device)
-            for probe_name, (train_accuracy, test_accuracy) in accuracies.items():
+            for probe_name, result in self._probe_accuracies(features, trainer.accelerator.device).items():
                 metric_dict.add_metric(ScalarMetricEntry(
-                    tag=f"train/speaker_probe/{layer}/{probe_name}/accuracy", scalar=train_accuracy
+                    tag=f"train/speaker_probe/{layer}/{probe_name}/accuracy", scalar=result.train_accuracy
                 ))
                 metric_dict.add_metric(ScalarMetricEntry(
-                    tag=f"eval/speaker_probe/{layer}/{probe_name}/accuracy", scalar=test_accuracy
+                    tag=f"train/speaker_probe/{layer}/{probe_name}/best_step", scalar=result.best_step
+                ))
+                metric_dict.add_metric(ScalarMetricEntry(
+                    tag=f"eval/speaker_probe/{layer}/{probe_name}/accuracy", scalar=result.test_accuracy
                 ))
 
         return metric_dict
@@ -226,17 +242,20 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
             "mlp": MLPSpeakerProbe(feature_dim, self.config.mlp_inner_dim, self.n_speakers),
         }
 
-    def _probe_accuracies(self, features: torch.Tensor, device: torch.device) -> dict[str, tuple[float, float]]:
-        """Trains every probe on the probe train rows of one layer's features; returns (train, test) accuracies."""
+    def _probe_accuracies(self, features: torch.Tensor, device: torch.device) -> dict[str, ProbeResult]:
+        """Trains every probe on the probe train rows of one layer's features, early stopped on the validation rows."""
         features = features.to(device)
         train_x = features[self.train_rows.to(device)]
+        validation_x = features[self.validation_rows.to(device)]
         test_x = features[self.test_rows.to(device)]
         mean = train_x.mean(dim=0)
         std = train_x.std(dim=0).clamp(min=1e-6)
         train_x = (train_x - mean) / std
+        validation_x = (validation_x - mean) / std
         test_x = (test_x - mean) / std
 
         train_y = self.labels[self.train_rows].to(device)
+        validation_y = self.labels[self.validation_rows].to(device)
         test_y = self.labels[self.test_rows].to(device)
 
         cuda_devices = []
@@ -248,23 +267,47 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
             torch.manual_seed(self.config.seed)
             for probe_name, probe in self._make_probes(features.shape[-1]).items():
                 probe = probe.to(device)
-                self._fit_probe(probe, train_x, train_y)
-                accuracies[probe_name] = (
-                    self._accuracy(probe, train_x, train_y),
-                    self._accuracy(probe, test_x, test_y),
+                best_step = self._fit_probe(probe, train_x, train_y, validation_x, validation_y)
+                accuracies[probe_name] = ProbeResult(
+                    train_accuracy=self._accuracy(probe, train_x, train_y),
+                    test_accuracy=self._accuracy(probe, test_x, test_y),
+                    best_step=best_step,
                 )
 
         return accuracies
 
-    def _fit_probe(self, probe: nn.Module, features: torch.Tensor, labels: torch.Tensor) -> None:
-        """Full batch AdamW for ``train_epochs`` steps."""
+    def _fit_probe(
+            self,
+            probe: nn.Module,
+            features: torch.Tensor,
+            labels: torch.Tensor,
+            validation_features: torch.Tensor,
+            validation_labels: torch.Tensor,
+    ) -> int:
+        """Full batch AdamW for up to ``train_epochs`` steps, keeping the weights that score best on validation.
+
+        Returns the step the kept weights come from.
+        """
         optimizer = torch.optim.AdamW(probe.parameters(), lr=self.config.lr, weight_decay=self.config.weight_decay)
-        probe.train()
-        for _ in range(self.config.train_epochs):
+        best_accuracy = -1.0
+        best_step = 0
+        best_state: dict[str, torch.Tensor] = {}
+        for step in range(1, self.config.train_epochs + 1):
+            probe.train()
             loss = F.cross_entropy(probe(features), labels)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
+
+            if step % self.config.validate_every == 0 or step == self.config.train_epochs:
+                accuracy = self._accuracy(probe, validation_features, validation_labels)
+                if accuracy > best_accuracy:
+                    best_accuracy = accuracy
+                    best_step = step
+                    best_state = {k: v.detach().clone() for k, v in probe.state_dict().items()}
+
+        probe.load_state_dict(best_state)
+        return best_step
 
     @staticmethod
     def _accuracy(probe: nn.Module, features: torch.Tensor, labels: torch.Tensor) -> float:

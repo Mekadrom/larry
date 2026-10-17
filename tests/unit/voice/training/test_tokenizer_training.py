@@ -86,7 +86,7 @@ def test_main_reads_sources_and_vocabulary_from_a_training_config(
         "model": {
             "name": "SpeechTokenizerModel",
             "config": "SpeechTokenizerModelConfig",
-            "overrides": [{"name": "text_vocab_size", "value": 40}],
+            "overrides": {"text_vocab_size": 40},
         },
         "trainer": {
             "name": "SpeechTokenizerTrainer",

@@ -40,7 +40,7 @@ def test_speakers_below_the_clip_floor_are_dropped() -> None:
 def test_speakers_are_capped_at_max_clips() -> None:
     keys = _keys({"a": 50, "b": 4})
 
-    rows, labels = _callback(min_clips=1, max_clips=10)._select_rows(keys)
+    rows, labels = _callback(min_clips=3, max_clips=10)._select_rows(keys)
 
     assert torch.bincount(labels).tolist() == [10, 4]
 
@@ -48,7 +48,7 @@ def test_speakers_are_capped_at_max_clips() -> None:
 def test_labels_are_dense_sorted_by_key_and_match_each_row() -> None:
     keys = _keys({"z": 4, "m": 4, "a": 4})
 
-    rows, labels = _callback(min_clips=1, max_clips=10)._select_rows(keys)
+    rows, labels = _callback(min_clips=3, max_clips=10)._select_rows(keys)
 
     names = sorted(set(keys))
     assert sorted(set(labels.tolist())) == [0, 1, 2]
@@ -56,7 +56,7 @@ def test_labels_are_dense_sorted_by_key_and_match_each_row() -> None:
 
 
 def test_rows_are_unique() -> None:
-    rows, _ = _callback(min_clips=1, max_clips=5)._select_rows(_keys({"a": 20, "b": 20}))
+    rows, _ = _callback(min_clips=3, max_clips=5)._select_rows(_keys({"a": 20, "b": 20}))
 
     assert len(rows) == len(set(rows))
 
@@ -64,9 +64,9 @@ def test_rows_are_unique() -> None:
 def test_selection_is_deterministic_for_a_seed_and_varies_across_seeds() -> None:
     keys = _keys({f"s{i}": 30 for i in range(5)})
 
-    first = _callback(min_clips=1, max_clips=5, seed=1)._select_rows(keys)
-    again = _callback(min_clips=1, max_clips=5, seed=1)._select_rows(keys)
-    other = _callback(min_clips=1, max_clips=5, seed=2)._select_rows(keys)
+    first = _callback(min_clips=3, max_clips=5, seed=1)._select_rows(keys)
+    again = _callback(min_clips=3, max_clips=5, seed=1)._select_rows(keys)
+    other = _callback(min_clips=3, max_clips=5, seed=2)._select_rows(keys)
 
     assert first[0] == again[0] and torch.equal(first[1], again[1])
     assert first[0] != other[0]
@@ -130,23 +130,26 @@ def _split_callback(n_speakers: int, **kwargs: Any) -> SpeakerLeakageProbesCallb
 def test_split_is_disjoint_and_covers_every_row() -> None:
     labels = torch.tensor([0] * 10 + [1] * 13 + [2] * 20)[torch.randperm(43, generator=torch.Generator().manual_seed(0))]
 
-    train, test = _split_callback(3)._split_rows(labels)
+    train, validation, test = (s.tolist() for s in _split_callback(3)._split_rows(labels))
 
-    assert set(train.tolist()).isdisjoint(test.tolist())
-    assert sorted(train.tolist() + test.tolist()) == list(range(43))
+    assert set(train).isdisjoint(validation) and set(train).isdisjoint(test) and set(validation).isdisjoint(test)
+    assert sorted(train + validation + test) == list(range(43))
 
 
-def test_split_puts_every_speaker_on_both_sides_at_the_test_fraction() -> None:
-    counts = [10, 13, 20, 2]
+def test_split_puts_every_speaker_in_all_three_sets_at_their_fractions() -> None:
+    counts = [10, 13, 20, 3]
     labels = torch.cat([torch.full((n,), s) for s, n in enumerate(counts)])
 
-    train, test = _split_callback(len(counts), test_fraction=0.25)._split_rows(labels)
+    train, validation, test = _split_callback(len(counts), validation_fraction=0.15, test_fraction=0.25)._split_rows(
+        labels
+    )
 
     for speaker, n in enumerate(counts):
+        n_validation = int((labels[validation] == speaker).sum())
         n_test = int((labels[test] == speaker).sum())
-        assert int((labels[train] == speaker).sum()) > 0
-        assert abs(n_test - n * 0.25) <= 1
-        assert n_test >= 1
+        assert int((labels[train] == speaker).sum()) >= 1
+        assert n_validation >= 1 and abs(n_validation - n * 0.15) <= 1
+        assert n_test >= 1 and abs(n_test - n * 0.25) <= 1
 
 
 def test_split_is_deterministic_for_a_seed() -> None:
@@ -155,7 +158,12 @@ def test_split_is_deterministic_for_a_seed() -> None:
     first = _split_callback(4, seed=3)._split_rows(labels)
     again = _split_callback(4, seed=3)._split_rows(labels)
 
-    assert torch.equal(first[0], again[0]) and torch.equal(first[1], again[1])
+    assert all(torch.equal(a, b) for a, b in zip(first, again, strict=True))
+
+
+def test_min_clips_below_three_is_rejected() -> None:
+    with pytest.raises(ValueError, match="min_clips"):
+        SpeakerLeakageProbesConfig(probe_every=1, min_clips=2)
 
 
 class _ToyEncoder(nn.Module):
@@ -285,7 +293,7 @@ def _probe_callback(labels: torch.Tensor, **kwargs: Any) -> SpeakerLeakageProbes
     callback = _callback(**kwargs)
     callback.n_speakers = int(labels.max()) + 1
     callback.labels = labels
-    callback.train_rows, callback.test_rows = callback._split_rows(labels)
+    callback.train_rows, callback.validation_rows, callback.test_rows = callback._split_rows(labels)
     return callback
 
 
@@ -298,20 +306,19 @@ def test_separable_speakers_are_recovered_on_held_out_rows() -> None:
 
     accuracies = callback._probe_accuracies(features, torch.device("cpu"))
 
-    assert accuracies["linear"][1] > 0.9
-    assert accuracies["mlp"][1] > 0.9
+    assert accuracies["linear"].test_accuracy > 0.9
+    assert accuracies["mlp"].test_accuracy > 0.9
 
 
-def test_noise_stays_near_chance_on_held_out_rows_while_train_accuracy_rises() -> None:
+def test_noise_stays_near_chance_on_held_out_rows_while_a_full_budget_memorizes_it() -> None:
     labels = torch.arange(400) % 20
     features = torch.randn(400, 256, generator=torch.Generator().manual_seed(1))
-    callback = _probe_callback(labels, train_epochs=200, mlp_inner_dim=256)
+    callback = _probe_callback(labels, train_epochs=200, validate_every=200, mlp_inner_dim=256)
 
-    accuracies = callback._probe_accuracies(features, torch.device("cpu"))
-
-    for train_accuracy, test_accuracy in accuracies.values():
-        assert test_accuracy < 0.15
-        assert train_accuracy > 0.5
+    for result in callback._probe_accuracies(features, torch.device("cpu")).values():
+        assert result.best_step == 200
+        assert result.test_accuracy < 0.15
+        assert result.train_accuracy > 0.5
 
 
 def test_probe_training_leaves_the_global_rng_untouched() -> None:
@@ -373,3 +380,75 @@ def test_default_layers_exist_in_the_speech_tokenizer_and_output_sequences() -> 
 
     for layer, features in activations.features().items():
         assert features.shape == (2, 256), layer
+
+
+class _ScriptedValidationCallback(SpeakerLeakageProbesCallback):
+    def __init__(self, config: SpeakerLeakageProbesConfig, scores: list[float]) -> None:
+        super().__init__(config)
+        self.scores = scores
+        self.snapshots: list[torch.Tensor] = []
+
+    def _accuracy(self, probe: nn.Module, features: torch.Tensor, labels: torch.Tensor) -> float:
+        self.snapshots.append(next(probe.parameters()).detach().clone())
+        return self.scores[len(self.snapshots) - 1]
+
+
+def test_fit_keeps_the_weights_from_the_best_validation_step() -> None:
+    callback = _ScriptedValidationCallback(
+        SpeakerLeakageProbesConfig(probe_every=1, train_epochs=40, validate_every=10, lr=0.1),
+        scores=[0.1, 0.5, 0.3, 0.2],
+    )
+    probe = nn.Linear(4, 3)
+    features, labels = torch.randn(30, 4), torch.arange(30) % 3
+
+    best_step = callback._fit_probe(probe, features, labels, features, labels)
+
+    assert best_step == 20
+    assert torch.equal(probe.weight, callback.snapshots[1])
+    assert not torch.equal(probe.weight, callback.snapshots[-1])
+
+
+def test_fit_validates_on_the_last_step_when_it_is_off_the_interval() -> None:
+    callback = _ScriptedValidationCallback(
+        SpeakerLeakageProbesConfig(probe_every=1, train_epochs=25, validate_every=10),
+        scores=[0.1, 0.2, 0.9],
+    )
+
+    best_step = callback._fit_probe(nn.Linear(4, 3), torch.randn(9, 4), torch.arange(9) % 3,
+                                    torch.randn(9, 4), torch.arange(9) % 3)
+
+    assert best_step == 25
+    assert len(callback.snapshots) == 3
+
+
+def test_ties_keep_the_earlier_step() -> None:
+    callback = _ScriptedValidationCallback(
+        SpeakerLeakageProbesConfig(probe_every=1, train_epochs=30, validate_every=10),
+        scores=[0.4, 0.4, 0.4],
+    )
+
+    best_step = callback._fit_probe(nn.Linear(4, 3), torch.randn(9, 4), torch.arange(9) % 3,
+                                    torch.randn(9, 4), torch.arange(9) % 3)
+
+    assert best_step == 10
+
+
+def test_early_stopped_probe_scores_at_least_the_full_budget_when_validation_is_the_test_set() -> None:
+    generator = torch.Generator().manual_seed(4)
+    labels = torch.arange(300) % 10
+    features = torch.cat([
+        torch.randn(10, 4, generator=generator)[labels] + torch.randn(300, 4, generator=generator),
+        torch.randn(300, 124, generator=generator),
+    ], dim=1)
+    settings = dict(train_epochs=200, lr=1e-2, weight_decay=0.0, mlp_inner_dim=128)
+    stopped = _probe_callback(labels, validate_every=10, **settings)
+    full = _probe_callback(labels, validate_every=200, **settings)
+    for callback in (stopped, full):
+        callback.validation_rows = callback.test_rows
+
+    stopped_results = stopped._probe_accuracies(features, torch.device("cpu"))
+    full_results = full._probe_accuracies(features, torch.device("cpu"))
+
+    for probe_name in ("linear", "mlp"):
+        assert full_results[probe_name].best_step == 200
+        assert stopped_results[probe_name].test_accuracy >= full_results[probe_name].test_accuracy

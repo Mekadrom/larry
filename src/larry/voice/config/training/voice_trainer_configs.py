@@ -12,14 +12,21 @@ class SpeakerLeakageProbesConfig:
 
     probe_every: int
     layers: list[str] = dataclasses.field(default_factory=lambda: ["encoder1", "fsq", "encoder2_norm"])
-    train_epochs: int = 200
+    train_epochs: int = 1000
+    validate_every: int = 25
     lr: float = 1e-3
     weight_decay: float = 1e-2
     mlp_inner_dim: int = 512
     min_clips: int = 10
     max_clips: int = 20
+    validation_fraction: float = 0.15
     test_fraction: float = 0.25
     seed: int = 42
+
+    def __post_init__(self) -> None:
+        """Every speaker needs at least one fit, one validation, and one test clip."""
+        if self.min_clips < 3:
+            raise ValueError(f"min_clips must be at least 3 for a fit/validation/test split, got {self.min_clips}")
 
 
 @dataclasses.dataclass(kw_only=True)
