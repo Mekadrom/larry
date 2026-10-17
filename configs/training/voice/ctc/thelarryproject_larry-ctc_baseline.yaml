@@ -25,7 +25,7 @@ trainer:
     max_steps: 100000
     eval_steps: 2000
     viz_steps: 1000
-    speaker_leakage_steps: 1000
+    speaker_leakage_steps: 2000
     speed_augment_factors:
       - 1.0
     dataset_config:
