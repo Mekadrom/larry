@@ -1,0 +1,31 @@
+preprocessor:
+  inputs:
+    provenance:
+      id_columns:
+        - id
+        - speaker_id
+        - sentence_id
+
+dataset:
+  config: DefaultDatasetConfig
+  overrides:
+    path: parquet
+    name: ~
+    split: ~
+    data_dir: /home/zadar/.cache/larry/datasets/normalized/voice/mozilla-foundation_cv27-normalized/
+    cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/mozilla-foundation_cv27-index-tts/
+
+pipeline:
+  - name: RowIndexAssigningPreprocessor
+    config: RowIndexAssigningPreprocessorConfig
+  - name: ColumnValuesPruner
+    config: TTSCTCMismatchColumnValuesPrunerConfig
+  - name: AudioDurationColumnPruner
+    config: AudioDurationColumnPrunerConfig
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForTTS
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: ~

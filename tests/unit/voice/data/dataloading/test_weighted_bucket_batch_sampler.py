@@ -3,7 +3,7 @@ import itertools
 import pytest
 import torch
 
-from larry.voice.data.dataloading.voice_dataloading import WeightedBucketBatchSampler
+from larry.voice.data.dataloading.voice_dataloading import AudioDurationBucketingWeightedBatchSampler
 
 SOURCE_SIZES = [37, 11, 5]
 SOURCE_SECONDS = [(2.0, 6.0), (8.0, 20.0), (1.0, 3.0)]
@@ -19,9 +19,9 @@ def _inputs() -> tuple[torch.Tensor, torch.Tensor]:
     return torch.cat(source_ids), torch.cat(durations)
 
 
-def _sampler(pool_size: int = 16, max_batch_seconds: float = 40.0) -> WeightedBucketBatchSampler:
+def _sampler(pool_size: int = 16, max_batch_seconds: float = 40.0) -> AudioDurationBucketingWeightedBatchSampler:
     source_ids, durations = _inputs()
-    return WeightedBucketBatchSampler(
+    return AudioDurationBucketingWeightedBatchSampler(
         source_ids,
         durations,
         WEIGHTS,
@@ -31,7 +31,7 @@ def _sampler(pool_size: int = 16, max_batch_seconds: float = 40.0) -> WeightedBu
     )
 
 
-def _first(sampler: WeightedBucketBatchSampler, n: int) -> list[list[int]]:
+def _first(sampler: AudioDurationBucketingWeightedBatchSampler, n: int) -> list[list[int]]:
     return list(itertools.islice(sampler, n))
 
 
@@ -103,4 +103,4 @@ def test_batches_respect_padded_seconds() -> None:
 def test_source_without_rows_is_rejected() -> None:
     source_ids, durations = _inputs()
     with pytest.raises(ValueError):
-        WeightedBucketBatchSampler(source_ids, durations, WEIGHTS + [0.1], 40.0, 16, 7)
+        AudioDurationBucketingWeightedBatchSampler(source_ids, durations, WEIGHTS + [0.1], 40.0, 16, 7)

@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import logging
+from typing import Any
 
 import torch
 
@@ -11,11 +12,11 @@ from larry.common.training import trainers
 class TrainingCallback:
     """Superclass for all callbacks for doing stuff before and after a given training step."""
 
-    def on_step_begin(self, trainer: trainers.TrainerBase, step: int) -> MetricDict | None:
+    def on_step_begin(self, trainer: trainers.TrainerBase[Any, Any, Any], step: int) -> MetricDict | None:
         """Prior to the step starting, do stuff."""
         return None
 
-    def on_step_end(self, trainer: trainers.TrainerBase, train_loss: torch.Tensor, step: int) -> MetricDict | None:
+    def on_step_end(self, trainer: trainers.TrainerBase[Any, Any, Any], train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """After the optimizer step, do stuff."""
         return None
 
@@ -27,7 +28,7 @@ class ModelInitLoggingCallback(TrainingCallback):
         """Simple init."""
         self.log = logging.getLogger(type(self).__name__)
 
-    def on_step_begin(self, trainer: trainers.TrainerBase, step: int) -> MetricDict | None:
+    def on_step_begin(self, trainer: trainers.TrainerBase[Any, Any, Any], step: int) -> MetricDict | None:
         """Logs some model information and run information at the beginning of training."""
         if step == 0:
             self.log.info(f"model: {trainer.model}")
@@ -52,20 +53,26 @@ class LoggingTrainingCallback(TrainingCallback):
         """Initializes this instance of ``LoggingTrainingCallback``."""
         self.logging_steps = logging_steps
 
-    def on_step_begin(self, trainer: trainers.TrainerBase, step: int) -> MetricDict | None:
+    def on_step_begin(self, trainer: trainers.TrainerBase[Any, Any, Any], step: int) -> MetricDict | None:
         """Delegates every ``self.logging_steps`` steps."""
         if step % self.logging_steps == 0:
             return self._on_step_begin(trainer, step)
 
-    def on_step_end(self, trainer: trainers.TrainerBase, train_loss: torch.Tensor, step: int) -> MetricDict | None:
+    def on_step_end(self, trainer: trainers.TrainerBase[Any, Any, Any], train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """Delegates every ``self.logging_steps`` steps."""
         if step % self.logging_steps == 0:
             self._on_step_end(trainer, train_loss, step)
 
-    def _on_step_begin(self, trainer: trainers.TrainerBase, step: int) -> MetricDict | None:
+    def _on_step_begin(self, trainer: trainers.TrainerBase[Any, Any, Any], step: int) -> MetricDict | None:
         """Subclasses override as they see fit."""
         pass
 
-    def _on_step_end(self, trainer: trainers.TrainerBase, train_loss: torch.Tensor, step: int) -> MetricDict | None:
+    def _on_step_end(self, trainer: trainers.TrainerBase[Any, Any, Any], train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """Subclasses override as they see fit."""
         pass
+
+
+class TrainLossByTokens(LoggingTrainingCallback):
+    def _on_step_end(self, trainer: trainers.TrainerBase[Any, Any, Any], train_loss: torch.Tensor, step: int) -> MetricDict | None:
+        """Doesn't return a metrics dict because it doesn't use training steps as the x axis."""
+        trainer.metrics.add_scalar("train/loss_by_tokens", train_loss.item(), trainer.sync_tokens_seen())

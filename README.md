@@ -105,7 +105,7 @@ All image data was filtered by per-image licenses where possible.
     - replacement CLIP model
 - larry-image-vae
     - replacement SDXL VAE model
-- larry-speech-tokenizer
+- larry-speech-encoder
     - replacement CosyVoice2 encoder/speech tokenizer; FSQ bottleneck (6561 codes, 25 Hz), trained on CTC criteria
 - larry-speech-decoder
     - replacement CosyVoice2 decoder

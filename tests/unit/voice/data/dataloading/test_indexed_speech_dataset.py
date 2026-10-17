@@ -9,10 +9,10 @@ import pytest
 import torch
 from datasets import Dataset
 
+from larry.voice.config.data.voice_data_configs import ASRSourceConfig
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
-from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
 from larry.voice.data.preprocessing.global_speaker_map import SpeakerMapping
-from larry.voice.training.voice_trainers import SpeechTokenizerTrainer
+from larry.voice.training.voice_trainers import SpeechEncoderTrainer
 
 
 def test_source_ids_and_durations_cover_every_index_in_order_with_full_precision() -> None:
@@ -20,7 +20,7 @@ def test_source_ids_and_durations_cover_every_index_in_order_with_full_precision
     b = Dataset.from_dict({"duration_s": [0.1, 3.3, 7.123456789], "audio": [b"x", b"y", b"z"]})
     b = b.filter(lambda row: row["duration_s"] > 0.2)
     dataset = IndexedSpeechDataset(
-        [SpeechSourceConfig(name="a", index_path="a"), SpeechSourceConfig(name="b", index_path="b")],
+        [ASRSourceConfig(name="a", index_path="a"), ASRSourceConfig(name="b", index_path="b")],
         [a, b],
         [None, None],
         sample_rate=16000,
@@ -53,7 +53,7 @@ def _clip_dataset(speed_factors: tuple[float, ...]) -> IndexedSpeechDataset:
         "text_normalized": ["HI"],
         "duration_s": [1.0],
     })
-    source = SpeechSourceConfig(name="toy", index_path="toy")
+    source = ASRSourceConfig(name="toy", index_path="toy")
     return IndexedSpeechDataset([source], [index], [None], sample_rate=16000, speed_factors=speed_factors)
 
 
@@ -75,15 +75,15 @@ def test_speed_perturbation_picks_among_the_configured_factors() -> None:
 
 def test_speed_factors_reach_only_the_training_split() -> None:
     calls: list[tuple[list[str], tuple[float, ...]]] = []
-    trainer = SpeechTokenizerTrainer.__new__(SpeechTokenizerTrainer)
+    trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
     vars(trainer).update(
         model_config=SimpleNamespace(sample_rate=16000),
         _config=SimpleNamespace(
             speed_augment_factors=[0.9, 1.0, 1.1],
             mixture_config=SimpleNamespace(
                 sample_rate=16000,
-                train_sources=[SpeechSourceConfig(name="train", index_path="train")],
-                eval_sources=[SpeechSourceConfig(name="eval", index_path="eval")],
+                train_sources=[ASRSourceConfig(name="train", index_path="train")],
+                eval_sources=[ASRSourceConfig(name="eval", index_path="eval")],
             ),
         ),
         _load_indexed=lambda configs, speed_factors=(1.0,): calls.append(([c.name for c in configs], speed_factors)),
@@ -99,9 +99,9 @@ def test_speaker_keys_follow_row_order_and_mapping_keys() -> None:
     ls = Dataset.from_dict({"speaker_id": [0, 84], "duration_s": [1.0, 1.0]})
     lj = Dataset.from_dict({"duration_s": [1.0, 1.0, 1.0]})
     configs = [
-        SpeechSourceConfig(name="vctk", index_path="v"),
-        SpeechSourceConfig(name="heavy-test", index_path="h", speaker_namespace="heavy"),
-        SpeechSourceConfig(name="lj", index_path="l", speaker_id_column=None),
+        ASRSourceConfig(name="vctk", index_path="v"),
+        ASRSourceConfig(name="heavy-test", index_path="h", speaker_namespace="heavy"),
+        ASRSourceConfig(name="lj", index_path="l", speaker_id_column=None),
     ]
     dataset = IndexedSpeechDataset(configs, [vctk, ls, lj], [None, None, None], sample_rate=16000)
 
@@ -115,6 +115,6 @@ def test_speaker_keys_follow_row_order_and_mapping_keys() -> None:
 def test_speaker_keys_respect_an_index_filter() -> None:
     index = Dataset.from_dict({"speaker_id": ["a", "b", "c"], "duration_s": [1.0, 0.1, 1.0]})
     index = index.filter(lambda row: row["duration_s"] > 0.5)
-    dataset = IndexedSpeechDataset([SpeechSourceConfig(name="s", index_path="s")], [index], [None], sample_rate=16000)
+    dataset = IndexedSpeechDataset([ASRSourceConfig(name="s", index_path="s")], [index], [None], sample_rate=16000)
 
     assert dataset.speaker_keys() == ["s:a", "s:c"]

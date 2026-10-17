@@ -9,11 +9,11 @@ import torch
 from datasets import Dataset
 
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
-from larry.voice.config.model.voice_model_configs import SpeechTokenizerModelConfig
+from larry.voice.config.data.voice_data_configs import ASRSourceConfig
+from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
-from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
 from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator
-from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
+from larry.voice.model.speech_tokenizer import SpeechEncoderModel
 from larry.voice.training.voice_viz_callbacks import SpeechTokenizerVizCallback, pick_rows, timeline
 from larry.voice.utils import collapse_ctc_emissions
 
@@ -64,9 +64,9 @@ def _wav(seconds: float, sample_rate: int) -> bytes:
     return buffer.getvalue()
 
 
-def _model() -> SpeechTokenizerModel:
+def _model() -> SpeechEncoderModel:
     torch.manual_seed(0)
-    return SpeechTokenizerModel(SpeechTokenizerModelConfig(
+    return SpeechEncoderModel(SpeechEncoderModelConfig(
         d_model=32, n_heads=4, n_query_groups=4, rotary_embedding_dim=8,
         n_encoder1_layers=1, n_encoder2_layers=1, text_vocab_size=len(ALPHABET),
     ))
@@ -102,7 +102,7 @@ def test_viz_logs_audio_once_and_alignments_for_every_example_each_time() -> Non
         "text_normalized": ["HI", "OK GO"],
         "duration_s": [1.0, 1.5],
     })
-    source = SpeechSourceConfig(name="toy", index_path="toy")
+    source = ASRSourceConfig(name="toy", index_path="toy")
     dataset = IndexedSpeechDataset([source], [index], [None], sample_rate=16000)
     tokenizer = CharTokenizer()
     model = _model()

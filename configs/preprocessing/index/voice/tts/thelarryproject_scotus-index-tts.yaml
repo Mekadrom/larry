@@ -1,0 +1,49 @@
+preprocessor:
+  inputs:
+    default_batch_size: 8
+    provenance:
+      id_columns:
+        - term
+        - docket
+
+dataset:
+  config: DefaultDatasetConfig
+  overrides:
+    path: parquet
+    name: ~
+    split: ~
+    data_dir: /home/zadar/.cache/larry/datasets/other/voice/aligned/thelarryproject_scotus-aligned/
+    cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/thelarryproject_scotus-index-tts/
+
+pipeline:
+  - name: RowIndexAssigningPreprocessor
+    config: RowIndexAssigningPreprocessorConfig
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: "audio_no_decode"
+  - name: AudioDurationColumnPruner
+    config: AudioDurationColumnPrunerConfig
+  - name: ColumnValuesPruner
+    config: TTSCTCMismatchColumnValuesPrunerConfig
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForTTS
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: ~
+  - name: SpeakerValidationSplittingPreprocessor
+    config: SpeakerValidationSplittingPreprocessorConfig
+    inputs:
+      mode: matching
+      matching_values:
+        - "scotus:adv:GLEN GIFFORD"
+        - "scotus:adv:WILLIAM BROCKMAN"
+        - "scotus:adv:SUSAN SMITH"
+        - "scotus:adv:NATHANIEL ZELINSKY"
+        - "scotus:adv:ANN ADAMS"
+        - "scotus:adv:KRISSY NOBILE"
+        - "scotus:adv:MEIR FEDER"
+        - "scotus:adv:MARGIE PHELPS"

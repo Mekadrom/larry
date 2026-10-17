@@ -1,3 +1,5 @@
+from typing import Any
+
 import torch
 from torch import nn
 
@@ -138,10 +140,10 @@ class QKClipCallback(callbacks.TrainingCallback):
         """Simply sets a delegate handler."""
         self.handler = handler
 
-    def on_step_begin(self, trainer: trainers.TrainerBase, step: int) -> MetricDict | None:
+    def on_step_begin(self, trainer: trainers.TrainerBase[Any, Any, Any], step: int) -> MetricDict | None:
         """On step begin, conditionally arm every ``probe_every`` steps."""
         self.handler.maybe_arm(step)
 
-    def on_step_end(self, trainer: trainers.TrainerBase, train_loss: torch.Tensor, step: int) -> MetricDict | None:
+    def on_step_end(self, trainer: trainers.TrainerBase[Any, Any, Any], train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """On step end, apply the handler's changes, if any are required."""
         return self.handler.apply()

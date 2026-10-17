@@ -6,10 +6,10 @@ import torch.nn.functional as F
 from larry.common.config.criteria.criterion_configs import CTCCriterionConfig
 from larry.common.criteria.criterion import Criterion
 from larry.common.model.model import LarrySpeechTokenizerModelOutput
-from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
+from larry.voice.model.speech_tokenizer import SpeechEncoderModel
 
 
-class CTCCriterion(Criterion[CTCCriterionConfig, SpeechTokenizerModel]):
+class CTCCriterion(Criterion[CTCCriterionConfig, SpeechEncoderModel]):
     """An implementation of ``Criterion`` for performing standard CTC loss calculation."""
 
     def forward(  # pyright: ignore[reportIncompatibleMethodOverride]

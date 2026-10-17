@@ -2,12 +2,12 @@ training:
   metricsBackend: tensorboard
 
 model:
-  name: SpeechTokenizerModel
-  config: SpeechTokenizerModelConfig
+  name: SpeechEncoderModel
+  config: SpeechEncoderModelConfig
 
 trainer:
-  name: SpeechTokenizerTrainer
-  config: SpeechTokenizerTrainerConfig
+  name: SpeechEncoderTrainer
+  config: SpeechEncoderTrainerConfig
   overrides:
     tokenizer_model_path: "/home/zadar/.cache/larry/tokenizers/ctc/larry-ctc-sp512.model"
     speaker_mapping_path: "/home/zadar/.cache/larry/speaker_mappings/asr/global_speaker_mapping.csv"

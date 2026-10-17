@@ -1,5 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
+from typing import Any
 
 import torch
 
@@ -18,7 +19,7 @@ class VizCallback(callbacks.TrainingCallback, ABC):
         self.log = logging.getLogger(type(self).__name__)
         self.viz_steps = viz_steps
 
-    def on_step_end(self, trainer: trainers.TrainerBase, train_loss: torch.Tensor, step: int) -> MetricDict | None:
+    def on_step_end(self, trainer: trainers.TrainerBase[Any, Any, Any], train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """On step end, if this step is a visualization step, performs visualization.
 
         Doesn't return a MetricDict, for some reason choosing to log metrics to the trainer directly instead of
@@ -28,6 +29,6 @@ class VizCallback(callbacks.TrainingCallback, ABC):
             self.viz(trainer, step)
 
     @abstractmethod
-    def viz(self, trainer: trainers.TrainerBase, step: int) -> None:
+    def viz(self, trainer: trainers.TrainerBase[Any, Any, Any], step: int) -> None:
         """Entrypoint for visualization."""
         ...

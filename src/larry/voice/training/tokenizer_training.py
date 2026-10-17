@@ -2,19 +2,22 @@ import argparse
 import dataclasses
 import logging
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import sentencepiece
 
+from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training import build_model_config, build_trainer_config
+from larry.common.data.dataloading.indexed_dataset import index_split_files
 from larry.common.utils import load_yaml_dict
 from larry.common.utils.init_helpers import import_submodules
-from larry.voice.config.model.voice_model_configs import SpeechTokenizerModelConfig
-from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
-from larry.voice.config.training.voice_trainer_configs import SpeechTokenizerTrainerConfig
-from larry.voice.data.dataloading.voice_dataloading import index_split_files
+from larry.voice.config.data.voice_data_configs import ASRSourceConfig
+from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
+from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
 
 log = logging.getLogger(__name__)
 
@@ -29,81 +32,85 @@ class SourceText:
     counts: Counter[str]
 
 
-def read_source(source: SpeechSourceConfig) -> SourceText:
-    """For all examples in a provided source dataset, count up sentence occurrences."""
-    counts: Counter[str] = Counter()
-    seconds = 0.0
-    columns = [source.text_column, source.duration_column]
-    for file in index_split_files(source.index_path, source.split):
-        for batch in pq.ParquetFile(file).iter_batches(columns=columns, batch_size=65536):
-            seconds += pc.sum(batch.column(source.duration_column)).as_py() or 0.0
-            counts.update(t for t in batch.column(source.text_column).to_pylist() if t)
+class TokenizerTrainer:
+    def __init__(self, sources: Sequence[ASRSourceConfig], output_prefix: Path, vocab_size: int) -> None:
+        self.sources = sources
+        self.output_prefix = output_prefix
+        self.vocab_size = vocab_size
 
-    return SourceText(source.name, source.weight, seconds, counts)
+    def run(self, ) -> Path:
+        """Trains a sentence piece tokenizer by delegating to ``sentencePiece.SentencePieceTrainer``."""
+        texts = [self._read_source(s) for s in self.sources]
+        for t in texts:
+            log.info(f"{t.name}: {t.seconds / 3600:.1f} h, {len(t.counts)} distinct lines, weight={t.weight}")
 
+        tsv = self.output_prefix.with_suffix(".tsv")
+        self._write_tsv(self._weighted_frequencies(texts), tsv)
 
-def weighted_frequencies(sources: list[SourceText]) -> Counter[str]:
-    """Produced frequencies per sentence weighted by the size of the source dataset."""
-    total_weight = sum(s.weight for s in sources if s.seconds > 0)
-    total_seconds = sum(s.seconds for s in sources)
-    factors = {
-        s.name: (s.weight / total_weight) / (s.seconds / total_seconds)
-        for s in sources
-        if s.seconds > 0 and s.weight > 0
-    }
+        sentencepiece.SentencePieceTrainer.train(
+            input=str(tsv),
+            input_format="tsv",
+            model_prefix=str(self.output_prefix),
+            vocab_size=self.vocab_size,
+            model_type="unigram",
+            character_coverage=1.0,
+            bos_id=-1,
+            eos_id=-1,
+            pad_id=-1,
+            train_extremely_large_corpus=True,
+        )
+        return self.output_prefix.with_suffix(".model")
 
-    if not factors:
-        raise ValueError("no source has both audio and a positive weight")
+    @staticmethod
+    def _write_tsv(frequencies: Counter[str], tsv: Path) -> None:
+        """Exports the frequencies to a TSV file that the SentencePiece trainer can ingest."""
+        tsv.parent.mkdir(parents=True, exist_ok=True)
+        with open(tsv, "w", encoding="utf-8") as f:
+            for text, frequency in frequencies.items():
+                if "\t" in text or "\n" in text:
+                    raise ValueError(f"text contains a tab or newline and cannot be written as TSV: {text!r}")
+                f.write(f"{text}\t{frequency}\n")
 
-    scale = 1.0 / min(factors.values())
+    def _read_source(self, source: ASRSourceConfig) -> SourceText:
+        """For all examples in a provided source dataset, count up sentence occurrences."""
+        counts: Counter[str] = Counter()
+        seconds = 0.0
+        columns = [source.text_column, source.duration_column]
+        for file in index_split_files(source.index_path, source.split):
+            for batch in pq.ParquetFile(file).iter_batches(columns=columns, batch_size=65536):
+                seconds += pc.sum(batch.column(source.duration_column)).as_py() or 0.0
+                counts.update(t for t in batch.column(source.text_column).to_pylist() if t)
 
-    frequencies: Counter[str] = Counter()
-    for s in sources:
-        if s.name not in factors:
-            continue
+        return SourceText(source.name, source.weight, seconds, counts)
 
-        per_occurrence = factors[s.name] * scale
-        for text, n in s.counts.items():
-            frequencies[text] += round(n * per_occurrence)
+    def _weighted_frequencies(self, sources: list[SourceText]) -> Counter[str]:
+        """Produced frequencies per sentence weighted by the size of the source dataset."""
+        total_weight = sum(s.weight for s in sources if s.seconds > 0)
+        total_seconds = sum(s.seconds for s in sources)
+        factors = {
+            s.name: (s.weight / total_weight) / (s.seconds / total_seconds)
+            for s in sources
+            if s.seconds > 0 and s.weight > 0
+        }
 
-    return Counter({
-        t: max(1, round(f))
-        for t, f in frequencies.items()
-    })
+        if not factors:
+            raise ValueError("no source has both audio and a positive weight")
 
+        scale = 1.0 / min(factors.values())
 
-def write_tsv(frequencies: Counter[str], tsv: Path) -> None:
-    """Exports the frequencies to a TSV file that the SentencePiece trainer can ingest."""
-    tsv.parent.mkdir(parents=True, exist_ok=True)
-    with open(tsv, "w", encoding="utf-8") as f:
-        for text, frequency in frequencies.items():
-            if "\t" in text or "\n" in text:
-                raise ValueError(f"text contains a tab or newline and cannot be written as TSV: {text!r}")
-            f.write(f"{text}\t{frequency}\n")
+        frequencies: Counter[str] = Counter()
+        for s in sources:
+            if s.name not in factors:
+                continue
 
+            per_occurrence = factors[s.name] * scale
+            for text, n in s.counts.items():
+                frequencies[text] += round(n * per_occurrence)
 
-def train_tokenizer(sources: list[SpeechSourceConfig], output_prefix: Path, vocab_size: int) -> Path:
-    """Trains a sentence piece tokenizer by delegating to ``sentencePiece.SentencePieceTrainer``."""
-    texts = [read_source(s) for s in sources]
-    for t in texts:
-        log.info(f"{t.name}: {t.seconds / 3600:.1f} h, {len(t.counts)} distinct lines, weight={t.weight}")
-
-    tsv = output_prefix.with_suffix(".tsv")
-    write_tsv(weighted_frequencies(texts), tsv)
-
-    sentencepiece.SentencePieceTrainer.train(
-        input=str(tsv),
-        input_format="tsv",
-        model_prefix=str(output_prefix),
-        vocab_size=vocab_size,
-        model_type="unigram",
-        character_coverage=1.0,
-        bos_id=-1,
-        eos_id=-1,
-        pad_id=-1,
-        train_extremely_large_corpus=True,
-    )
-    return output_prefix.with_suffix(".model")
+        return Counter({
+            t: max(1, round(f))
+            for t, f in frequencies.items()
+        })
 
 
 def main() -> None:
@@ -139,11 +146,13 @@ def main() -> None:
     trainer_config = build_trainer_config(definition.get("trainer", {}))
     model_config = build_model_config(definition.get("model", {}))
 
-    if not isinstance(trainer_config, SpeechTokenizerTrainerConfig):
+    if not isinstance(trainer_config, SpeechEncoderTrainerConfig):
         raise TypeError(f"expected a SpeechTokenizerTrainerConfig, got {type(trainer_config).__name__}")
 
-    if not isinstance(model_config, SpeechTokenizerModelConfig):
+    if not isinstance(model_config, SpeechEncoderModelConfig):
         raise TypeError(f"expected a SpeechTokenizerModelConfig, got {type(model_config).__name__}")
+
+    mixture_config: DatasetMixtureConfig[Any] = trainer_config.mixture_config
 
     output_prefix = args.output_prefix
     if output_prefix is None:
@@ -154,9 +163,9 @@ def main() -> None:
 
     output_prefix = Path(output_prefix).expanduser().resolve()
 
-    model_file = train_tokenizer(
-        trainer_config.mixture_config.train_sources,
+    model_file = TokenizerTrainer(
+        mixture_config.train_sources,
         output_prefix,
         model_config.text_vocab_size
-    )
+    ).run()
     log.info(f"wrote {model_file}")

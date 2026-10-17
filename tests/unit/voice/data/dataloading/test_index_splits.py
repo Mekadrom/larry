@@ -4,9 +4,9 @@ import datasets.config
 import pytest
 from datasets import Dataset
 
-from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
-from larry.voice.data.dataloading.voice_dataloading import index_split_files
-from larry.voice.training.voice_trainers import load_index
+from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
+from larry.common.data.dataloading.indexed_dataset import index_split_files
+from larry.common.data.dataloading.indexed_dataset import load_index
 
 
 def _write_index(root: Path, splits: dict[str, list[str]]) -> Path:

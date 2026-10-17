@@ -6,11 +6,11 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, Subset
 
-from larry.voice.config.model.voice_model_configs import SpeechTokenizerModelConfig
-from larry.voice.config.training.voice_trainer_configs import SpeakerLeakageProbesConfig, SpeechTokenizerTrainerConfig
-from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
+from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
+from larry.voice.config.training.voice_trainer_configs import SpeakerLeakageProbesConfig, SpeechEncoderTrainerConfig
+from larry.voice.model.speech_tokenizer import SpeechEncoderModel
 from larry.voice.training.voice_callbacks import PooledActivations, SpeakerLeakageProbesCallback
-from larry.voice.training.voice_trainers import SpeechTokenizerTrainer
+from larry.voice.training.voice_trainers import SpeechEncoderTrainer
 
 
 def _callback(**kwargs: Any) -> SpeakerLeakageProbesCallback:
@@ -22,8 +22,8 @@ def _keys(counts: dict[str, int]) -> list[str]:
     return keys[::2] + keys[1::2]
 
 
-def _trainer(max_batch_seconds: float) -> SpeechTokenizerTrainer:
-    trainer = SpeechTokenizerTrainer.__new__(SpeechTokenizerTrainer)
+def _trainer(max_batch_seconds: float) -> SpeechEncoderTrainer:
+    trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
     vars(trainer).update(_config=SimpleNamespace(mixture_config=SimpleNamespace(max_batch_seconds=max_batch_seconds)))
     return trainer
 
@@ -279,7 +279,7 @@ def test_extraction_restores_training_mode_and_follows_loader_order() -> None:
         {"waveforms": w, "waveform_lengths": torch.tensor([w.shape[1]])} for w in waveforms
     ])
 
-    features = callback._extract_features(cast(SpeechTokenizerTrainer, _fake_trainer(model)))
+    features = callback._extract_features(cast(SpeechEncoderTrainer, _fake_trainer(model)))
 
     assert model.training
     assert features["encoder"].shape == (2, 6)
@@ -346,7 +346,7 @@ def test_probe_results_are_reproducible() -> None:
 
 def test_steps_off_the_schedule_and_non_main_processes_do_nothing() -> None:
     callback = _callback(probe_every=10)
-    trainer = SpeechTokenizerTrainer.__new__(SpeechTokenizerTrainer)
+    trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
     vars(trainer).update(accelerator=SimpleNamespace(is_main_process=False))
 
     assert callback.on_step_end(trainer, torch.tensor(0.0), 7) is None
@@ -355,11 +355,11 @@ def test_steps_off_the_schedule_and_non_main_processes_do_nothing() -> None:
 
 
 def test_trainer_config_builds_the_probes_config_from_overrides() -> None:
-    config = SpeechTokenizerTrainerConfig(
+    config = SpeechEncoderTrainerConfig(
         max_steps=1, tokenizer_model_path="t", speaker_mapping_path="s",
         speaker_leakage_steps=500, speaker_leakage_probes_callback_overrides={"train_epochs": 7, "layers": ["fsq"]},
     )
-    disabled = SpeechTokenizerTrainerConfig(max_steps=1, tokenizer_model_path="t", speaker_mapping_path="s")
+    disabled = SpeechEncoderTrainerConfig(max_steps=1, tokenizer_model_path="t", speaker_mapping_path="s")
 
     assert config.speaker_leakage_probes_config == SpeakerLeakageProbesConfig(
         probe_every=500, train_epochs=7, layers=["fsq"]
@@ -368,10 +368,10 @@ def test_trainer_config_builds_the_probes_config_from_overrides() -> None:
 
 
 def test_default_layers_exist_in_the_speech_tokenizer_and_output_sequences() -> None:
-    model_config = SpeechTokenizerModelConfig(
+    model_config = SpeechEncoderModelConfig(
         d_model=128, n_heads=2, n_query_groups=2, n_encoder1_layers=1, n_encoder2_layers=1, text_vocab_size=8
     )
-    model = SpeechTokenizerModel(model_config).eval()
+    model = SpeechEncoderModel(model_config).eval()
     activations = PooledActivations(SpeakerLeakageProbesConfig(probe_every=1).layers)
 
     with torch.no_grad(), activations.attached(model):

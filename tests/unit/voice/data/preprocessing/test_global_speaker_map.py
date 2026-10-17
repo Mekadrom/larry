@@ -8,7 +8,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
+from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.data.preprocessing.global_speaker_map import SpeakerMapping, GlobalSpeakerMappingCreator
 
 
@@ -123,7 +123,7 @@ def test_ids_do_not_depend_on_string_hash_randomization(tmp_path: Path) -> None:
     script = (
         "import sys\n"
         "from pathlib import Path\n"
-        "from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig\n"
+        "from larry.voice.config.data.voice_data_configs import SpeechSourceConfig\n"
         "from larry.voice.data.preprocessing.global_speaker_map import GlobalSpeakerMappingCreator\n"
         f"GlobalSpeakerMappingCreator([SpeechSourceConfig(name='s', index_path={root!r})], Path(sys.argv[1])).run()\n"
     )

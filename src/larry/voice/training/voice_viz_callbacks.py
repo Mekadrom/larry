@@ -1,6 +1,6 @@
 import textwrap
 from abc import ABC
-from typing import cast
+from typing import cast, Any
 
 import torch
 import torchaudio.functional as AF
@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 import larry.common.training.trainers as trainers
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
-from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
+from larry.voice.model.speech_tokenizer import SpeechEncoderModel
 from larry.voice.training import voice_trainers
 from larry.voice.utils import collapse_ctc_emissions
 
@@ -126,14 +126,14 @@ class SpeechTokenizerVizCallback(VoiceVizCallback):
         self.rows: list[int] | None = None
         self.audio_logged = False
 
-    def viz(self, trainer: trainers.TrainerBase, step: int) -> None:
+    def viz(self, trainer: trainers.TrainerBase[Any, Any, Any], step: int) -> None:
         """Logs visualizations of audio as mels with aligned CTC tokens, as well as saving the audio and labels."""
         if not trainer.accelerator.is_main_process:
             return
 
         self.log.info(f"Performing visualization at step {step}")
 
-        speech_trainer = cast(voice_trainers.SpeechTokenizerTrainer, trainer)
+        speech_trainer = cast(voice_trainers.SpeechEncoderTrainer, trainer)
         dataset = cast(IndexedSpeechDataset, speech_trainer.eval_loader.dataset)
         if self.rows is None:
             self.rows = pick_rows(dataset.offsets, self.examples_per_source)
@@ -144,7 +144,7 @@ class SpeechTokenizerVizCallback(VoiceVizCallback):
         assert collate_fn is not None
         batch = collate_fn(items)
 
-        model = cast(SpeechTokenizerModel, speech_trainer.accelerator.unwrap_model(speech_trainer.model))
+        model = cast(SpeechEncoderModel, speech_trainer.accelerator.unwrap_model(speech_trainer.model))
         device = speech_trainer.accelerator.device
         waveforms = batch["waveforms"].to(device)
         waveform_lengths = batch["waveform_lengths"].to(device)

@@ -4,29 +4,31 @@ import json
 import logging
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping, Sized
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any, ClassVar, Concatenate, Self, cast
+from typing import Any, ClassVar, cast
 
 import torch
 from accelerate import Accelerator
 from accelerate.data_loader import DataLoaderShard
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
-from datasets import load_dataset
+from datasets import load_dataset, Dataset as HFDataset
 from torch import nn
 from torch.optim import AdamW, Muon, Optimizer
 from torch.optim.lr_scheduler import LambdaLR, LRScheduler
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm import tqdm
 
+from larry.common.config.data.data_configs import DatasetSourceConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.common.criteria import criterion
-from larry.common.data.samplers import ResumableBatchSampler, ShuffledBatchSampler
+from larry.common.data.dataloading.indexed_dataset import IndexedDataset, load_index
+from larry.common.data.dataloading.samplers import ResumableBatchSampler
 from larry.common.metrics.metrics import MetricDict, Metrics, ScalarMetricEntry
 from larry.common.model.model import LarryModelOutput
-from larry.common.training.callbacks import ModelInitLoggingCallback, TrainingCallback
+from larry.common.training.callbacks import ModelInitLoggingCallback, TrainingCallback, TrainLossByTokens
 from larry.common.training.qk_clip import QKClipCallback, QKClipHandler
 from larry.common.training.training_model import LarryModel
 from larry.common.training.viz_callbacks import VizCallback
@@ -50,7 +52,28 @@ class StepOutput:
     model_output: LarryModelOutput | None = None
 
 
-class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Registrable, ABC, root=True):
+class TrainState:
+    """Dataclass for a trainer's training state. Allows resuming."""
+
+    def __init__(self) -> None:
+        """Simple init."""
+        self.global_step = 0
+        self.tokens_seen = 0
+
+    def state_dict(self) -> dict[str, Any]:
+        """Converts to dict for saving."""
+        return vars(self).copy()
+
+    def load_state_dict(self, d: dict[str, Any]) -> None:
+        """Converts from dict for loading."""
+        vars(self).update(d)
+
+
+class TrainerBase[
+M: LarryModel,
+C: LarryTrainerConfig[Any] = LarryTrainerConfig[Any],
+D: Dataset = Dataset,
+](Registrable, ABC, root=True):
     """Superclass for all trainers."""
 
     REGISTRY: ClassVar[TypeRegistry[TrainerBase]]
@@ -243,12 +266,12 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         if resume_dir:
             self.accelerator.load_state(resume_dir)
 
-    def count_tokens(self, n_tokens: int) -> None:
+    def count_tokens(self, batch: Mapping[str, Any]) -> None:
         """Allows tracking of total tokens seen by the trained model over time during training.
 
         Since most if not all trained models will train on variable-length sequence, this exists on the base class.
         """
-        self._pending_tokens += n_tokens
+        ...
 
     def sync_tokens_seen(self) -> int:
         """Reduces tokens seen across all devices' instances of this trainer class to use as the total tokens seen."""
@@ -272,6 +295,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         if self.config.viz_steps:
             self.training_callbacks.append(self.make_viz_callback(self.config.viz_steps))
         self.training_callbacks.append(ModelInitLoggingCallback())
+        self.training_callbacks.append(TrainLossByTokens(self.config.logging_steps))
 
     def run(self) -> None:
         """Begins a training run.
@@ -455,38 +479,34 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
     def on_step_begin(self, step: int) -> MetricDict:
         """Calls all training callbacks through their on_step_begin entrypoint."""
-        return self._callback_func(lambda c: c.on_step_begin, step)
+        step_metrics = MetricDict()
+        for training_callback in self.training_callbacks:
+            stats = training_callback.on_step_begin(self, step)
+            if stats is not None:
+                step_metrics.update(stats)
+        return step_metrics
 
     def on_step_end(self, train_loss: torch.Tensor, step: int) -> MetricDict:
         """Calls all training callbacks through their on_step_end entrypoint."""
-        return self._callback_func(lambda c: c.on_step_end, train_loss, step)
-
-    def _callback_func[**P](
-            self,
-            callback_provider: Callable[[TrainingCallback], Callable[Concatenate[Self, P], MetricDict | None]],
-            *args: P.args,
-            **kwargs: P.kwargs
-    ) -> MetricDict:
-        """Helper wrapping the loop over training callbacks that collects metrics to return from each."""
         step_metrics = MetricDict()
         for training_callback in self.training_callbacks:
-            stats = callback_provider(training_callback)(self, *args, **kwargs)
+            stats = training_callback.on_step_end(self, train_loss, step)
             if stats is not None:
                 step_metrics.update(stats)
         return step_metrics
 
     @abstractmethod
-    def make_dataset_dict(self) -> Mapping[str, Dataset]:
+    def make_dataset_dict(self) -> Mapping[str, D]:
         """Allows for overriding to return the entire dataset."""
         ...
 
     @abstractmethod
-    def make_train_dataloader(self, dataset: Mapping[str, Dataset]) -> DataLoader:
+    def make_train_dataloader(self, dataset: Mapping[str, D]) -> DataLoader:
         """Allows for overriding to create the train dataloader."""
         ...
 
     @abstractmethod
-    def make_eval_dataloader(self, dataset: Mapping[str, Dataset]) -> DataLoader:
+    def make_eval_dataloader(self, dataset: Mapping[str, D]) -> DataLoader:
         """Allows for overriding to create the eval dataloader."""
         ...
 
@@ -539,7 +559,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
         Default implementation assumes the loss already reduces by token count.
         """
-        return 1  # ctc loss is already token weighted; don't weight by tokens here for eval loss
+        return 1
 
     def train_batch_size(self, batch: Mapping[str, Any]) -> int:
         """Allows for overriding to determine the real batch size for a given train batch."""
@@ -559,52 +579,89 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         ))
 
 
-class TrainState:
-    """Dataclass for a trainer's training state. Allows resuming."""
-
-    def __init__(self) -> None:
-        """Simple init."""
-        self.global_step = 0
-        self.tokens_seen = 0
-
-    def state_dict(self) -> dict[str, Any]:
-        """Converts to dict for saving."""
-        return vars(self).copy()
-
-    def load_state_dict(self, d: dict[str, Any]) -> None:
-        """Converts from dict for loading."""
-        vars(self).update(d)
-
-
-class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](TrainerBase[M, C], ABC):
+class LarryTrainer[
+M: LarryModel,
+C: LarryTrainerConfig[Any] = LarryTrainerConfig[Any],
+S: DatasetSourceConfig = DatasetSourceConfig,
+D: IndexedDataset[Any] = IndexedDataset[Any],
+](TrainerBase[M, C, D], ABC):
     """Implements a few abstract methods from ``TrainerBase`` with sensible defaults."""
 
     accelerator: Accelerator
 
-    def make_dataset_dict(self) -> Mapping[str, Dataset]:
-        """Uses datasets load_dataset with the ``TrainerConfig`` instance's ``dataset_config`` dict."""
-        return load_dataset(**self.config.dataset_config)
+    def make_dataset_dict(self) -> Mapping[str, D]:
+        """Loads the indexed dataset sources from config for this ``SpeechTokenizerTrainer``."""
+        if len(self.config.mixture_config.train_sources) == 0:
+            raise ValueError("train_sources is empty")
 
-    def make_train_dataloader(self, dataset: Mapping[str, Dataset]) -> DataLoader:
-        """Creates a default simple train DataLoader for sharding."""
+        if len(self.config.mixture_config.eval_sources) == 0:
+            raise ValueError("eval_sources is empty")
+
+        mixture = self.config.mixture_config
+        return {
+            "train": self._load_indexed(mixture.train_sources),
+            "validation": self._load_indexed(mixture.eval_sources, is_eval=True),
+        }
+
+    def _load_indexed(self, configs: list[S], is_eval: bool = False) -> D:
+        """Helper for loading the indexed dataset source configuration. Index datasets can be materialized."""
+        indexes: list[HFDataset] = []
+        sources: list[HFDataset | None] = []
+        for config in configs:
+            index = load_index(config)
+            if config.source_path is None:
+                index = self.transform_as_source(config, index)
+                sources.append(None)
+            else:
+                source = load_dataset(
+                    config.source_path,
+                    name=config.source_name,
+                    split=config.source_split,
+                    revision=config.source_revision,
+                    cache_dir=config.source_cache_dir,
+                )
+                sources.append(self.transform_as_source(config, source))
+            indexes.append(index)
+        return self.load_indexed(configs, indexes, sources, is_eval=is_eval)
+
+    def transform_as_source(self, config: S, dataset: HFDataset) -> HFDataset:
+        return dataset
+
+    @abstractmethod
+    def load_indexed(
+            self,
+            configs: list[S],
+            indexes: list[HFDataset],
+            sources: list[HFDataset | None],
+            is_eval: bool = False,
+    ) -> D:
+        ...
+
+    def make_train_dataloader(self, dataset: Mapping[str, D]) -> DataLoader:
+        """Loads the weighted dataloader for the train dataset."""
         train = dataset["train"]
+        weights = [
+            source.weight
+            for source in self.config.mixture_config.train_sources
+        ]
+        sampler = self.make_train_sampler(train, weights)
         return DataLoader(
             train,
-            batch_sampler=ShuffledBatchSampler(
-                len(cast(Sized, cast(object, train))), self.config.train_batch_size, self.config.seed
-            ),
+            batch_sampler=sampler,
             collate_fn=self.make_collate_fn(),
             num_workers=self.config.num_dataloader_workers,
+            persistent_workers=self.config.num_dataloader_workers > 0,
         )
 
-    def make_eval_dataloader(self, dataset: Dataset | Mapping[str, Dataset]) -> DataLoader:
-        """Creates a default simple eval DataLoader for sharding."""
+    def make_eval_dataloader(self, dataset: Dataset | Mapping[str, D]) -> DataLoader:
+        """Loads the weighted dataloader for the validation dataset."""
+        validation = dataset["validation"]
         return DataLoader(
-            dataset["validation"],
-            shuffle=False,
-            batch_size=self.config.eval_batch_size,
+            validation,
+            batch_sampler=self.make_eval_sampler(validation),
             collate_fn=self.make_collate_fn(),
             num_workers=self.config.num_dataloader_workers,
+            persistent_workers=self.config.num_dataloader_workers > 0,
         )
 
     def make_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
@@ -612,7 +669,8 @@ class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Tr
         return None
 
     def train_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
-        """Wraps a delegate forward pass function shared with eval."""
+        """Wraps _forward_pass to first keep a running count of total tokens seen by the model in training."""
+        self.count_tokens(batch)
         return self._forward_pass(batch)
 
     def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
@@ -642,6 +700,14 @@ class LarryTrainer[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Tr
             )
             raise
         return StepOutput(loss=loss, metrics=model_output.metrics)
+
+    @abstractmethod
+    def make_train_sampler(self, dataset: D, weights) -> Sampler:
+        ...
+
+    @abstractmethod
+    def make_eval_sampler(self, dataset: D) -> Sampler | Iterable:
+        ...
 
     @abstractmethod
     def make_criterion(self) -> criterion.Criterion:

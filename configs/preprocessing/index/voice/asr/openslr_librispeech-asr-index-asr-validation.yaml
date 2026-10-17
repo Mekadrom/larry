@@ -9,10 +9,8 @@ preprocessor:
 dataset:
   config: DefaultDatasetConfig
   overrides:
-    path: parquet
-    name: ~
-    split: ~
-    data_dir: /home/zadar/.cache/larry/datasets/normalized/voice/asr/openslr_librispeech-asr-normalized-asr-validation/
+    path: thelarryproject/librispeech-asr-validation
+    split: train
     cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/openslr_librispeech-asr-normalized-asr-validation/
 
 pipeline:

@@ -12,7 +12,7 @@ dataset:
     path: openslr/librispeech_asr
     name: all
     split: validation.clean+validation.other
-    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/asr/openslr_librispeech-asr-normalized-asr-validation/
+    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/openslr_librispeech-asr-normalized-validation/
 
 pipeline:
   - name: ColumnCastingPreprocessor

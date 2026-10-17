@@ -10,8 +10,13 @@ from accelerate import debug_launcher
 from accelerate.state import AcceleratorState
 
 from larry.common.metrics.metrics import MetricDict
-from tests.unit.common.training.test_step_based_training import NullMetrics, ToyModel, ToyTrainer, ToyTrainerConfig, \
-    provenance
+from tests.unit.common.training.test_step_based_training import (
+    NullMetrics,
+    ToyModel,
+    ToyTrainer,
+    ToyTrainerConfig,
+    provenance,
+)
 
 WARMUP = 4
 MAX_STEPS = 6

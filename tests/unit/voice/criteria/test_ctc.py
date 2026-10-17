@@ -7,7 +7,7 @@ from torch import nn
 from larry.common.config.criteria.criterion_configs import CTCCriterionConfig
 from larry.common.model.model import LarrySpeechTokenizerModelOutput
 from larry.voice.criteria.ctc import CTCCriterion
-from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
+from larry.voice.model.speech_tokenizer import SpeechEncoderModel
 
 
 def _output(frame_lengths: list[int]) -> LarrySpeechTokenizerModelOutput:
@@ -22,7 +22,7 @@ def _output(frame_lengths: list[int]) -> LarrySpeechTokenizerModelOutput:
 
 
 def test_sample_losses_reproduce_the_mean_loss() -> None:
-    criterion = CTCCriterion(CTCCriterionConfig(blank=5), cast(SpeechTokenizerModel, nn.Identity()))
+    criterion = CTCCriterion(CTCCriterionConfig(blank=5), cast(SpeechEncoderModel, nn.Identity()))
     output = _output([12, 9, 7])
     targets = torch.tensor([[1, 2, 3, 4], [2, 2, 0, 0], [4, 0, 0, 0]])
     target_lengths = torch.tensor([4, 2, 1])
@@ -35,7 +35,7 @@ def test_sample_losses_reproduce_the_mean_loss() -> None:
 
 
 def test_infeasible_sample_is_zeroed_not_infinite() -> None:
-    criterion = CTCCriterion(CTCCriterionConfig(blank=5), cast(SpeechTokenizerModel, nn.Identity()))
+    criterion = CTCCriterion(CTCCriterionConfig(blank=5), cast(SpeechEncoderModel, nn.Identity()))
     output = _output([12, 2])
     targets = torch.tensor([[1, 2, 3], [1, 1, 1]])
     target_lengths = torch.tensor([3, 3])

@@ -9,14 +9,14 @@ import pytest
 from larry.common.config.training import build_trainer_config
 from larry.common.utils import load_yaml_dict
 from larry.common.utils.init_helpers import import_submodules
-from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
-from larry.voice.config.training.voice_trainer_configs import SpeechTokenizerTrainerConfig
-from larry.voice.data.dataloading.voice_dataloading import index_split_files
+from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
+from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
+from larry.common.data.dataloading.indexed_dataset import index_split_files
 from larry.voice.data.preprocessing.global_speaker_map import SpeakerMapping
 
 
 @pytest.fixture(scope="session")
-def trainer_config() -> SpeechTokenizerTrainerConfig:
+def trainer_config() -> SpeechEncoderTrainerConfig:
     config_file = os.environ.get("GLOBAL_SPEAKER_MAPPING_CONFIG")
     if config_file is None:
         pytest.skip("GLOBAL_SPEAKER_MAPPING_CONFIG not set")
@@ -28,17 +28,17 @@ def trainer_config() -> SpeechTokenizerTrainerConfig:
     ))
     definition = load_yaml_dict(Path(config_file).expanduser().resolve())
     config = build_trainer_config(definition.get("trainer", {}))
-    assert isinstance(config, SpeechTokenizerTrainerConfig)
+    assert isinstance(config, SpeechEncoderTrainerConfig)
     return config
 
 
 @pytest.fixture(scope="session")
-def sources(trainer_config: SpeechTokenizerTrainerConfig) -> list[SpeechSourceConfig]:
+def sources(trainer_config: SpeechEncoderTrainerConfig) -> list[SpeechSourceConfig]:
     return trainer_config.mixture_config.train_sources + trainer_config.mixture_config.eval_sources
 
 
 @pytest.fixture(scope="session")
-def rows(trainer_config: SpeechTokenizerTrainerConfig) -> list[tuple[str, int]]:
+def rows(trainer_config: SpeechEncoderTrainerConfig) -> list[tuple[str, int]]:
     path = Path(trainer_config.speaker_mapping_path).expanduser()
     with open(path, newline="", encoding="utf-8") as file:
         reader = csv.DictReader(file)

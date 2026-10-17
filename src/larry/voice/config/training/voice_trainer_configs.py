@@ -2,8 +2,9 @@ import dataclasses
 import functools
 from typing import Any
 
+from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
-from larry.voice.config.preprocessing.voice_configs import SpeechMixtureConfig, SpeechSourceConfig
+from larry.voice.config.data.voice_data_configs import SpeechMixtureConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -30,40 +31,28 @@ class SpeakerLeakageProbesConfig:
 
 
 @dataclasses.dataclass(kw_only=True)
-class VoiceTrainerConfig(LarryTrainerConfig):
+class VoiceTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](LarryTrainerConfig[M]):
     """Superclass for voice trainer configs."""
 
     ...
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechTokenizerTrainerConfig(VoiceTrainerConfig):
-    """Config for ``SpeechTokenizerTrainer`` to configure the training and eval dataset sources."""
-
+class SpeechEncoderDecoderTrainerConfig(VoiceTrainerConfig[SpeechMixtureConfig]):
     tokenizer_model_path: str
     speaker_mapping_path: str
 
-    speed_augment_factors: list[float] = dataclasses.field(default_factory=lambda: [
-        1.0
-    ])
+    @classmethod
+    def mixture_config_type(cls) -> type[SpeechMixtureConfig]:
+        """Speech trainers parse ``dataset_config`` into a ``SpeechMixtureConfig``."""
+        return SpeechMixtureConfig
 
-    @functools.cached_property
-    def mixture_config(self) -> SpeechMixtureConfig:
-        """Converts the raw dictionary config from yaml to a nested structure of config dataclasses."""
-        raw = dict(self.dataset_config)
-        train_sources = [
-            SpeechSourceConfig(**source)
-            for source in raw.pop("train_sources")
-        ]
-        eval_sources = [
-            SpeechSourceConfig(**source)
-            for source in raw.pop("eval_sources")
-        ]
-        return SpeechMixtureConfig(
-            train_sources=train_sources,
-            eval_sources=eval_sources,
-            **raw
-        )
+
+@dataclasses.dataclass(kw_only=True)
+class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
+    """Config for ``SpeechTokenizerTrainer`` to configure the training and eval dataset sources."""
+
+    speed_augment_factors: list[float] = dataclasses.field(default_factory=lambda: [1.0])
 
     speaker_leakage_steps: int | None = None
     speaker_leakage_probes_callback_overrides: dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -77,3 +66,8 @@ class SpeechTokenizerTrainerConfig(VoiceTrainerConfig):
             probe_every=self.speaker_leakage_steps,
             **self.speaker_leakage_probes_callback_overrides
         )
+
+
+@dataclasses.dataclass(kw_only=True)
+class SpeechDecoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
+    """Config for ``SpeechDecoderTrainer``."""

@@ -3,16 +3,17 @@ import csv
 import logging
 import os
 from pathlib import Path
-from typing import Self
+from typing import Self, Any
 
 import pyarrow.parquet as pq
 
+from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training import build_trainer_config
+from larry.common.data.dataloading.indexed_dataset import index_split_files
 from larry.common.utils import load_yaml_dict
 from larry.common.utils.init_helpers import import_submodules
-from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
-from larry.voice.config.training.voice_trainer_configs import SpeechTokenizerTrainerConfig
-from larry.voice.data.dataloading.voice_dataloading import index_split_files
+from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
+from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
 
 log = logging.getLogger(__name__)
 
@@ -142,8 +143,10 @@ def main() -> None:
     definition = load_yaml_dict(Path(args.config_file).expanduser().resolve())
     trainer_config = build_trainer_config(definition.get("trainer", {}))
 
-    if not isinstance(trainer_config, SpeechTokenizerTrainerConfig):
+    if not isinstance(trainer_config, SpeechEncoderTrainerConfig):
         raise TypeError(f"expected a SpeechTokenizerTrainerConfig, got {type(trainer_config).__name__}")
+
+    mixture_config: DatasetMixtureConfig[Any] = trainer_config.mixture_config
 
     output_prefix = args.output_prefix
     if output_prefix is None:
@@ -155,6 +158,6 @@ def main() -> None:
     output_prefix = Path(output_prefix).expanduser().resolve()
 
     GlobalSpeakerMappingCreator(
-        trainer_config.mixture_config.train_sources + trainer_config.mixture_config.eval_sources,
+        mixture_config.train_sources + mixture_config.eval_sources,
         output_prefix
     ).run()

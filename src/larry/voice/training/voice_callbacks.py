@@ -127,7 +127,7 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
         self.validation_rows = torch.empty(0, dtype=torch.long)
         self.test_rows = torch.empty(0, dtype=torch.long)
 
-    def _initialize_from_eval_dataset(self, trainer: voice_trainers.SpeechTokenizerTrainer) -> None:
+    def _initialize_from_eval_dataset(self, trainer: voice_trainers.SpeechEncoderTrainer) -> None:
         """Given a validation dataset, extracts train and test data for probe training and evaluation."""
         validation = cast(IndexedSpeechDataset, trainer.dataset_dict["validation"])
         rows, labels = self._select_rows(validation.speaker_keys())
@@ -146,7 +146,7 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
         )
 
     def _select_rows(self, keys: list[str]) -> tuple[list[int], torch.Tensor]:
-        """Samples up to ``max_clips`` rows of every speaker with at least ``min_clips``, labelled with dense ids."""
+        """Samples up to ``max_clips`` rows of every speaker with at least ``min_clips``, labeled with dense ids."""
         rows_by_speaker: dict[str, list[int]] = defaultdict(list)
         for row, key in enumerate(keys):
             rows_by_speaker[key].append(row)
@@ -180,14 +180,14 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
 
         return torch.cat(train), torch.cat(validation), torch.cat(test)
 
-    def on_step_end(self, trainer: trainers.TrainerBase, train_loss: torch.Tensor, step: int) -> MetricDict | None:
+    def on_step_end(self, trainer: trainers.TrainerBase[Any, Any, Any], train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """Every ``probe_every`` steps, trains speaker ID probes.
 
         Each configured module from the training model has its activations calculated for the train and eval probe
         datasets. Then, both a linear and a non-linear probe is trained on those activations and the evaluation of each
         probe determines the level of speaker identity leakage in the model at those layers.
         """
-        if step % self.config.probe_every != 0 or not isinstance(trainer, voice_trainers.SpeechTokenizerTrainer):
+        if step % self.config.probe_every != 0 or not isinstance(trainer, voice_trainers.SpeechEncoderTrainer):
             return None
 
         if not trainer.accelerator.is_main_process:
@@ -215,7 +215,7 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
 
         return metric_dict
 
-    def _extract_features(self, trainer: voice_trainers.SpeechTokenizerTrainer) -> dict[str, torch.Tensor]:
+    def _extract_features(self, trainer: voice_trainers.SpeechEncoderTrainer) -> dict[str, torch.Tensor]:
         """Runs the probe clips through the frozen model once, pooling every configured layer's output."""
         model = trainer.accelerator.unwrap_model(trainer.model)
         device = trainer.accelerator.device

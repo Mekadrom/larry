@@ -14,22 +14,26 @@ class VoiceModelConfig(ModelConfig, SampleRateConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class ASRVoiceModelConfig(VoiceModelConfig):
-    """Override for ``VoiceModelConfig`` that changes the n_fft for ASR models."""
+class SpeechEncoderDecoderModelConfig(VoiceModelConfig, LLMBlockModuleConfig):
+    fsq_dims: int = 8
+    fsq_levels: int = 3
 
-    n_fft: int = 400
+    @property
+    def n_units(self) -> int:
+        return self.fsq_levels ** self.fsq_dims
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechTokenizerModelConfig(ASRVoiceModelConfig, LLMBlockModuleConfig):
-    """Combines the ``ASRVoiceModelConfig`` and ``LLMBlockModuleConfig`` to configure a ``SpeechTokenizerModel``."""
+class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig):
+    """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechTokenizerEncoderModel``."""
+
+    n_fft: int = 400
 
     subsampler_stride: int = 2
     n_query_groups: int = 16
 
     d_model: int = 1024
-    fsq_dims: int = 8
-    fsq_levels: int = 3
+
     n_encoder1_layers: int = 6
     n_encoder2_layers: int = 6
 
@@ -44,3 +48,10 @@ class SpeechTokenizerModelConfig(ASRVoiceModelConfig, LLMBlockModuleConfig):
     n_spec_time_masks: int = 10
     spec_time_fraction: float = 0.05
 
+
+@dataclasses.dataclass(kw_only=True)
+class SpeechDecoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig):
+    """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechDecoderModel``."""
+    n_mels: int = 80
+    n_fft: int = 1024
+    hop_length: int = 480

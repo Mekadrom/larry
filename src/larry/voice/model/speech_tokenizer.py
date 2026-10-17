@@ -11,7 +11,7 @@ from larry.common.config.model.model_configs import FSMNAttentionConfig
 from larry.common.model.attention import FSMNAttention
 from larry.common.model.llm import LarrySimpleEncoderBlock
 from larry.common.model.model import LarrySpeechTokenizerModelOutput
-from larry.voice.config.model.voice_model_configs import SpeechTokenizerModelConfig
+from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.model.fsq import FSQ
 from larry.voice.model.voice_models import VoiceModel
 from larry.voice.utils import make_non_pad_mask
@@ -24,7 +24,7 @@ class SpeechTokenizerEncoderBlock(nn.Module):
     residual.
     """
 
-    def __init__(self, config: SpeechTokenizerModelConfig) -> None:
+    def __init__(self, config: SpeechEncoderModelConfig) -> None:
         """Initializes modules."""
         super().__init__()
         self.attn = FSMNAttention(FSMNAttentionConfig.from_child(config))
@@ -46,14 +46,14 @@ class SpeechTokenizerEncoderBlock(nn.Module):
         return x + self.mlp(self.mlp_norm(x))
 
 
-class SpeechEncoderPreBottleneck(VoiceModel[SpeechTokenizerModelConfig]):
+class SpeechEncoderPreBottleneck(VoiceModel[SpeechEncoderModelConfig]):
     """Log-mels at 100 Hz -> two strided convs -> FSMN attention blocks -> [B, T, D] at 25 Hz.
 
     Consists of a convolutional subsampling frontend followed by a set of ``SpeechTokenizerEncoderBlock`` instances to
     feed the input of the ``FSQ`` bottleneck.
     """
 
-    def __init__(self, config: SpeechTokenizerModelConfig) -> None:
+    def __init__(self, config: SpeechEncoderModelConfig) -> None:
         """Initializes modules."""
         super().__init__(config)
 
@@ -143,10 +143,10 @@ class LogMelFrontend(nn.Module):
         return mels, mel_lengths
 
 
-class SpeechTokenizerModel(VoiceModel[SpeechTokenizerModelConfig], PyTorchModelHubMixin):
+class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMixin):
     """Takes waveforms and performs CTC prediction after a unit ID bottleneck."""
 
-    def __init__(self, config: SpeechTokenizerModelConfig) -> None:
+    def __init__(self, config: SpeechEncoderModelConfig) -> None:
         """Initializes modules.
 
         Includes the ``LogMelFrontend``, ``SpeechEncoderPreBottleneck``, ``FSQ``, encoder2 transformer encoder block

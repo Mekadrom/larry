@@ -1,9 +1,9 @@
 import torch
 
-from larry.voice.config.model.voice_model_configs import SpeechTokenizerModelConfig
-from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
+from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
+from larry.voice.model.speech_tokenizer import SpeechEncoderModel
 
-spec_augment = SpeechTokenizerModel._spec_augment
+spec_augment = SpeechEncoderModel._spec_augment
 
 
 def _mels() -> tuple[torch.Tensor, torch.Tensor]:
@@ -57,16 +57,16 @@ def test_frequency_masks_cover_whole_bins_within_the_width() -> None:
         assert int(indices[-1] - indices[0]) == len(indices) - 1
 
 
-def _model(n_spec_freq_masks: int = 2, n_spec_time_masks: int = 10) -> SpeechTokenizerModel:
+def _model(n_spec_freq_masks: int = 2, n_spec_time_masks: int = 10) -> SpeechEncoderModel:
     torch.manual_seed(0)
-    return SpeechTokenizerModel(SpeechTokenizerModelConfig(
+    return SpeechEncoderModel(SpeechEncoderModelConfig(
         d_model=32, n_heads=4, n_query_groups=4, rotary_embedding_dim=8,
         n_encoder1_layers=1, n_encoder2_layers=1, text_vocab_size=10,
         n_spec_freq_masks=n_spec_freq_masks, n_spec_time_masks=n_spec_time_masks,
     ))
 
 
-def _forward(model: SpeechTokenizerModel) -> torch.Tensor:
+def _forward(model: SpeechEncoderModel) -> torch.Tensor:
     torch.manual_seed(4)
     waveforms = torch.randn(2, 16000)
     return model(waveforms, torch.tensor([16000, 12000])).ctc_log_probs

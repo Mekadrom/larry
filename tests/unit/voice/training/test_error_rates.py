@@ -8,10 +8,11 @@ from larry.common.metrics.metrics import MetricDict
 from larry.common.model.model import LarrySpeechTokenizerModelOutput
 from larry.common.training.trainers import StepOutput
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
-from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
+from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.training.voice_trainers import (
     ErrorCounts,
-    SpeechTokenizerTrainer,
+    error_counts,
+    SpeechEncoderTrainer,
     _normalize_for_scoring,
     _normalize_reference_for_scoring,
 )
@@ -19,8 +20,6 @@ from larry.voice.training.voice_trainers import (
 ALPHABET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ'"
 BLANK = len(ALPHABET)
 SPELLINGS = {"colour": "color", "grey": "gray"}
-
-error_counts = SpeechTokenizerTrainer._error_counts
 
 
 class CharTokenizer(TextTokenizer):
@@ -56,8 +55,8 @@ def test_whitespace_differences_are_not_character_errors() -> None:
     assert error_counts("  YES   SIR ", "YES SIR").char_errors == 0
 
 
-def _trainer(sources: list[str] | None = None) -> SpeechTokenizerTrainer:
-    trainer = SpeechTokenizerTrainer.__new__(SpeechTokenizerTrainer)
+def _trainer(sources: list[str] | None = None) -> SpeechEncoderTrainer:
+    trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
     vars(trainer).update(
         tokenizer=CharTokenizer(),
         whisper_normalizer=EnglishTextNormalizer(SPELLINGS),

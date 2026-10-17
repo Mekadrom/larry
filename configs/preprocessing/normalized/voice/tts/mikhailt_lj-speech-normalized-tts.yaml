@@ -1,0 +1,40 @@
+preprocessor:
+  inputs:
+    provenance:
+      id_columns:
+        - id
+
+dataset:
+  config: DefaultDatasetConfig
+  overrides:
+    path: MikhailT/lj-speech
+    name: ~
+    split: full
+    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/tts/mikhailt_lj-speech-normalized-tts/
+
+pipeline:
+  - name: ColumnCastingPreprocessor
+    config: ColumnCastingPreprocessorConfig
+    inputs:
+      column_casts:
+        audio: "audio_no_decode"
+        spoken_text: ~
+  - name: ColumnRenamingPreprocessor
+    config: ColumnRenamingPreprocessorConfig
+    inputs:
+      column_name_mappings:
+        normalized_text: text_original
+        file: id
+  - name: AudioDurationMapper
+    config: AudioDurationMapperConfig
+  - name: AudioDurationColumnPruner
+    config: AudioDurationColumnPrunerConfig
+  - name: AudioQualityPruner
+    config: AudioQualityPrunerConfigForTTS
+  - name: CTCScoreMapper
+    config: CTCScoreMapperConfig
+    inputs:
+      num_proc: 4
+      text_column: text_original
+  - name: ColumnValuesPruner
+    config: TTSCTCMismatchColumnValuesPrunerConfig

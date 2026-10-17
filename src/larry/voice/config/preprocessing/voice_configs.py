@@ -14,41 +14,8 @@ class SampleRateConfig:
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechSourceConfig:
-    """A config dataclass for configuring a single dataset source."""
-
-    name: str
-    index_path: str  # huggingface repo or local dir: rows with id, duration_s, text_original, speaker_id, etc.
-    source_path: str | None = None
-    source_name: str | None = None
-    source_revision: str | None = None
-    source_cache_dir: str | None = None
-    split: str = "train"
-    source_split: str = "train"
-    audio_column: str = "audio"
-    duration_column: str = "duration_s"
-    speaker_id_column: str | None = "speaker_id"  # where None means no speaker id column (single speaker source)
-    speaker_namespace: str | None = None  # scope that speaker ids are unique within; None means the source name
-    text_column: str = "text_normalized"
-    weight: float = 1.0  # target share of audio time, not of rows
-
-
-@dataclasses.dataclass(kw_only=True)
-class SpeechMixtureConfig(SampleRateConfig):
-    """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
-
-    train_sources: list[SpeechSourceConfig] = dataclasses.field(default_factory=list)
-    eval_sources: list[SpeechSourceConfig] = dataclasses.field(default_factory=list)
-    max_batch_seconds: float = 400.0  # padded seconds per batch
-    pool_size: int = 20000  # clips drawn per sampler chunk
-    seed: int = 42
-
-
-@dataclasses.dataclass(kw_only=True)
 class VoiceConfig(PreprocessorConfig, SampleRateConfig):
     """Superclass for all voice preprocessor configs."""
-
-    ...
 
 
 @dataclasses.dataclass(kw_only=True)

@@ -6,7 +6,7 @@ from accelerate import Accelerator, debug_launcher
 from accelerate.state import AcceleratorState
 from torch.utils.data import DataLoader
 
-from larry.common.data.samplers import ShuffledBatchSampler
+from larry.common.data.dataloading.samplers import ShuffledBatchSampler
 
 
 def _first(sampler: ShuffledBatchSampler, n: int) -> list[list[int]]:
