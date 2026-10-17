@@ -89,9 +89,9 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
         self.training_callbacks = []
 
-        dataset_dict = self.make_dataset_dict()
-        train_loader = self.make_train_dataloader(dataset_dict)
-        eval_loader = self.make_eval_dataloader(dataset_dict)
+        self.dataset_dict = self.make_dataset_dict()
+        train_loader = self.make_train_dataloader(self.dataset_dict)
+        eval_loader = self.make_eval_dataloader(self.dataset_dict)
 
         self.update_provenance(self.provenance)
 
@@ -136,7 +136,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
 
         self.metrics = metrics
 
-        self.add_default_training_callbacks()
+        self.add_training_callbacks()
 
         self.criterion = self.make_criterion()
 
@@ -257,7 +257,7 @@ class TrainerBase[M: LarryModel, C: LarryTrainerConfig = LarryTrainerConfig](Reg
         self._pending_tokens = 0
         return self.train_state.tokens_seen
 
-    def add_default_training_callbacks(self) -> None:
+    def add_training_callbacks(self) -> None:
         """Registers default callbacks for train step begin/end.
 
         Includes a QK clip callback automatically registered for when the configured optimizer is Muon.

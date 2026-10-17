@@ -11,6 +11,7 @@ from datasets import Dataset
 
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
 from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
+from larry.voice.data.preprocessing.global_speaker_map import SpeakerMapping
 from larry.voice.training.voice_trainers import SpeechTokenizerTrainer
 
 
@@ -91,3 +92,29 @@ def test_speed_factors_reach_only_the_training_split() -> None:
     trainer.make_dataset_dict()
 
     assert calls == [(["train"], (0.9, 1.0, 1.1)), (["eval"], (1.0,))]
+
+
+def test_speaker_keys_follow_row_order_and_mapping_keys() -> None:
+    vctk = Dataset.from_dict({"speaker_id": ["p2", "p1"], "duration_s": [1.0, 1.0]})
+    ls = Dataset.from_dict({"speaker_id": [0, 84], "duration_s": [1.0, 1.0]})
+    lj = Dataset.from_dict({"duration_s": [1.0, 1.0, 1.0]})
+    configs = [
+        SpeechSourceConfig(name="vctk", index_path="v"),
+        SpeechSourceConfig(name="heavy-test", index_path="h", speaker_namespace="heavy"),
+        SpeechSourceConfig(name="lj", index_path="l", speaker_id_column=None),
+    ]
+    dataset = IndexedSpeechDataset(configs, [vctk, ls, lj], [None, None, None], sample_rate=16000)
+
+    keys = dataset.speaker_keys()
+
+    assert keys[:4] == ["vctk:p2", "vctk:p1", "heavy:0", "heavy:84"]
+    assert keys[4:] == [SpeakerMapping.key(configs[2], None)] * 3
+    assert len(keys) == len(dataset)
+
+
+def test_speaker_keys_respect_an_index_filter() -> None:
+    index = Dataset.from_dict({"speaker_id": ["a", "b", "c"], "duration_s": [1.0, 0.1, 1.0]})
+    index = index.filter(lambda row: row["duration_s"] > 0.5)
+    dataset = IndexedSpeechDataset([SpeechSourceConfig(name="s", index_path="s")], [index], [None], sample_rate=16000)
+
+    assert dataset.speaker_keys() == ["s:a", "s:c"]

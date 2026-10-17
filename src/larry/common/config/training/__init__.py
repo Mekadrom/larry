@@ -31,4 +31,4 @@ def build_model_config(model_config_dict: dict[str, Any]) -> ModelConfig:
     model_config_overrides = model_config_dict.get("overrides", [])
     log.info(f"Applying model_config_overrides={model_config_overrides}")
 
-    return model_config_type(**{i["name"]: i["value"] for i in model_config_overrides})
+    return model_config_type(**model_config_overrides)

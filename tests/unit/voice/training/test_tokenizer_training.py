@@ -94,6 +94,7 @@ def test_main_reads_sources_and_vocabulary_from_a_training_config(
             "overrides": {
                 "max_steps": 1,
                 "tokenizer_model_path": str(tmp_path / "tok" / "sp.model"),
+                "speaker_mapping_path": str(tmp_path / "speakers.csv"),
                 "dataset_config": {
                     "train_sources": [{"name": source.name, "index_path": source.index_path}],
                     "eval_sources": [],

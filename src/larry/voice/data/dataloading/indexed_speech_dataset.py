@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 from torchaudio import functional as AF
 
 from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
+from larry.voice.data.preprocessing.global_speaker_map import SpeakerMapping
 from larry.voice.utils import bytes_to_waveforms
 
 
@@ -78,3 +79,16 @@ class IndexedSpeechDataset(Dataset[dict[str, Any]]):
             source_ids.append(torch.full((len(column),), s, dtype=torch.long))
 
         return torch.cat(source_ids), torch.cat(durations)
+
+    def speaker_keys(self) -> list[str]:
+        """Provides the ``SpeakerMapping`` key of every example, read from the indexes without decoding audio."""
+        keys: list[str] = []
+        for config, index in zip(self.configs, self.indexes, strict=True):
+            if config.speaker_id_column is None:
+                keys.extend([SpeakerMapping.key(config, None)] * len(index))
+                continue
+
+            table = cast(pa.Table, index.select_columns([config.speaker_id_column]).with_format("arrow")[:])
+            keys.extend(SpeakerMapping.key(config, s) for s in table.column(config.speaker_id_column).to_pylist())
+
+        return keys

@@ -13,7 +13,7 @@ trainer:
   config: SpeechTokenizerTrainerConfig
   overrides:
     tokenizer_model_path: "/home/zadar/.cache/larry/tokenizers/ctc/larry-ctc-sp512.model"
-    speaker_mapping_path: "/home/zadar/.cache/larry/mappings/speaker/asr/global_speaker_mapping.csv"
+    speaker_mapping_path: "/home/zadar/.cache/larry/speaker_mappings/asr/global_speaker_mapping.csv"
     muon_last_layer_names:
       - ctc_head.weight
     lr: 5.0e-4
@@ -25,6 +25,9 @@ trainer:
     max_steps: 100000
     eval_steps: 2000
     viz_steps: 1000
+    speaker_leakage_steps: 5000
+    speaker_leakage_probes_callback_overrides:
+      train_epochs: 100
     speed_augment_factors:
       - 1.0
     dataset_config:

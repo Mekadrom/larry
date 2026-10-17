@@ -9,7 +9,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
-from larry.voice.data.preprocessing.global_speaker_map import GlobalSpeakerMapping, GlobalSpeakerMappingCreator
+from larry.voice.data.preprocessing.global_speaker_map import SpeakerMapping, GlobalSpeakerMappingCreator
 
 
 def _index(root: Path, split: str, speaker_ids: list[Any], files: int = 1) -> str:
@@ -22,25 +22,25 @@ def _index(root: Path, split: str, speaker_ids: list[Any], files: int = 1) -> st
     return str(root)
 
 
-def _create(tmp_path: Path, sources: list[SpeechSourceConfig]) -> GlobalSpeakerMapping:
+def _create(tmp_path: Path, sources: list[SpeechSourceConfig]) -> SpeakerMapping:
     GlobalSpeakerMappingCreator(sources, tmp_path / "out" / "speakers").run()
-    return GlobalSpeakerMapping.from_csv(tmp_path / "out" / "speakers.csv")
+    return SpeakerMapping.from_csv(tmp_path / "out" / "speakers.csv")
 
 
 def test_csv_round_trip_keeps_every_key_and_id(tmp_path: Path) -> None:
-    mapping = GlobalSpeakerMapping()
+    mapping = SpeakerMapping()
     for key in ["vctk:p225", "vctk:p226", "lj-speech:0"]:
         mapping.add_item(key)
 
     mapping.save_csv(tmp_path / "speakers")
-    loaded = GlobalSpeakerMapping.from_csv(tmp_path / "speakers.csv")
+    loaded = SpeakerMapping.from_csv(tmp_path / "speakers.csv")
 
     assert loaded.ids == mapping.ids
     assert loaded.items == mapping.items
 
 
 def test_add_item_returns_the_existing_id_for_a_known_key() -> None:
-    mapping = GlobalSpeakerMapping()
+    mapping = SpeakerMapping()
 
     assert [mapping.add_item(k) for k in ["a", "b", "a"]] == [0, 1, 0]
     assert len(mapping) == 2
@@ -51,7 +51,7 @@ def test_csv_with_a_gap_in_ids_is_rejected(tmp_path: Path) -> None:
     path.write_text("key,id\na,0\nb,2\n")
 
     with pytest.raises(ValueError, match="dense"):
-        GlobalSpeakerMapping.from_csv(path)
+        SpeakerMapping.from_csv(path)
 
 
 def test_speakers_are_deduplicated_across_shards_and_splits(tmp_path: Path) -> None:
@@ -135,3 +135,29 @@ def test_ids_do_not_depend_on_string_hash_randomization(tmp_path: Path) -> None:
         outputs.append(prefix.with_suffix(".csv").read_text())
 
     assert outputs[0] == outputs[1]
+
+
+def test_key_uses_the_namespace_when_set_and_the_name_otherwise() -> None:
+    plain = SpeechSourceConfig(name="vctk", index_path="v")
+    shared = SpeechSourceConfig(name="heavy-test", index_path="h", speaker_namespace="heavy")
+
+    assert SpeakerMapping.key(plain, "p1") == "vctk:p1"
+    assert SpeakerMapping.key(shared, 84) == "heavy:84"
+
+
+def test_single_speaker_key_ignores_the_speaker_id() -> None:
+    source = SpeechSourceConfig(name="lj", index_path="l", speaker_id_column=None)
+
+    assert SpeakerMapping.key(source, None) == SpeakerMapping.key(source, "anything")
+
+
+def test_created_keys_match_mapping_keys(tmp_path: Path) -> None:
+    root = _index(tmp_path / "v", "train", ["p1"])
+    sources = [
+        SpeechSourceConfig(name="vctk", index_path=root),
+        SpeechSourceConfig(name="lj", index_path=str(tmp_path / "missing"), speaker_id_column=None),
+    ]
+
+    mapping = _create(tmp_path, sources)
+
+    assert mapping.items == [SpeakerMapping.key(sources[0], "p1"), SpeakerMapping.key(sources[1], None)]

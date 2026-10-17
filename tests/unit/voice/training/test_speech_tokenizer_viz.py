@@ -14,7 +14,8 @@ from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDat
 from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
 from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator
 from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
-from larry.voice.training.voice_viz_callbacks import SpeechTokenizerVizCallback, collapse, pick_rows, timeline
+from larry.voice.training.voice_viz_callbacks import SpeechTokenizerVizCallback, pick_rows, timeline
+from larry.voice.utils import collapse_ctc_emissions
 
 ALPHABET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -90,7 +91,7 @@ def test_greedy_frames_collapse_and_time_each_new_token() -> None:
     frames = torch.tensor([0, 3, 3, 0, 3, 5, 5, 0])
     tokenizer = CharTokenizer()
 
-    assert collapse(frames, blank) == [3, 3, 5]
+    assert collapse_ctc_emissions(frames, blank) == [3, 3, 5]
     assert timeline(frames, blank, tokenizer, 0.04) == "`0.04` C `0.16` C `0.20` E"
     assert timeline(None, blank, tokenizer, 0.04) == "(no alignment)"
 

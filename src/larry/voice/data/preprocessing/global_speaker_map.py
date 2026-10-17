@@ -17,7 +17,7 @@ from larry.voice.data.dataloading.voice_dataloading import index_split_files
 log = logging.getLogger(__name__)
 
 
-class GlobalSpeakerMapping:
+class SpeakerMapping:
     """Wrapper/helper for a mapping of string "source:speaker_id" to unique, globally densified integer id."""
 
     def __init__(self) -> None:
@@ -40,6 +40,18 @@ class GlobalSpeakerMapping:
     def __len__(self) -> int:
         """Returns the number of unique items in this mapping."""
         return len(self.items)
+
+    @staticmethod
+    def namespace(source: SpeechSourceConfig) -> str:
+        """The scope a source's speaker ids are unique within."""
+        return source.speaker_namespace or source.name
+
+    @staticmethod
+    def key(source: SpeechSourceConfig, speaker_id: object) -> str:
+        """The mapping key for a speaker id read from a source; single speaker sources ignore ``speaker_id``."""
+        if source.speaker_id_column is None:
+            speaker_id = f"{source.name}_speaker_id"
+        return f"{SpeakerMapping.namespace(source)}:{speaker_id}"
 
     def save_csv(self, output_prefix: Path) -> None:
         """Generates a CSV file from this mapping."""
@@ -77,23 +89,18 @@ class GlobalSpeakerMappingCreator:
         os.makedirs(self.output_prefix.parent, exist_ok=True)
 
         # sources sharing a namespace (e.g. a train split and its eval split) share speaker ids
-        mapping = GlobalSpeakerMapping()
+        mapping = SpeakerMapping()
         for source in self.sources:
             for speaker_id in self.read_source(source):
-                mapping.add_item(f"{self.namespace(source)}:{speaker_id}")
+                mapping.add_item(SpeakerMapping.key(source, speaker_id))
 
         mapping.save_csv(self.output_prefix)
 
     @staticmethod
-    def namespace(source: SpeechSourceConfig) -> str:
-        """The scope a source's speaker ids are unique within."""
-        return source.speaker_namespace or source.name
-
-    @staticmethod
-    def read_source(source: SpeechSourceConfig) -> list[str]:
+    def read_source(source: SpeechSourceConfig) -> list[str] | list[None]:
         """For all examples in a provided source dataset, collect unique speaker_id occurrences."""
         if source.speaker_id_column is None:
-            return [f"{source.name}_speaker_id"]
+            return [None]
 
         speaker_ids = set()
         for file in index_split_files(source.index_path, source.split):

@@ -34,6 +34,7 @@ from larry.voice.data.dataloading.voice_dataloading import (
 from larry.voice.model.fsq import code_counts, codebook_statistics
 from larry.voice.model.speech_tokenizer import SpeechTokenizerModel
 from larry.voice.model.voice_models import VoiceModel
+from larry.voice.training import voice_callbacks
 from larry.voice.training.voice_viz_callbacks import SpeechTokenizerVizCallback
 from larry.voice.utils import collapse_ctc_emissions
 
@@ -121,6 +122,13 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
             self.metrics.add_scalar("train/loss_by_tokens", train_loss.item(), self.sync_tokens_seen())
 
         return self._callback_func(lambda c: c.on_step_end, train_loss, step)
+
+    def add_training_callbacks(self) -> None:
+        """Adds the default training callbacks as well as an infrequent callback for training speaker leakage probes."""
+        super().add_training_callbacks()
+        probes_config = self.config.speaker_leakage_probes_config
+        if probes_config is not None:
+            self.training_callbacks.append(voice_callbacks.SpeakerLeakageProbesCallback(probes_config))
 
     def make_viz_callback(self, viz_steps: int) -> VizCallback:
         """Whisper English scoring normalizer, with the British->American spelling map shipped beside its tokenizer."""
@@ -326,10 +334,19 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
 
     def make_eval_dataloader(self, dataset: Dataset | Mapping[str, Dataset]) -> DataLoader:
         """Loads the weighted dataloader for the validation dataset."""
-        # noinspection PyUnnecessaryCast
         validation = cast(IndexedSpeechDataset, dataset["validation"])
 
         _, durations = validation.source_ids_and_durations()
+        return DataLoader(
+            validation,
+            batch_sampler=self.duration_batches(durations),
+            collate_fn=self.make_collate_fn(),
+            num_workers=self.config.num_dataloader_workers,
+            persistent_workers=self.config.num_dataloader_workers > 0,
+        )
+
+    def duration_batches(self, durations: torch.Tensor) -> list[list[int]]:
+        """Groups row positions, shortest first, into batches whose padded length fits ``max_batch_seconds``."""
         batches: list[list[int]] = []
         batch: list[int] = []
         for row in torch.argsort(durations).tolist():
@@ -343,13 +360,7 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
         if len(batch) > 0:
             batches.append(batch)
 
-        return DataLoader(
-            validation,
-            batch_sampler=batches,
-            collate_fn=self.make_collate_fn(),
-            num_workers=self.config.num_dataloader_workers,
-            persistent_workers=self.config.num_dataloader_workers > 0,
-        )
+        return batches
 
     def make_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
         """Initializes the collation function for producing formatted batches that this trainer consumes."""
@@ -358,4 +369,4 @@ class SpeechTokenizerTrainer(VoiceTrainer[SpeechTokenizerModel, SpeechTokenizerT
     def update_provenance(self, provenance: Provenance) -> None:
         """Updates provenance for this model to add all datasets it was trained on in some recognizable form."""
         for source in self.config.mixture_config.train_sources:
-            provenance.ancestry.datasets.add(source.source_path or source.index_path)
+            provenance.ancestry.datasets.add(source.index_path)

@@ -329,10 +329,8 @@ class MetricDict(UserDict[str, MetricEntry]):
         if key in self.data:
             existing = self.data[key]
             if isinstance(item, BatchMetricEntry) and isinstance(existing, BatchMetricEntry):
-                # noinspection PyUnnecessaryCast
                 cast(BatchMetricEntry, existing).add_(item)
             elif isinstance(item, CountableMetricEntry) and isinstance(existing, CountableMetricEntry):
-                # noinspection PyUnnecessaryCast
                 cast(CountableMetricEntry, existing).add_(item)
             else:
                 raise ValueError(

@@ -9,7 +9,12 @@ from larry.common.model.model import LarrySpeechTokenizerModelOutput
 from larry.common.training.trainers import StepOutput
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.preprocessing.voice_configs import SpeechSourceConfig
-from larry.voice.training.voice_trainers import ErrorCounts, SpeechTokenizerTrainer
+from larry.voice.training.voice_trainers import (
+    ErrorCounts,
+    SpeechTokenizerTrainer,
+    _normalize_for_scoring,
+    _normalize_reference_for_scoring,
+)
 
 ALPHABET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ'"
 BLANK = len(ALPHABET)
@@ -72,24 +77,26 @@ def _trainer(sources: list[str] | None = None) -> SpeechTokenizerTrainer:
     ("", ""),
 ])
 def test_scoring_normalization_is_whispers(text: str, expected: str) -> None:
-    assert _trainer()._normalize_for_scoring(text) == expected
+    assert _normalize_for_scoring(_trainer().whisper_normalizer, text) == expected
 
 
 def test_different_readings_of_a_number_score_the_same() -> None:
-    trainer = _trainer()
+    normalizer = _trainer().whisper_normalizer
 
-    assert trainer._normalize_for_scoring("ONE NINE SEVEN ZERO") == trainer._normalize_for_scoring("NINETEEN SEVENTY")
+    spelled = _normalize_for_scoring(normalizer, "ONE NINE SEVEN ZERO")
+
+    assert spelled == _normalize_for_scoring(normalizer, "NINETEEN SEVENTY")
 
 
 def test_reference_normalization_matches_and_is_cached() -> None:
-    trainer = _trainer()
-    SpeechTokenizerTrainer._normalize_reference_for_scoring.cache_clear()
+    normalizer = _trainer().whisper_normalizer
+    _normalize_reference_for_scoring.cache_clear()
 
-    first = trainer._normalize_reference_for_scoring("IN NINETEEN SEVENTY")
-    second = trainer._normalize_reference_for_scoring("IN NINETEEN SEVENTY")
+    first = _normalize_reference_for_scoring(normalizer, "IN NINETEEN SEVENTY")
+    second = _normalize_reference_for_scoring(normalizer, "IN NINETEEN SEVENTY")
 
-    assert first == second == trainer._normalize_for_scoring("IN NINETEEN SEVENTY")
-    assert SpeechTokenizerTrainer._normalize_reference_for_scoring.cache_info().hits == 1
+    assert first == second == _normalize_for_scoring(normalizer, "IN NINETEEN SEVENTY")
+    assert _normalize_reference_for_scoring.cache_info().hits == 1
 
 
 def _frames_for(text: str) -> list[int]:

@@ -107,7 +107,7 @@ def train_tokenizer(sources: list[SpeechSourceConfig], output_prefix: Path, voca
 
 
 def main() -> None:
-    # main entrypoint for training a tokenizer on a target training config's exact weighted dataset mixture
+    """Main entrypoint for training a tokenizer on a target training config's exact weighted dataset mixture."""
     import_submodules("larry", skip=(
         "larry.common.training",
         "larry.voice.training",
