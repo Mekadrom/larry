@@ -32,3 +32,13 @@ class CTCCriterionConfig(CriterionConfig):
 
     blank: int
     zero_infinity: bool = True
+
+    ctc_layer_loss_weights: dict[str, float] = dataclasses.field(default_factory=lambda: {
+        "encoder2_norm": 1.0,
+    })
+
+
+@dataclasses.dataclass(kw_only=True)
+class MelReconstructionCriterionConfig(CriterionConfig):
+    l1_weight: float = 1.0
+    mse_weight: float = 1.0

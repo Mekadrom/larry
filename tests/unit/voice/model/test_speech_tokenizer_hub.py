@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
-from larry.voice.model.speech_tokenizer import SpeechEncoderModel
+from larry.voice.model.speech_encoder import SpeechEncoderModel
 
 
 def test_save_pretrained_round_trips_config_and_weights(tmp_path: Path) -> None:

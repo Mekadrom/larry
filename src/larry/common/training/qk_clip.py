@@ -136,14 +136,15 @@ class QKClipHandler:
 class QKClipCallback(callbacks.TrainingCallback):
     """Arms the probe before the forward, applies the clip after optimizer.step()."""
 
-    def __init__(self, handler: QKClipHandler) -> None:
+    def __init__(self, trainer: trainers.TrainerBase[Any, Any, Any], handler: QKClipHandler) -> None:
         """Simply sets a delegate handler."""
+        super().__init__(trainer)
         self.handler = handler
 
-    def on_step_begin(self, trainer: trainers.TrainerBase[Any, Any, Any], step: int) -> MetricDict | None:
+    def on_step_begin(self, step: int) -> MetricDict | None:
         """On step begin, conditionally arm every ``probe_every`` steps."""
         self.handler.maybe_arm(step)
 
-    def on_step_end(self, trainer: trainers.TrainerBase[Any, Any, Any], train_loss: torch.Tensor, step: int) -> MetricDict | None:
+    def on_step_end(self, train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """On step end, apply the handler's changes, if any are required."""
         return self.handler.apply()

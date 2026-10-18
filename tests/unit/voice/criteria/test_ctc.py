@@ -5,15 +5,15 @@ import torch.nn.functional as F
 from torch import nn
 
 from larry.common.config.criteria.criterion_configs import CTCCriterionConfig
-from larry.common.model.model import LarrySpeechTokenizerModelOutput
+from larry.common.model.model import LarrySpeechEncoderModelOutput
 from larry.voice.criteria.ctc import CTCCriterion
-from larry.voice.model.speech_tokenizer import SpeechEncoderModel
+from larry.voice.model.speech_encoder import SpeechEncoderModel
 
 
-def _output(frame_lengths: list[int]) -> LarrySpeechTokenizerModelOutput:
+def _output(frame_lengths: list[int]) -> LarrySpeechEncoderModelOutput:
     generator = torch.Generator().manual_seed(0)
     log_probs = F.log_softmax(torch.randn(len(frame_lengths), max(frame_lengths), 6, generator=generator), dim=-1)
-    return LarrySpeechTokenizerModelOutput(
+    return LarrySpeechEncoderModelOutput(
         logits=log_probs,
         ctc_log_probs=log_probs,
         frame_lengths=torch.tensor(frame_lengths),

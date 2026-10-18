@@ -13,8 +13,8 @@ from larry.voice.config.data.voice_data_configs import ASRSourceConfig
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
 from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator
-from larry.voice.model.speech_tokenizer import SpeechEncoderModel
-from larry.voice.training.voice_viz_callbacks import SpeechTokenizerVizCallback, pick_rows, timeline
+from larry.voice.model.speech_encoder import SpeechEncoderModel
+from larry.voice.training.voice_viz_callbacks import SpeechEncoderVizCallback, pick_rows, timeline
 from larry.voice.utils import collapse_ctc_emissions
 
 ALPHABET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -122,7 +122,7 @@ def test_viz_logs_audio_once_and_alignments_for_every_example_each_time() -> Non
         config=SimpleNamespace(mixture_config=SimpleNamespace(eval_sources=[source], sample_rate=16000)),
         metrics=metrics,
     )
-    callback = SpeechTokenizerVizCallback(viz_steps=10, examples_per_source=2)
+    callback = SpeechEncoderVizCallback(viz_steps=10, examples_per_source=2)
 
     callback.viz(trainer, 0)  # pyright: ignore[reportArgumentType]
     callback.viz(trainer, 10)  # pyright: ignore[reportArgumentType]

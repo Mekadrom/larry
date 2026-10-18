@@ -48,10 +48,14 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
     n_spec_time_masks: int = 10
     spec_time_fraction: float = 0.05
 
+    enable_fsq_ctc_head: bool = False
+
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechDecoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig):
     """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechDecoderModel``."""
     n_mels: int = 80
-    n_fft: int = 1024
-    hop_length: int = 480
+    n_fft: int = 640
+
+    n_speakers: int
+

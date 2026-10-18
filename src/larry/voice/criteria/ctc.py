@@ -4,17 +4,18 @@ import torch
 import torch.nn.functional as F
 
 from larry.common.config.criteria.criterion_configs import CTCCriterionConfig
-from larry.common.criteria.criterion import Criterion
-from larry.common.model.model import LarrySpeechTokenizerModelOutput
-from larry.voice.model.speech_tokenizer import SpeechEncoderModel
+from larry.common.criteria.criterion import Criterion, SamplableCriterion
+from larry.common.model.model import LarrySpeechEncoderModelOutput
 
 
-class CTCCriterion(Criterion[CTCCriterionConfig, SpeechEncoderModel]):
+class CTCCriterion(
+    SamplableCriterion[LarrySpeechEncoderModelOutput], Criterion[LarrySpeechEncoderModelOutput, CTCCriterionConfig]
+):
     """An implementation of ``Criterion`` for performing standard CTC loss calculation."""
 
     def forward(  # pyright: ignore[reportIncompatibleMethodOverride]
             self,
-            model_output: LarrySpeechTokenizerModelOutput,
+            model_output: LarrySpeechEncoderModelOutput,
             targets: torch.Tensor,
             target_lengths: torch.Tensor,
             **batch_kwargs: Any,
@@ -27,7 +28,7 @@ class CTCCriterion(Criterion[CTCCriterionConfig, SpeechEncoderModel]):
 
     def sample_losses(
             self,
-            model_output: LarrySpeechTokenizerModelOutput,
+            model_output: LarrySpeechEncoderModelOutput,
             targets: torch.Tensor,
             target_lengths: torch.Tensor,
     ) -> torch.Tensor:
@@ -39,18 +40,26 @@ class CTCCriterion(Criterion[CTCCriterionConfig, SpeechEncoderModel]):
 
     def _ctc_loss(
             self,
-            model_output: LarrySpeechTokenizerModelOutput,
+            model_output: LarrySpeechEncoderModelOutput,
             targets: torch.Tensor,
             target_lengths: torch.Tensor,
             reduction: str,
     ) -> torch.Tensor:
-        """Delegates to the well-known CTC loss function provided by pytorch."""
-        return F.ctc_loss(
-            model_output.ctc_log_probs.transpose(0, 1),
-            targets,
-            model_output.frame_lengths,
-            target_lengths,
-            blank=self.config.blank,
-            reduction=reduction,
-            zero_infinity=self.config.zero_infinity,
-        )
+        """Delegates to the well-known CTC loss function provided by pytorch.
+
+        Provides support for an additional CTC head on the FSQ outputs.
+        """
+        loss = torch.tensor(0, device=model_output.logits.device)
+        for name, ctc_log_probs in model_output.ctc_log_probs.items():
+            loss_weight = self.config.ctc_layer_loss_weights.get(name, 1.0)
+            loss = loss + (loss_weight * F.ctc_loss(
+                ctc_log_probs.transpose(0, 1),
+                targets,
+                model_output.frame_lengths,
+                target_lengths,
+                blank=self.config.blank,
+                reduction=reduction,
+                zero_infinity=self.config.zero_infinity,
+            ))
+
+        return loss

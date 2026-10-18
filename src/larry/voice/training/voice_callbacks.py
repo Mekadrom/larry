@@ -18,6 +18,7 @@ from larry.voice.config.training.voice_trainer_configs import SpeakerLeakageProb
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
 from larry.voice.training import voice_trainers
 
+
 # TODO: make all modules/callbacks here agnostic of model type if possible (or take a generic interface)
 
 
@@ -115,9 +116,9 @@ class ProbeResult:
 class SpeakerLeakageProbesCallback(TrainingCallback):
     """Trains a linear and non-linear probe on speaker identification on the specified modules' activations."""
 
-    def __init__(self, config: SpeakerLeakageProbesConfig) -> None:
+    def __init__(self, trainer: trainers.TrainerBase[Any, Any, Any], config: SpeakerLeakageProbesConfig) -> None:
         """Initializes several tensors for caching train and eval input data."""
-        super().__init__()
+        super().__init__(trainer)
         self.config = config
 
         self.loader: DataLoader | None = None
@@ -180,29 +181,29 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
 
         return torch.cat(train), torch.cat(validation), torch.cat(test)
 
-    def on_step_end(self, trainer: trainers.TrainerBase[Any, Any, Any], train_loss: torch.Tensor, step: int) -> MetricDict | None:
+    def on_step_end(self, train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """Every ``probe_every`` steps, trains speaker ID probes.
 
         Each configured module from the training model has its activations calculated for the train and eval probe
         datasets. Then, both a linear and a non-linear probe is trained on those activations and the evaluation of each
         probe determines the level of speaker identity leakage in the model at those layers.
         """
-        if step % self.config.probe_every != 0 or not isinstance(trainer, voice_trainers.SpeechEncoderTrainer):
+        if step % self.config.probe_every != 0 or not isinstance(self.trainer, voice_trainers.SpeechEncoderTrainer):
             return None
 
-        if not trainer.accelerator.is_main_process:
+        if not self.trainer.accelerator.is_main_process:
             return None
 
         if self.loader is None:
-            self._initialize_from_eval_dataset(trainer)
+            self._initialize_from_eval_dataset(self.trainer)
 
         if self.n_speakers < 2:
             return None
 
         metric_dict = MetricDict()
         metric_dict.add_metric(ScalarMetricEntry(tag="eval/speaker_probe/chance", scalar=1.0 / self.n_speakers))
-        for layer, features in self._extract_features(trainer).items():
-            for probe_name, result in self._probe_accuracies(features, trainer.accelerator.device).items():
+        for layer, features in self._extract_features().items():
+            for probe_name, result in self._probe_accuracies(features).items():
                 metric_dict.add_metric(ScalarMetricEntry(
                     tag=f"train/speaker_probe/{layer}/{probe_name}/accuracy", scalar=result.train_accuracy
                 ))
@@ -215,10 +216,10 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
 
         return metric_dict
 
-    def _extract_features(self, trainer: voice_trainers.SpeechEncoderTrainer) -> dict[str, torch.Tensor]:
+    def _extract_features(self) -> dict[str, torch.Tensor]:
         """Runs the probe clips through the frozen model once, pooling every configured layer's output."""
-        model = trainer.accelerator.unwrap_model(trainer.model)
-        device = trainer.accelerator.device
+        model = self.trainer.accelerator.unwrap_model(self.trainer.model)
+        device = self.trainer.accelerator.device
         activations = PooledActivations(self.config.layers)
 
         model_was_training = model.training
@@ -242,8 +243,9 @@ class SpeakerLeakageProbesCallback(TrainingCallback):
             "mlp": MLPSpeakerProbe(feature_dim, self.config.mlp_inner_dim, self.n_speakers),
         }
 
-    def _probe_accuracies(self, features: torch.Tensor, device: torch.device) -> dict[str, ProbeResult]:
+    def _probe_accuracies(self, features: torch.Tensor) -> dict[str, ProbeResult]:
         """Trains every probe on the probe train rows of one layer's features, early stopped on the validation rows."""
+        device = self.trainer.accelerator.device
         features = features.to(device)
         train_x = features[self.train_rows.to(device)]
         validation_x = features[self.validation_rows.to(device)]

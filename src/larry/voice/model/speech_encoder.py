@@ -1,23 +1,22 @@
 import dataclasses
-from typing import cast
 
 import torch
 import torch.nn.functional as F
-import torchaudio.transforms
 from huggingface_hub import PyTorchModelHubMixin
 from torch import nn
 
 from larry.common.config.model.model_configs import FSMNAttentionConfig
 from larry.common.model.attention import FSMNAttention
 from larry.common.model.llm import LarrySimpleEncoderBlock
-from larry.common.model.model import LarrySpeechTokenizerModelOutput
+from larry.common.model.model import LarrySpeechEncoderModelOutput
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.model.fsq import FSQ
 from larry.voice.model.voice_models import VoiceModel
+from larry.voice.model.voice_modules import ASRLogMelFrontend
 from larry.voice.utils import make_non_pad_mask
 
 
-class SpeechTokenizerEncoderBlock(nn.Module):
+class SpeechEncoderEncoderBlock(nn.Module):
     """A conformer-style encoder block specific to the encoder modules in the ``SpeechTokenizerModel``.
 
     Uses ``FSMNAttention`` instead of ``LarryAttention`` to make use of a local memory branch Conv1d head to add to the
@@ -78,7 +77,7 @@ class SpeechEncoderPreBottleneck(VoiceModel[SpeechEncoderModelConfig]):
         )
 
         self.blocks = nn.ModuleList([
-            SpeechTokenizerEncoderBlock(config)
+            SpeechEncoderEncoderBlock(config)
             for _ in range(config.n_encoder1_layers)
         ])
         self.final_norm = nn.LayerNorm(config.d_model)
@@ -114,35 +113,6 @@ class SpeechEncoderPreBottleneck(VoiceModel[SpeechEncoderModelConfig]):
         return x, lengths
 
 
-class LogMelFrontend(nn.Module):
-    """Just a module wrapping the ``MelSpectrogram`` transform with the correct configuration."""
-
-    def __init__(self, sample_rate: int, n_mels: int, n_fft: int = 400, hop_length: int = 160) -> None:
-        """Initializes the delegate transform and window cache."""
-        super().__init__()
-        self.hop_length = hop_length
-        self.mel = torchaudio.transforms.MelSpectrogram(
-            sample_rate=sample_rate,
-            n_fft=n_fft,
-            hop_length=hop_length,
-            n_mels=n_mels,
-            mel_scale="slaney",
-        )
-        # the periodic window is a slice of a longer one; safetensors refuses to save a buffer that shares storage
-        self.mel.spectrogram.window = cast(torch.Tensor, self.mel.spectrogram.window).clone()
-
-    def forward(self, waveforms: torch.Tensor, lengths: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Extracts the mels without casting to lower precision."""
-        with torch.autocast(device_type=waveforms.device.type, enabled=False):
-            mels = self.mel(waveforms.float()).clamp(min=1e-10).log10()  # [B, n_mels, T]
-            # whisper-style norm
-            mels = torch.maximum(mels, mels.amax(dim=(1, 2), keepdim=True) - 8.0)
-            mels = (mels + 4.0) / 4.0
-
-        mel_lengths = lengths // self.hop_length + 1
-        return mels, mel_lengths
-
-
 class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMixin):
     """Takes waveforms and performs CTC prediction after a unit ID bottleneck."""
 
@@ -156,10 +126,15 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
 
         encoder_config = dataclasses.replace(config, is_causal=False)
 
-        self.frontend = LogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
+        self.frontend = ASRLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
 
         self.encoder1 = SpeechEncoderPreBottleneck(encoder_config)
         self.fsq = FSQ(config.d_model, dims=config.fsq_dims, levels=config.fsq_levels)
+
+        if config.enable_fsq_ctc_head:
+            self.fsq_ctc_head = nn.Linear(config.d_model, config.text_vocab_size + 1)
+        else:
+            self.fsq_ctc_head = None
 
         self.encoder2 = nn.ModuleList([
             LarrySimpleEncoderBlock(encoder_config)
@@ -199,8 +174,11 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         masked = f_mask.unsqueeze(2) | t_mask.unsqueeze(1)
         return torch.where(masked, fill, mels)
 
-    def forward(self, waveforms: torch.Tensor, waveform_lengths: torch.Tensor) -> LarrySpeechTokenizerModelOutput:
+    def forward(self, waveforms: torch.Tensor, waveform_lengths: torch.Tensor) -> LarrySpeechEncoderModelOutput:
         """Given waveforms, produces a model output contained both the bottleneck token IDs and CTC ASR predictions."""
+
+        ctc_log_probs = {}
+
         mels, mel_lengths = self.frontend(waveforms, waveform_lengths)
         if self.training and (self.config.n_spec_time_masks > 0 or self.config.n_spec_freq_masks > 0):
             mels = self._spec_augment(
@@ -217,15 +195,19 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
 
         quantized, token_ids = self.fsq(encoded)
 
+        if self.fsq_ctc_head is not None:
+            ctc_log_probs["fsq"] = F.log_softmax(self.fsq_ctc_head(quantized).float(), dim=-1)
+
         hidden = quantized
         for block in self.encoder2:
             hidden = block(hidden, attention_mask=frame_mask)
 
         hidden = self.encoder2_norm(hidden)
 
-        ctc_log_probs = F.log_softmax(self.ctc_head(hidden).float(), dim=-1)
-        return LarrySpeechTokenizerModelOutput(
-            logits=ctc_log_probs,
+        canonical_ctc_log_probs = F.log_softmax(self.ctc_head(hidden).float(), dim=-1)
+        ctc_log_probs["encoder2_norm"] = canonical_ctc_log_probs
+        return LarrySpeechEncoderModelOutput(
+            logits=canonical_ctc_log_probs,
             ctc_log_probs=ctc_log_probs,
             frame_lengths=frame_lengths,
             token_ids=token_ids,

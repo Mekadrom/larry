@@ -2,21 +2,20 @@ from typing import Any
 
 import torch
 from torch import nn
-from torch.nn import Module
 
 from larry.common.config.criteria.criterion_configs import TeacherForcedVocabularyCrossEntropyCriterionConfig
 from larry.common.criteria.criterion import Criterion
 from larry.common.model.model import LarryModelOutput
 
 
-class TeacherForcedVocabularyCrossEntropyCriterion[M: Module](
-    Criterion[TeacherForcedVocabularyCrossEntropyCriterionConfig, M]
+class TeacherForcedVocabularyCrossEntropyCriterion(
+    Criterion[LarryModelOutput, TeacherForcedVocabularyCrossEntropyCriterionConfig]
 ):
     """Cross-Entropy criteria for teacher-forced, causal targets on a sequence of inputs."""
 
-    def __init__(self, config: TeacherForcedVocabularyCrossEntropyCriterionConfig, model: M) -> None:
+    def __init__(self, config: TeacherForcedVocabularyCrossEntropyCriterionConfig) -> None:
         """Initializes the backing ``nn.CrossEntropyLoss`` instance with configuration from ``config``."""
-        super().__init__(config, model)
+        super().__init__(config)
         self.ce = nn.CrossEntropyLoss(label_smoothing=self.config.label_smoothing, ignore_index=-100)
 
     def forward(self, model_output: LarryModelOutput, **batch_kwargs: Any) -> torch.Tensor:

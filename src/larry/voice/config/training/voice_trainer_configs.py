@@ -57,6 +57,10 @@ class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
     speaker_leakage_steps: int | None = None
     speaker_leakage_probes_callback_overrides: dict[str, Any] = dataclasses.field(default_factory=dict)
 
+    ctc_layer_loss_weights: dict[str, float] = dataclasses.field(default_factory=lambda: {
+        "encoder2_norm": 1.0,
+    })
+
     @functools.cached_property
     def speaker_leakage_probes_config(self) -> SpeakerLeakageProbesConfig | None:
         """Builds the probes callback config, or None when ``speaker_leakage_steps`` is unset."""
@@ -71,3 +75,5 @@ class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
 @dataclasses.dataclass(kw_only=True)
 class SpeechDecoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
     """Config for ``SpeechDecoderTrainer``."""
+
+    reconstruction_criterion_config_overrides: dict[str, Any] = dataclasses.field(default_factory=dict)

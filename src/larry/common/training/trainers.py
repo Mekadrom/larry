@@ -286,16 +286,19 @@ D: Dataset = Dataset,
         Includes a QK clip callback automatically registered for when the configured optimizer is Muon.
         """
         if self.config.optimizer_name == "muon":
-            self.training_callbacks.append(QKClipCallback(QKClipHandler(
-                self.model,
-                tau=self.config.muon_qk_clip_tau,
-                probe_every=self.config.muon_qk_clip_probe_every,
-                alpha=self.config.muon_qk_clip_alpha
-            )))
+            self.training_callbacks.append(QKClipCallback(
+                self,
+                QKClipHandler(
+                    self.model,
+                    tau=self.config.muon_qk_clip_tau,
+                    probe_every=self.config.muon_qk_clip_probe_every,
+                    alpha=self.config.muon_qk_clip_alpha
+                )
+            ))
         if self.config.viz_steps:
             self.training_callbacks.append(self.make_viz_callback(self.config.viz_steps))
-        self.training_callbacks.append(ModelInitLoggingCallback())
-        self.training_callbacks.append(TrainLossByTokens(self.config.logging_steps))
+        self.training_callbacks.append(ModelInitLoggingCallback(self))
+        self.training_callbacks.append(TrainLossByTokens(self, self.config.logging_steps))
 
     def run(self) -> None:
         """Begins a training run.
@@ -481,7 +484,7 @@ D: Dataset = Dataset,
         """Calls all training callbacks through their on_step_begin entrypoint."""
         step_metrics = MetricDict()
         for training_callback in self.training_callbacks:
-            stats = training_callback.on_step_begin(self, step)
+            stats = training_callback.on_step_begin(step)
             if stats is not None:
                 step_metrics.update(stats)
         return step_metrics
@@ -490,7 +493,7 @@ D: Dataset = Dataset,
         """Calls all training callbacks through their on_step_end entrypoint."""
         step_metrics = MetricDict()
         for training_callback in self.training_callbacks:
-            stats = training_callback.on_step_end(self, train_loss, step)
+            stats = training_callback.on_step_end(train_loss, step)
             if stats is not None:
                 step_metrics.update(stats)
         return step_metrics

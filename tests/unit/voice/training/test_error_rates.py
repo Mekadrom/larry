@@ -5,7 +5,7 @@ import torch
 from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
 
 from larry.common.metrics.metrics import MetricDict
-from larry.common.model.model import LarrySpeechTokenizerModelOutput
+from larry.common.model.model import LarrySpeechEncoderModelOutput
 from larry.common.training.trainers import StepOutput
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
@@ -129,7 +129,7 @@ def test_eval_statistics_report_greedy_error_rates_per_source_and_overall() -> N
         "target_lengths": torch.tensor([len(r) for r in references]),
         "source_ids": torch.tensor([0, 1, 1]),
     }
-    output = StepOutput(loss=torch.tensor(0.0), metrics=MetricDict(), model_output=LarrySpeechTokenizerModelOutput(
+    output = StepOutput(loss=torch.tensor(0.0), metrics=MetricDict(), model_output=LarrySpeechEncoderModelOutput(
         logits=log_probs, ctc_log_probs=log_probs, frame_lengths=frame_lengths,
         token_ids=torch.zeros(frame_lengths.shape[0], log_probs.shape[1], dtype=torch.long),
     ))

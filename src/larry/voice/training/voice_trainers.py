@@ -12,15 +12,15 @@ from rapidfuzz.distance import Levenshtein
 from torch.utils.data import Sampler
 from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
 
-from larry.common.config.criteria.criterion_configs import CTCCriterionConfig
+from larry.common.config.criteria.criterion_configs import CTCCriterionConfig, MelReconstructionCriterionConfig
 from larry.common.config.data.data_configs import DatasetSourceConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.criteria import criterion
-from larry.common.criteria.criterion import Criterion
+from larry.common.criteria.criterion import Criterion, SamplableCriterion
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset
 from larry.common.data.dataloading.weighted_batch_sampler import WeightedBatchSampler
 from larry.common.metrics.metrics import MetricDict, ScalarMetricEntry
-from larry.common.model.model import LarrySpeechTokenizerModelOutput
+from larry.common.model.model import LarrySpeechDecoderModelOutput, LarrySpeechEncoderModelOutput, LarryModelOutput
 from larry.common.training.trainers import LarryTrainer, StepOutput, VizCallback
 from larry.text.tokenizer.text_tokenizer import SentencePieceTokenizer, TextTokenizer
 from larry.voice.config.data.voice_data_configs import ASRSourceConfig, SpeechSourceConfig, TTSSourceConfig
@@ -29,14 +29,15 @@ from larry.voice.config.model.voice_model_configs import SpeechEncoderDecoderMod
 from larry.voice.config.training.voice_trainer_configs import SpeechDecoderTrainerConfig, VoiceTrainerConfig, \
     SpeechEncoderDecoderTrainerConfig, SpeechEncoderTrainerConfig
 from larry.voice.criteria.ctc import CTCCriterion
+from larry.voice.criteria.mel_reconstruction import MelReconstructionCriterion
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedASRDataset, IndexedSpeechDataset, \
     IndexedTTSDataset
 from larry.voice.data.dataloading.voice_dataloading import (
     SpeechCTCCollator, AudioDurationBucketingWeightedBatchSampler,
 )
-from larry.voice.model.decoder.speech_decoder import SpeechDecoderModel
 from larry.voice.model.fsq import code_counts, codebook_statistics
-from larry.voice.model.speech_tokenizer import SpeechEncoderModel
+from larry.voice.model.speech_decoder import SpeechDecoderModel
+from larry.voice.model.speech_encoder import SpeechEncoderModel
 from larry.voice.model.voice_models import VoiceModel
 from larry.voice.training import voice_callbacks
 from larry.voice.training import voice_viz_callbacks
@@ -96,6 +97,7 @@ C: SpeechEncoderDecoderModelConfig = SpeechEncoderDecoderModelConfig,
 T: SpeechEncoderDecoderTrainerConfig = SpeechEncoderDecoderTrainerConfig,
 S: SpeechSourceConfig = SpeechSourceConfig,
 D: IndexedSpeechDataset[Any] = IndexedSpeechDataset[Any],
+O: LarryModelOutput = LarryModelOutput,
 ](VoiceTrainer[M, T, S, D], ABC):
     """Trainer for ``SpeechTokenizerModel`` that trains for CTC ASR."""
 
@@ -145,6 +147,12 @@ D: IndexedSpeechDataset[Any] = IndexedSpeechDataset[Any],
 
         return batches
 
+    def _forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
+        output = self._model_forward(batch)
+        loss = self._criterion_forward(output, batch)
+        metrics = self._forward_metrics(output)
+        return StepOutput(loss=loss, metrics=metrics, model_output=output)
+
     def eval_group_names(self) -> list[str]:
         """Returns the name of all eval dataset sources for eval metrics tracking."""
         return [
@@ -156,6 +164,22 @@ D: IndexedSpeechDataset[Any] = IndexedSpeechDataset[Any],
         """Updates provenance for this model to add all datasets it was trained on in some recognizable form."""
         for source in self.config.mixture_config.train_sources:
             provenance.ancestry.datasets.add(source.index_path)
+
+    @abstractmethod
+    def _forward_metrics(self, output: O) -> MetricDict:
+        ...
+
+    @abstractmethod
+    def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
+        ...
+
+    @abstractmethod
+    def _model_forward(self, batch: Mapping[str, Any]) -> O:
+        ...
+
+    @abstractmethod
+    def _criterion_forward(self, output: O, batch: Mapping[str, Any]) -> torch.Tensor:
+        ...
 
     @abstractmethod
     def eval_group_totals(
@@ -185,6 +209,7 @@ class SpeechEncoderTrainer(
         SpeechEncoderTrainerConfig,
         ASRSourceConfig,
         IndexedASRDataset,
+        LarrySpeechEncoderModelOutput,
     ]
 ):
     @functools.cached_property
@@ -199,16 +224,12 @@ class SpeechEncoderTrainer(
         with open(path, encoding="utf-8") as f:
             return EnglishTextNormalizer(json.load(f))
 
-    def count_tokens(self, batch: Mapping[str, Any]) -> None:
-        n_tokens = batch["n_target_tokens"]
-        self._pending_tokens += n_tokens
-
     def add_training_callbacks(self) -> None:
         """Adds the default training callbacks as well as an infrequent callback for training speaker leakage probes."""
         super().add_training_callbacks()
         probes_config = self.config.speaker_leakage_probes_config
         if probes_config is not None:
-            self.training_callbacks.append(voice_callbacks.SpeakerLeakageProbesCallback(probes_config))
+            self.training_callbacks.append(voice_callbacks.SpeakerLeakageProbesCallback(self, probes_config))
 
     def load_indexed(
             self,
@@ -229,32 +250,14 @@ class SpeechEncoderTrainer(
         """Initializes the collation function for producing formatted batches that this trainer consumes."""
         return SpeechCTCCollator(self.tokenizer)
 
-    def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
-        """Performs the eval forward while collecting additional accuracy metrics."""
-        output = self.model(batch["waveforms"], batch["waveform_lengths"])
-        criterion = cast(CTCCriterion, self.criterion)
-        sample_losses = criterion.sample_losses(output, batch["targets"], batch["target_lengths"])
-        loss = (sample_losses / batch["target_lengths"].clamp(min=1)).mean()
-        return StepOutput(loss=loss, metrics=output.metrics, sample_losses=sample_losses, model_output=output)
-
-    def _forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
-        """Does the model and criterion forward and accrues statistics before returning a dataclass."""
-        output = self.model(batch["waveforms"], batch["waveform_lengths"])
-        loss = self.criterion(output, targets=batch["targets"], target_lengths=batch["target_lengths"])
-
-        metrics = MetricDict(output.metrics or {})
-        if self.train_state.global_step % self.config.logging_steps == 0:
-            counts = code_counts(output.token_ids, output.frame_lengths, self.model_config.n_units)[0]
-            statistics = codebook_statistics(counts, self.model_config.fsq_dims, self.model_config.fsq_levels)
-            for name, value in statistics.items():
-                if not name.startswith("dim"):
-                    metrics.add_metric(ScalarMetricEntry(tag=f"train/fsq/{name}", scalar=value))
-
-        return StepOutput(loss=loss, metrics=metrics, model_output=output)
-
     def make_viz_callback(self, viz_steps: int) -> VizCallback:
         """Whisper English scoring normalizer, with the British->American spelling map shipped beside its tokenizer."""
-        return voice_viz_callbacks.SpeechTokenizerVizCallback(viz_steps)
+        return voice_viz_callbacks.SpeechEncoderVizCallback(
+            self,
+            viz_steps,
+            blank=self.model_config.text_vocab_size,
+            tokenizer=self.tokenizer
+        )
 
     def make_criterion(self) -> Criterion:
         """Initializes the CTC criterion."""
@@ -264,7 +267,44 @@ class SpeechEncoderTrainer(
                 f"tokenizer={self.tokenizer.vocab_size()}, model_config={self.model_config.text_vocab_size}"
             )
 
-        return CTCCriterion(CTCCriterionConfig(blank=self.model_config.text_vocab_size), self.model)
+        return CTCCriterion(CTCCriterionConfig(
+            blank=self.model_config.text_vocab_size,
+            ctc_layer_loss_weights=self.config.ctc_layer_loss_weights,
+        ))
+
+    def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
+        """Performs the eval forward while collecting additional accuracy metrics."""
+        output = self._model_forward(batch)
+        sample_losses = cast(SamplableCriterion, self.criterion).sample_losses(
+            output,
+            batch["targets"],
+            batch["target_lengths"]
+        )
+        loss = (sample_losses / batch["target_lengths"].clamp(min=1)).mean()
+        return StepOutput(
+            loss=loss,
+            metrics=output.metrics or MetricDict({}),
+            sample_losses=sample_losses,
+            model_output=output
+        )
+
+    def _forward_metrics(self, output: LarrySpeechEncoderModelOutput) -> MetricDict:
+        """Does the model and criterion forward and accrues statistics before returning a dataclass."""
+        metrics = MetricDict(output.metrics or {})
+        if self.train_state.global_step % self.config.logging_steps == 0:
+            counts = code_counts(output.token_ids, output.frame_lengths, self.model_config.n_units)[0]
+            statistics = codebook_statistics(counts, self.model_config.fsq_dims, self.model_config.fsq_levels)
+            for name, value in statistics.items():
+                if not name.startswith("dim"):
+                    metrics.add_metric(ScalarMetricEntry(tag=f"train/fsq/{name}", scalar=value))
+
+        return metrics
+
+    def _model_forward(self, batch: Mapping[str, Any]) -> LarrySpeechEncoderModelOutput:
+        return self.model(batch["waveforms"], batch["waveform_lengths"])
+
+    def _criterion_forward(self, output: LarrySpeechEncoderModelOutput, batch: Mapping[str, Any]) -> torch.Tensor:
+        return self.criterion(output, targets=batch["targets"], target_lengths=batch["target_lengths"])
 
     def eval_group_totals(
             self,
@@ -292,7 +332,7 @@ class SpeechEncoderTrainer(
             output: StepOutput,
     ) -> None:
         """Updates the eval statistic storage tensors provided for dataset source metrics."""
-        model_output = cast(LarrySpeechTokenizerModelOutput, output.model_output)
+        model_output = cast(LarrySpeechEncoderModelOutput, output.model_output)
         statistics["fsq_counts"] += code_counts(
             model_output.token_ids,
             model_output.frame_lengths,
@@ -302,7 +342,7 @@ class SpeechEncoderTrainer(
         ).to(statistics["fsq_counts"].device)
 
         blank = self.model_config.text_vocab_size
-        greedy = model_output.ctc_log_probs.argmax(dim=-1).cpu()
+        greedy = model_output.logits.argmax(dim=-1).cpu()
         frame_lengths = model_output.frame_lengths.cpu().tolist()
         targets = batch["targets"].cpu()
         target_lengths = batch["target_lengths"].cpu().tolist()
@@ -350,6 +390,10 @@ class SpeechEncoderTrainer(
 
         return metrics
 
+    def count_tokens(self, batch: Mapping[str, Any]) -> None:
+        n_tokens = batch["n_target_tokens"]
+        self._pending_tokens += n_tokens
+
 
 class SpeechDecoderTrainer(
     SpeechEncoderDecoderTrainerBase[
@@ -358,11 +402,50 @@ class SpeechDecoderTrainer(
         SpeechDecoderTrainerConfig,
         TTSSourceConfig,
         IndexedTTSDataset,
+        LarrySpeechDecoderModelOutput,
     ]
 ):
-    def count_tokens(self, batch: Mapping[str, Any]) -> None:
-        n_tokens = int(batch["mel_lengths"].sum())
-        self._pending_tokens += n_tokens
+    def load_indexed(
+            self,
+            configs: list[TTSSourceConfig],
+            indexes: list[HFDataset],
+            sources: list[HFDataset | None],
+            is_eval: bool = False
+    ) -> IndexedTTSDataset:
+        return IndexedTTSDataset(configs, indexes, sources, self.config.mixture_config.sample_rate)
+
+    def make_criterion(self) -> criterion.Criterion:
+        return MelReconstructionCriterion(
+            MelReconstructionCriterionConfig(**self.config.reconstruction_criterion_config_overrides)
+        )
+
+    def make_viz_callback(self, viz_steps: int) -> VizCallback:
+        return voice_viz_callbacks.SpeechDecoderVizCallback(self, viz_steps)
+
+    def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
+        """Performs the eval forward while collecting additional accuracy metrics."""
+        output = self._model_forward(batch)
+        sample_losses = cast(SamplableCriterion, self.criterion).sample_losses(
+            output,
+            output.target_mels,
+            output.target_mel_lengths
+        )
+        loss = (sample_losses / output.target_mel_lengths.clamp(min=1)).mean()
+        return StepOutput(
+            loss=loss,
+            metrics=output.metrics or MetricDict({}),
+            sample_losses=sample_losses,
+            model_output=output
+        )
+
+    def _forward_metrics(self, output: LarrySpeechDecoderModelOutput) -> MetricDict:
+        return MetricDict(output.metrics or {})
+
+    def _model_forward(self, batch: Mapping[str, Any]) -> LarrySpeechDecoderModelOutput:
+        return self.model(batch["unit_ids"], batch["speaker_ids"], batch["waveforms"], batch["waveform_lengths"])
+
+    def _criterion_forward(self, output: LarrySpeechDecoderModelOutput, batch: Mapping[str, Any]) -> torch.Tensor:
+        return self.criterion(output, targets=output.target_mels, target_lengths=output.target_mel_lengths)
 
     def eval_group_totals(
             self,
@@ -374,24 +457,17 @@ class SpeechDecoderTrainer(
     def eval_statistics(self) -> dict[str, torch.Tensor]:
         ...
 
-    def update_eval_statistics(self, statistics: dict[str, torch.Tensor], batch: Mapping[str, Any],
-                               output: StepOutput) -> None:
+    def update_eval_statistics(
+            self,
+            statistics: dict[str, torch.Tensor],
+            batch: Mapping[str, Any],
+            output: StepOutput
+    ) -> None:
         ...
 
     def eval_statistics_metrics(self, statistics: dict[str, torch.Tensor]) -> MetricDict:
         ...
 
-    def load_indexed(
-            self,
-            configs: list[TTSSourceConfig],
-            indexes: list[HFDataset],
-            sources: list[HFDataset | None],
-            is_eval: bool = False
-    ) -> IndexedTTSDataset:
-        return IndexedTTSDataset(configs, indexes, sources, self.config.mixture_config.sample_rate)
-
-    def make_criterion(self) -> criterion.Criterion:
-        ...
-
-    def make_viz_callback(self, viz_steps: int) -> VizCallback:
-        ...
+    def count_tokens(self, batch: Mapping[str, Any]) -> None:
+        n_tokens = int(batch["mel_lengths"].sum())
+        self._pending_tokens += n_tokens

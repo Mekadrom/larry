@@ -1,7 +1,7 @@
 import torch
 
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
-from larry.voice.model.speech_tokenizer import SpeechEncoderModel
+from larry.voice.model.speech_encoder import SpeechEncoderModel
 
 spec_augment = SpeechEncoderModel._spec_augment
 
@@ -69,7 +69,7 @@ def _model(n_spec_freq_masks: int = 2, n_spec_time_masks: int = 10) -> SpeechEnc
 def _forward(model: SpeechEncoderModel) -> torch.Tensor:
     torch.manual_seed(4)
     waveforms = torch.randn(2, 16000)
-    return model(waveforms, torch.tensor([16000, 12000])).ctc_log_probs
+    return model(waveforms, torch.tensor([16000, 12000])).logits
 
 
 def test_augmentation_runs_in_training_only() -> None:

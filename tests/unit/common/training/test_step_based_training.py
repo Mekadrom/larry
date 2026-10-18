@@ -42,7 +42,7 @@ class ToyModel(LarryModel[ModelConfig]):
         return LarryModelOutput(logits=self.linear(x.float().unsqueeze(-1)))
 
 
-class ToyCriterion(Criterion[ToyCriterionConfig, ToyModel]):
+class ToyCriterion(Criterion[ToyCriterionConfig]):
     def forward(self, model_output: LarryModelOutput, **batch_kwargs: Any) -> torch.Tensor:
         return model_output.logits.pow(2).mean()
 

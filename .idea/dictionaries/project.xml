@@ -11,6 +11,8 @@
       <w>datashare</w>
       <w>freqs</w>
       <w>fsmn</w>
+      <w>logvar</w>
+      <w>logvars</w>
       <w>mblocks</w>
       <w>mels</w>
       <w>mutables</w>
@@ -19,6 +21,7 @@
       <w>reattrs</w>
       <w>sdpa</w>
       <w>slen</w>
+      <w>speechencoderwithfsqctcheadmodel</w>
       <w>strided</w>
       <w>subdirs</w>
       <w>ttsctcmismatchcolumnvaluesprunerconfig</w>
