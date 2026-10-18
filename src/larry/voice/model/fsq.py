@@ -34,20 +34,20 @@ class FSQ(nn.Module):
 
 
 def code_counts(
-        token_ids: torch.Tensor,
+        unit_ids: torch.Tensor,
         frame_lengths: torch.Tensor,
         codebook_size: int,
         group_ids: torch.Tensor | None = None,
         n_groups: int = 1,
 ) -> torch.Tensor:
     """[n_groups, codebook_size] counts of the codes on real frames; padded frames are not counted."""
-    frames = torch.arange(token_ids.shape[1], device=token_ids.device)
-    real = frames.unsqueeze(0) < frame_lengths.to(token_ids.device).unsqueeze(1)
+    frames = torch.arange(unit_ids.shape[1], device=unit_ids.device)
+    real = frames.unsqueeze(0) < frame_lengths.to(unit_ids.device).unsqueeze(1)
     if group_ids is None:
-        group_ids = torch.zeros(token_ids.shape[0], dtype=torch.long, device=token_ids.device)
+        group_ids = torch.zeros(unit_ids.shape[0], dtype=torch.long, device=unit_ids.device)
 
-    groups = group_ids.to(token_ids.device).unsqueeze(1).expand_as(token_ids)
-    flat = groups[real] * codebook_size + token_ids[real]
+    groups = group_ids.to(unit_ids.device).unsqueeze(1).expand_as(unit_ids)
+    flat = groups[real] * codebook_size + unit_ids[real]
     return torch.bincount(flat, minlength=n_groups * codebook_size).view(n_groups, codebook_size)
 
 

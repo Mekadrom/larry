@@ -60,7 +60,7 @@ def _trainer(sources: list[str] | None = None) -> SpeechEncoderTrainer:
     vars(trainer).update(
         tokenizer=CharTokenizer(),
         whisper_normalizer=EnglishTextNormalizer(SPELLINGS),
-        model_config=SimpleNamespace(text_vocab_size=BLANK, fsq_dims=2, fsq_levels=3),
+        model_config=SimpleNamespace(text_vocab_size=BLANK, fsq_dims=2, fsq_levels=3, n_units=3 ** 2),
         _config=SimpleNamespace(mixture_config=SimpleNamespace(
             eval_sources=[SpeechSourceConfig(name=n, index_path=n) for n in sources or []],
         )),
@@ -130,8 +130,8 @@ def test_eval_statistics_report_greedy_error_rates_per_source_and_overall() -> N
         "source_ids": torch.tensor([0, 1, 1]),
     }
     output = StepOutput(loss=torch.tensor(0.0), metrics=MetricDict(), model_output=LarrySpeechEncoderModelOutput(
-        logits=log_probs, ctc_log_probs=log_probs, frame_lengths=frame_lengths,
-        token_ids=torch.zeros(frame_lengths.shape[0], log_probs.shape[1], dtype=torch.long),
+        logits=log_probs, ctc_log_probs={"encoder2_norm": log_probs}, frame_lengths=frame_lengths,
+        unit_ids=torch.zeros(frame_lengths.shape[0], log_probs.shape[1], dtype=torch.long),
     ))
 
     statistics = trainer.eval_statistics()

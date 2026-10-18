@@ -7,10 +7,10 @@ from larry.voice.model.fsq import FSQ, code_counts, codebook_statistics
 
 
 def test_padded_frames_are_not_counted_and_rows_go_to_their_group() -> None:
-    token_ids = torch.tensor([[0, 1, 1, 8], [2, 2, 5, 5]])
+    unit_ids = torch.tensor([[0, 1, 1, 8], [2, 2, 5, 5]])
     frame_lengths = torch.tensor([3, 2])
 
-    counts = code_counts(token_ids, frame_lengths, codebook_size=9, group_ids=torch.tensor([1, 0]), n_groups=2)
+    counts = code_counts(unit_ids, frame_lengths, codebook_size=9, group_ids=torch.tensor([1, 0]), n_groups=2)
 
     assert counts.tolist() == [[0, 0, 2, 0, 0, 0, 0, 0, 0], [1, 2, 0, 0, 0, 0, 0, 0, 0]]
 
@@ -42,8 +42,8 @@ def test_level_shares_match_the_quantized_values_fsq_produced() -> None:
     x = torch.randn(1, 200, 16) * 3
 
     quantized = fsq.quantize(x)
-    _, token_ids = fsq(x)
-    statistics = codebook_statistics(code_counts(token_ids, torch.tensor([200]), 81)[0], dims=4, levels=3)
+    _, unit_ids = fsq(x)
+    statistics = codebook_statistics(code_counts(unit_ids, torch.tensor([200]), 81)[0], dims=4, levels=3)
 
     for d in range(4):
         for v in (-1, 0, 1):

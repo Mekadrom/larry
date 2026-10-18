@@ -292,7 +292,7 @@ class SpeechEncoderTrainer(
         """Does the model and criterion forward and accrues statistics before returning a dataclass."""
         metrics = MetricDict(output.metrics or {})
         if self.train_state.global_step % self.config.logging_steps == 0:
-            counts = code_counts(output.token_ids, output.frame_lengths, self.model_config.n_units)[0]
+            counts = code_counts(output.unit_ids, output.frame_lengths, self.model_config.n_units)[0]
             statistics = codebook_statistics(counts, self.model_config.fsq_dims, self.model_config.fsq_levels)
             for name, value in statistics.items():
                 if not name.startswith("dim"):
@@ -334,7 +334,7 @@ class SpeechEncoderTrainer(
         """Updates the eval statistic storage tensors provided for dataset source metrics."""
         model_output = cast(LarrySpeechEncoderModelOutput, output.model_output)
         statistics["fsq_counts"] += code_counts(
-            model_output.token_ids,
+            model_output.unit_ids,
             model_output.frame_lengths,
             self.model_config.n_units,
             batch["source_ids"],

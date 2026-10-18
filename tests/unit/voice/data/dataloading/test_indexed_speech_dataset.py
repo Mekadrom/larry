@@ -10,7 +10,7 @@ import torch
 from datasets import Dataset
 
 from larry.voice.config.data.voice_data_configs import ASRSourceConfig
-from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
+from larry.voice.data.dataloading.indexed_speech_dataset import IndexedASRDataset
 from larry.voice.data.preprocessing.global_speaker_map import SpeakerMapping
 from larry.voice.training.voice_trainers import SpeechEncoderTrainer
 
@@ -19,7 +19,7 @@ def test_source_ids_and_durations_cover_every_index_in_order_with_full_precision
     a = Dataset.from_dict({"duration_s": [1.25, 2.5], "audio": [b"x", b"y"]})
     b = Dataset.from_dict({"duration_s": [0.1, 3.3, 7.123456789], "audio": [b"x", b"y", b"z"]})
     b = b.filter(lambda row: row["duration_s"] > 0.2)
-    dataset = IndexedSpeechDataset(
+    dataset = IndexedASRDataset(
         [ASRSourceConfig(name="a", index_path="a"), ASRSourceConfig(name="b", index_path="b")],
         [a, b],
         [None, None],
@@ -47,14 +47,14 @@ def _wav(seconds: float, sample_rate: int) -> bytes:
     return buffer.getvalue()
 
 
-def _clip_dataset(speed_factors: tuple[float, ...]) -> IndexedSpeechDataset:
+def _clip_dataset(speed_factors: tuple[float, ...]) -> IndexedASRDataset:
     index = Dataset.from_dict({
         "audio": [{"bytes": _wav(1.0, 16000), "path": "a.wav"}],
         "text_normalized": ["HI"],
         "duration_s": [1.0],
     })
     source = ASRSourceConfig(name="toy", index_path="toy")
-    return IndexedSpeechDataset([source], [index], [None], sample_rate=16000, speed_factors=speed_factors)
+    return IndexedASRDataset([source], [index], [None], sample_rate=16000, speed_factors=speed_factors)
 
 
 @pytest.mark.parametrize(("factor", "expected_samples"), [(1.0, 16000), (1.1, 14546), (0.9, 17778)])
@@ -74,24 +74,21 @@ def test_speed_perturbation_picks_among_the_configured_factors() -> None:
 
 
 def test_speed_factors_reach_only_the_training_split() -> None:
-    calls: list[tuple[list[str], tuple[float, ...]]] = []
     trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
     vars(trainer).update(
-        model_config=SimpleNamespace(sample_rate=16000),
         _config=SimpleNamespace(
             speed_augment_factors=[0.9, 1.0, 1.1],
-            mixture_config=SimpleNamespace(
-                sample_rate=16000,
-                train_sources=[ASRSourceConfig(name="train", index_path="train")],
-                eval_sources=[ASRSourceConfig(name="eval", index_path="eval")],
-            ),
+            mixture_config=SimpleNamespace(sample_rate=16000),
         ),
-        _load_indexed=lambda configs, speed_factors=(1.0,): calls.append(([c.name for c in configs], speed_factors)),
     )
+    source = ASRSourceConfig(name="toy", index_path="toy")
+    index = Dataset.from_dict({"duration_s": [1.0]})
 
-    trainer.make_dataset_dict()
+    train = trainer.load_indexed([source], [index], [None], is_eval=False)
+    validation = trainer.load_indexed([source], [index], [None], is_eval=True)
 
-    assert calls == [(["train"], (0.9, 1.0, 1.1)), (["eval"], (1.0,))]
+    assert train.speed_factors == (0.9, 1.0, 1.1)
+    assert validation.speed_factors == (1.0,)
 
 
 def test_speaker_keys_follow_row_order_and_mapping_keys() -> None:
@@ -103,7 +100,7 @@ def test_speaker_keys_follow_row_order_and_mapping_keys() -> None:
         ASRSourceConfig(name="heavy-test", index_path="h", speaker_namespace="heavy"),
         ASRSourceConfig(name="lj", index_path="l", speaker_id_column=None),
     ]
-    dataset = IndexedSpeechDataset(configs, [vctk, ls, lj], [None, None, None], sample_rate=16000)
+    dataset = IndexedASRDataset(configs, [vctk, ls, lj], [None, None, None], sample_rate=16000)
 
     keys = dataset.speaker_keys()
 
@@ -115,6 +112,6 @@ def test_speaker_keys_follow_row_order_and_mapping_keys() -> None:
 def test_speaker_keys_respect_an_index_filter() -> None:
     index = Dataset.from_dict({"speaker_id": ["a", "b", "c"], "duration_s": [1.0, 0.1, 1.0]})
     index = index.filter(lambda row: row["duration_s"] > 0.5)
-    dataset = IndexedSpeechDataset([ASRSourceConfig(name="s", index_path="s")], [index], [None], sample_rate=16000)
+    dataset = IndexedASRDataset([ASRSourceConfig(name="s", index_path="s")], [index], [None], sample_rate=16000)
 
     assert dataset.speaker_keys() == ["s:a", "s:c"]

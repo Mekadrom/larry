@@ -16,11 +16,11 @@ class LarryModelOutput:
 
 @dataclasses.dataclass(kw_only=True)
 class LarrySpeechEncoderModelOutput(LarryModelOutput):
-    """``SpeechTokenizerModel`` returns CTC log probs, frame lengths, and token_ids in addition to logits or metrics."""
+    """``SpeechTokenizerModel`` returns CTC log probs, frame lengths, and unit_ids in addition to logits or metrics."""
 
     ctc_log_probs: Mapping[str, torch.Tensor]
     frame_lengths: torch.Tensor
-    token_ids: torch.Tensor
+    unit_ids: torch.Tensor
 
 
 @dataclasses.dataclass(kw_only=True)

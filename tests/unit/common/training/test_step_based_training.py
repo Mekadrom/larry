@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -7,12 +7,14 @@ import pytest
 import torch
 from accelerate.state import AcceleratorState
 from torch import nn
+from torch.utils.data import Sampler
 
 from larry.common.config.criteria.criterion_configs import CriterionConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.common.config.model.model_configs import ModelConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.common.criteria.criterion import Criterion
+from larry.common.data.dataloading.samplers import ShuffledBatchSampler
 from larry.common.metrics.metrics import Metrics
 from larry.common.model.model import LarryModelOutput
 from larry.common.training.trainers import LarryTrainer
@@ -42,7 +44,7 @@ class ToyModel(LarryModel[ModelConfig]):
         return LarryModelOutput(logits=self.linear(x.float().unsqueeze(-1)))
 
 
-class ToyCriterion(Criterion[ToyCriterionConfig]):
+class ToyCriterion(Criterion[LarryModelOutput, ToyCriterionConfig]):
     def forward(self, model_output: LarryModelOutput, **batch_kwargs: Any) -> torch.Tensor:
         return model_output.logits.pow(2).mean()
 
@@ -74,8 +76,18 @@ class ToyTrainer(LarryTrainer[ToyModel, ToyTrainerConfig]):
         rows = [{"x": float(i), "idx": i} for i in range(11)]
         return {"train": rows, "validation": rows[:4]}
 
+    def load_indexed(self, configs: list[Any], indexes: list[Any], sources: list[Any], is_eval: bool = False) -> Any:
+        raise NotImplementedError
+
+    def make_train_sampler(self, dataset: Any, weights: list[float]) -> Sampler:
+        return ShuffledBatchSampler(len(dataset), self.config.train_batch_size, self.config.seed)
+
+    def make_eval_sampler(self, dataset: Any) -> Iterable[list[int]]:
+        size = self.config.eval_batch_size
+        return [list(range(start, min(start + size, len(dataset)))) for start in range(0, len(dataset), size)]
+
     def make_criterion(self) -> Criterion:
-        return ToyCriterion(ToyCriterionConfig(), self.model)
+        return ToyCriterion(ToyCriterionConfig())
 
     def make_viz_callback(self, viz_steps: int) -> VizCallback:
         raise NotImplementedError

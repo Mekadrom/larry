@@ -4,7 +4,7 @@ from typing import Any
 
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
-from larry.voice.config.data.voice_data_configs import SpeechMixtureConfig
+from larry.voice.config.data.voice_data_configs import ASRMixtureConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -38,14 +38,14 @@ class VoiceTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](La
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechEncoderDecoderTrainerConfig(VoiceTrainerConfig[SpeechMixtureConfig]):
+class SpeechEncoderDecoderTrainerConfig(VoiceTrainerConfig[ASRMixtureConfig]):
     tokenizer_model_path: str
     speaker_mapping_path: str
 
     @classmethod
-    def mixture_config_type(cls) -> type[SpeechMixtureConfig]:
+    def mixture_config_type(cls) -> type[ASRMixtureConfig]:
         """Speech trainers parse ``dataset_config`` into a ``SpeechMixtureConfig``."""
-        return SpeechMixtureConfig
+        return ASRMixtureConfig
 
 
 @dataclasses.dataclass(kw_only=True)

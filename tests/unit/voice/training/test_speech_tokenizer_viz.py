@@ -11,10 +11,11 @@ from datasets import Dataset
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.data.voice_data_configs import ASRSourceConfig
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
-from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
+from larry.voice.data.dataloading.indexed_speech_dataset import IndexedASRDataset
 from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator
 from larry.voice.model.speech_encoder import SpeechEncoderModel
-from larry.voice.training.voice_viz_callbacks import SpeechEncoderVizCallback, pick_rows, timeline
+from larry.voice.training.voice_trainers import SpeechEncoderTrainer
+from larry.voice.training.voice_viz_callbacks import SpeechEncoderVizCallback, pick_rows
 from larry.voice.utils import collapse_ctc_emissions
 
 ALPHABET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -89,11 +90,12 @@ def test_rows_are_spread_over_each_source_and_never_repeat() -> None:
 def test_greedy_frames_collapse_and_time_each_new_token() -> None:
     blank = 0
     frames = torch.tensor([0, 3, 3, 0, 3, 5, 5, 0])
-    tokenizer = CharTokenizer()
+    callback = SpeechEncoderVizCallback.__new__(SpeechEncoderVizCallback)
+    vars(callback).update(tokenizer=CharTokenizer(), blank=blank)
 
     assert collapse_ctc_emissions(frames, blank) == [3, 3, 5]
-    assert timeline(frames, blank, tokenizer, 0.04) == "`0.04` C `0.16` C `0.20` E"
-    assert timeline(None, blank, tokenizer, 0.04) == "(no alignment)"
+    assert callback._timeline(frames, 0.04) == "`0.04` C `0.16` C `0.20` E"
+    assert callback._timeline(None, 0.04) == "(no alignment)"
 
 
 def test_viz_logs_audio_once_and_alignments_for_every_example_each_time() -> None:
@@ -103,11 +105,12 @@ def test_viz_logs_audio_once_and_alignments_for_every_example_each_time() -> Non
         "duration_s": [1.0, 1.5],
     })
     source = ASRSourceConfig(name="toy", index_path="toy")
-    dataset = IndexedSpeechDataset([source], [index], [None], sample_rate=16000)
+    dataset = IndexedASRDataset([source], [index], [None], sample_rate=16000)
     tokenizer = CharTokenizer()
     model = _model()
     metrics = RecordingMetrics()
-    trainer = SimpleNamespace(
+    trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
+    vars(trainer).update(
         accelerator=SimpleNamespace(
             is_main_process=True,
             device=torch.device("cpu"),
@@ -116,16 +119,16 @@ def test_viz_logs_audio_once_and_alignments_for_every_example_each_time() -> Non
         ),
         eval_loader=SimpleNamespace(dataset=dataset),
         make_collate_fn=lambda: SpeechCTCCollator(tokenizer),
-        model=model,
+        _model=model,
         tokenizer=tokenizer,
         model_config=model.config,
-        config=SimpleNamespace(mixture_config=SimpleNamespace(eval_sources=[source], sample_rate=16000)),
+        _config=SimpleNamespace(mixture_config=SimpleNamespace(eval_sources=[source], sample_rate=16000)),
         metrics=metrics,
     )
-    callback = SpeechEncoderVizCallback(viz_steps=10, examples_per_source=2)
+    callback = SpeechEncoderVizCallback(trainer, viz_steps=10, blank=len(ALPHABET), tokenizer=tokenizer)
 
-    callback.viz(trainer, 0)  # pyright: ignore[reportArgumentType]
-    callback.viz(trainer, 10)  # pyright: ignore[reportArgumentType]
+    callback.viz(0)
+    callback.viz(10)
 
     assert metrics.audio == [("viz/0/toy/audio", 0), ("viz/1/toy/audio", 0)]
     assert [(tag, step) for tag, _, step in metrics.text] == [

@@ -84,15 +84,8 @@ class IndexedASRDataset(IndexedSpeechDataset[ASRSourceConfig]):
 
 class IndexedTTSDataset(IndexedSpeechDataset[TTSSourceConfig]):
     def format_example_dict(self, source_idx: int, entry: dict[Any, Any], data: Any) -> dict[str, Any]:
-        config = self.configs[source_idx]
-
-        waveform = bytes_to_waveforms(data["bytes"], self.sample_rate)[0]
-        factor = random.choice(self.speed_factors)
-        if factor != 1.0:
-            waveform = AF.resample(waveform, int(self.sample_rate * factor), self.sample_rate)
-
         return {
-            "waveform": waveform,
-            "token_ids": entry[config.token_ids_column],
+            "waveform": bytes_to_waveforms(data["bytes"], self.sample_rate)[0],
+            "unit_ids": entry[self.configs[source_idx].unit_ids_column],
             "source": source_idx,
         }

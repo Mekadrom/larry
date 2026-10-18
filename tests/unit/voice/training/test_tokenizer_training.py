@@ -88,13 +88,13 @@ def test_main_reads_sources_and_vocabulary_from_a_training_config(
     config_file = tmp_path / "train.yaml"
     config_file.write_text(yaml.safe_dump({
         "model": {
-            "name": "SpeechTokenizerModel",
-            "config": "SpeechTokenizerModelConfig",
+            "name": "SpeechEncoderModel",
+            "config": "SpeechEncoderModelConfig",
             "overrides": {"text_vocab_size": 40},
         },
         "trainer": {
-            "name": "SpeechTokenizerTrainer",
-            "config": "SpeechTokenizerTrainerConfig",
+            "name": "SpeechEncoderTrainer",
+            "config": "SpeechEncoderTrainerConfig",
             "overrides": {
                 "max_steps": 1,
                 "tokenizer_model_path": str(tmp_path / "tok" / "sp.model"),

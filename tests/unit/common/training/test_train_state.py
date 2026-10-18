@@ -27,11 +27,11 @@ def _count_and_sync_on_each_process() -> None:
     trainer = SimpleNamespace(accelerator=accelerator, train_state=TrainState(), _pending_tokens=0)
     rank = accelerator.process_index
 
-    TrainerBase.count_tokens(trainer, 10 * (rank + 1))
-    TrainerBase.count_tokens(trainer, 1)
+    trainer._pending_tokens += 10 * (rank + 1)
+    trainer._pending_tokens += 1
     first = TrainerBase.sync_tokens_seen(trainer)
 
-    TrainerBase.count_tokens(trainer, 100 if rank == 0 else 0)
+    trainer._pending_tokens += 100 if rank == 0 else 0
     second = TrainerBase.sync_tokens_seen(trainer)
     third = TrainerBase.sync_tokens_seen(trainer)
 

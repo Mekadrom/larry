@@ -193,7 +193,7 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         encoded, frame_lengths = self.encoder1(mels, mel_lengths)
         frame_mask = make_non_pad_mask(frame_lengths, encoded.shape[1])
 
-        quantized, token_ids = self.fsq(encoded)
+        quantized, unit_ids = self.fsq(encoded)
 
         if self.fsq_ctc_head is not None:
             ctc_log_probs["fsq"] = F.log_softmax(self.fsq_ctc_head(quantized).float(), dim=-1)
@@ -210,7 +210,7 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
             logits=canonical_ctc_log_probs,
             ctc_log_probs=ctc_log_probs,
             frame_lengths=frame_lengths,
-            token_ids=token_ids,
+            unit_ids=unit_ids,
         )
 
     @torch.inference_mode()
@@ -218,5 +218,5 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         """The "generate" function for a model like this that takes waveforms and produces the bottleneck unit IDs."""
         mels, mel_lengths = self.frontend(waveforms, waveform_lengths)
         encoded, frame_lengths = self.encoder1(mels, mel_lengths)
-        _, token_ids = self.fsq(encoded)
-        return token_ids, frame_lengths
+        _, unit_ids = self.fsq(encoded)
+        return unit_ids, frame_lengths

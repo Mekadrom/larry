@@ -13,8 +13,18 @@ from larry.voice.training.voice_callbacks import PooledActivations, SpeakerLeaka
 from larry.voice.training.voice_trainers import SpeechEncoderTrainer
 
 
-def _callback(**kwargs: Any) -> SpeakerLeakageProbesCallback:
-    return SpeakerLeakageProbesCallback(SpeakerLeakageProbesConfig(**{"probe_every": 100, **kwargs}))
+def _fake_trainer(model: nn.Module | None = None, is_main_process: bool = True) -> Any:
+    return SimpleNamespace(
+        model=model,
+        accelerator=SimpleNamespace(
+            unwrap_model=lambda m: m, device=torch.device("cpu"), is_main_process=is_main_process
+        ),
+    )
+
+
+def _callback(trainer: Any = None, **kwargs: Any) -> SpeakerLeakageProbesCallback:
+    config = SpeakerLeakageProbesConfig(**{"probe_every": 100, **kwargs})
+    return SpeakerLeakageProbesCallback(_fake_trainer() if trainer is None else trainer, config)
 
 
 def _keys(counts: dict[str, int]) -> list[str]:
@@ -263,23 +273,16 @@ def test_non_sequence_outputs_are_rejected() -> None:
         model(torch.randn(2, 4))
 
 
-def _fake_trainer(model: nn.Module) -> Any:
-    return SimpleNamespace(
-        model=model,
-        accelerator=SimpleNamespace(unwrap_model=lambda m: m, device=torch.device("cpu"), is_main_process=True),
-    )
-
-
 def test_extraction_restores_training_mode_and_follows_loader_order() -> None:
     model = _ToyModel()
     model.train()
-    callback = _callback(layers=["encoder"])
+    callback = _callback(_fake_trainer(model), layers=["encoder"])
     waveforms = [torch.randn(1, 4), torch.randn(1, 6)]
     callback.loader = cast(DataLoader, [
         {"waveforms": w, "waveform_lengths": torch.tensor([w.shape[1]])} for w in waveforms
     ])
 
-    features = callback._extract_features(cast(SpeechEncoderTrainer, _fake_trainer(model)))
+    features = callback._extract_features()
 
     assert model.training
     assert features["encoder"].shape == (2, 6)
@@ -304,7 +307,7 @@ def test_separable_speakers_are_recovered_on_held_out_rows() -> None:
     features = centers[labels] + torch.randn(400, 32, generator=generator)
     callback = _probe_callback(labels, train_epochs=200, mlp_inner_dim=64)
 
-    accuracies = callback._probe_accuracies(features, torch.device("cpu"))
+    accuracies = callback._probe_accuracies(features)
 
     assert accuracies["linear"].test_accuracy > 0.9
     assert accuracies["mlp"].test_accuracy > 0.9
@@ -315,7 +318,7 @@ def test_noise_stays_near_chance_on_held_out_rows_while_a_full_budget_memorizes_
     features = torch.randn(400, 256, generator=torch.Generator().manual_seed(1))
     callback = _probe_callback(labels, train_epochs=200, validate_every=200, mlp_inner_dim=256)
 
-    for result in callback._probe_accuracies(features, torch.device("cpu")).values():
+    for result in callback._probe_accuracies(features).values():
         assert result.best_step == 200
         assert result.test_accuracy < 0.15
         assert result.train_accuracy > 0.5
@@ -329,7 +332,7 @@ def test_probe_training_leaves_the_global_rng_untouched() -> None:
     expected = torch.rand(3)
 
     torch.manual_seed(123)
-    callback._probe_accuracies(features, torch.device("cpu"))
+    callback._probe_accuracies(features)
 
     assert torch.equal(torch.rand(3), expected)
 
@@ -338,19 +341,19 @@ def test_probe_results_are_reproducible() -> None:
     labels = torch.arange(80) % 8
     features = torch.randn(80, 16, generator=torch.Generator().manual_seed(2))
 
-    first = _probe_callback(labels, train_epochs=20, mlp_inner_dim=16)._probe_accuracies(features, torch.device("cpu"))
-    again = _probe_callback(labels, train_epochs=20, mlp_inner_dim=16)._probe_accuracies(features, torch.device("cpu"))
+    first = _probe_callback(labels, train_epochs=20, mlp_inner_dim=16)._probe_accuracies(features)
+    again = _probe_callback(labels, train_epochs=20, mlp_inner_dim=16)._probe_accuracies(features)
 
     assert first == again
 
 
 def test_steps_off_the_schedule_and_non_main_processes_do_nothing() -> None:
-    callback = _callback(probe_every=10)
     trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
     vars(trainer).update(accelerator=SimpleNamespace(is_main_process=False))
+    callback = _callback(trainer, probe_every=10)
 
-    assert callback.on_step_end(trainer, torch.tensor(0.0), 7) is None
-    assert callback.on_step_end(trainer, torch.tensor(0.0), 10) is None
+    assert callback.on_step_end(torch.tensor(0.0), 7) is None
+    assert callback.on_step_end(torch.tensor(0.0), 10) is None
     assert callback.loader is None
 
 
@@ -384,7 +387,7 @@ def test_default_layers_exist_in_the_speech_tokenizer_and_output_sequences() -> 
 
 class _ScriptedValidationCallback(SpeakerLeakageProbesCallback):
     def __init__(self, config: SpeakerLeakageProbesConfig, scores: list[float]) -> None:
-        super().__init__(config)
+        super().__init__(_fake_trainer(), config)
         self.scores = scores
         self.snapshots: list[torch.Tensor] = []
 
@@ -446,8 +449,8 @@ def test_early_stopped_probe_scores_at_least_the_full_budget_when_validation_is_
     for callback in (stopped, full):
         callback.validation_rows = callback.test_rows
 
-    stopped_results = stopped._probe_accuracies(features, torch.device("cpu"))
-    full_results = full._probe_accuracies(features, torch.device("cpu"))
+    stopped_results = stopped._probe_accuracies(features)
+    full_results = full._probe_accuracies(features)
 
     for probe_name in ("linear", "mlp"):
         assert full_results[probe_name].best_step == 200

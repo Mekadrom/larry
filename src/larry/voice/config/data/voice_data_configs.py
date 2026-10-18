@@ -21,14 +21,24 @@ class ASRSourceConfig(SpeechSourceConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class TTSSourceConfig(SpeechSourceConfig):
-    token_ids_column: str = "token_ids"
+    unit_ids_column: str = "unit_ids"
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechMixtureConfig(DatasetMixtureConfig[ASRSourceConfig], SampleRateConfig):
+class ASRMixtureConfig(DatasetMixtureConfig[ASRSourceConfig], SampleRateConfig):
     """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
 
     @classmethod
     def source_config_type(cls) -> type[ASRSourceConfig]:
-        """Speech mixtures build their sources as ``SpeechSourceConfig`` instances."""
+        """ASRMixtures build their sources as ``ASRSourceConfig`` instances."""
         return ASRSourceConfig
+
+
+@dataclasses.dataclass(kw_only=True)
+class TTSMixtureConfig(DatasetMixtureConfig[TTSSourceConfig], SampleRateConfig):
+    """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
+
+    @classmethod
+    def source_config_type(cls) -> type[TTSSourceConfig]:
+        """ASRMixtures build their sources as ``TTSSourceConfig`` instances."""
+        return TTSSourceConfig
