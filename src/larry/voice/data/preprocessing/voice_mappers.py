@@ -153,18 +153,21 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
                 turns.append(Turn(speaker, said, line_no))
 
             stream = TokenStream.from_transcript(self.make_transcript(turns, batch, i), normalizer)
-            result = LongAlignment(self.config, aligner, emissions, stream.words).run()
+            result = LongAlignment(self.config, aligner, emissions, stream.words, stream.word_turn_starts()).run()
             if stream.choose_readings(aligner, emissions.cpu(), result.spans, self.config.reading_margin_seconds):
                 stream.rebuild()
-                result = LongAlignment(self.config, aligner, emissions, stream.words).run(result)
+                result = LongAlignment(
+                    self.config, aligner, emissions, stream.words, stream.word_turn_starts()
+                ).run(result)
 
             timeline = TokenTimeline(stream.fold(result.spans), stream.ftr.groups)
             timeline.fill_gaps()
 
             self.log.info(f"n_failed_words={result.n_failed_words} for {self.provenance_string(batch, i)}")
             self.log.info(f"greedy_decode_score={result.greedy_decode_score} for {self.provenance_string(batch, i)}")
+            self.log.info(f"n_unspoken_words={sum(result.unspoken)} for {self.provenance_string(batch, i)}")
 
-            segments = Segmenter(self.config, stream, timeline).segments(waveform)
+            segments = Segmenter(self.config, stream, timeline, stream.fold_flags(result.unspoken)).segments(waveform)
 
             if not segments:
                 self.log.warning(f"skipping {self.provenance_string(batch, i)}: no segments survived")

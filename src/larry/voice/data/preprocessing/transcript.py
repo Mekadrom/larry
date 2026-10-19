@@ -284,6 +284,20 @@ class TokenStream(NormalizedTokens):
 
         return tok_time
 
+    def word_turn_starts(self) -> list[int]:
+        groups = self.ftr.groups
+        return [
+            w
+            for w, token in enumerate(self.owners)
+            if w == 0 or groups[token] != groups[self.owners[w - 1]]
+        ]
+
+    def fold_flags(self, word_flags: list[bool]) -> list[bool]:
+        return [
+            bool(words) and all(word_flags[self.word_start[t] + k] for k in range(len(words)))
+            for t, words in enumerate(self.words_by_token)
+        ]
+
     def turns(self) -> list[list[int]]:
         """Returns an inversion of the ``FlattenedTranscript`` instance's labels list."""
         by_turn: list[list[int]] = [

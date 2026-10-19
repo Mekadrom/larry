@@ -61,11 +61,21 @@ class SpeechSegmentationAligningMapperConfig(SampleRateConfig, MapperConfig):
     max_pause_seconds: float | None = 2.0
     max_chars_per_frame: float = 0.8
     min_anchor_run: int = 4
+    detect_unspoken: bool = True
+    min_unspoken_anchor_run: int = 8
+    min_unspoken_support_run: int = 2
+    max_unspoken_words: int = 150
     block_seconds: float = 20.0
     max_block_seconds: float = 240.0
     max_word_seconds: float = 2.5
     slack_seconds: float = 0.5
     reading_margin_seconds: float = 0.3
+    use_wildcards: bool = True
+    bad_segment_score: float = -3.0
+    edge_word_min_score: float = -2.0
+    crosstalk_min_turns: int = 4
+    crosstalk_max_turn_seconds: float = 2.0
+    crosstalk_max_seconds: float = 10.0
 
     copy_columns: list[str] = dataclasses.field(default_factory=list)
 

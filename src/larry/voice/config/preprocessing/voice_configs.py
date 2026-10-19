@@ -26,6 +26,7 @@ class AlignerConfig(SampleRateConfig):
     chunk_seconds: float = 30.0
     overlap_seconds: float = 3.0
     emission_batch_size: int = 8
+    wildcard_penalty: float = 1.0
 
 
 @dataclasses.dataclass(kw_only=True)
