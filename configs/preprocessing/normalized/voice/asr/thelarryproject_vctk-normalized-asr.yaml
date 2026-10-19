@@ -1,7 +1,7 @@
 preprocessor:
   provenance:
     id_columns:
-    - id
+      - id
 dataset:
   type: DefaultDatasetConfig
   path: thelarryproject/vctk
@@ -16,11 +16,11 @@ pipeline:
   keep_mic1:
     type: ColumnValuesPrunerConfig
     input_columns:
-    - mic_id
+      - mic_id
     op: matches
     op_config:
       values:
-      - mic1
+        - mic1
       containing: true
       strip: true
       case_sensitive: false

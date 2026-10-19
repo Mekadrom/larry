@@ -1,9 +1,9 @@
 preprocessor:
   provenance:
     id_columns:
-    - id
-    - speaker_id
-    - librivox_book_id
+      - id
+      - speaker_id
+      - librivox_book_id
 dataset:
   type: DefaultDatasetConfig
   path: mythicinfinity/libriheavy

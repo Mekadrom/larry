@@ -1,8 +1,8 @@
 preprocessor:
   provenance:
     id_columns:
-    - id
-    - speaker_id
+      - id
+      - speaker_id
 dataset:
   type: DefaultDatasetConfig
   path: MikhailT/hifi-tts

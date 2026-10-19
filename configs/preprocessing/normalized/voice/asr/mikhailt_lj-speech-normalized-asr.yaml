@@ -1,7 +1,7 @@
 preprocessor:
   provenance:
     id_columns:
-    - id
+      - id
 dataset:
   type: DefaultDatasetConfig
   path: MikhailT/lj-speech

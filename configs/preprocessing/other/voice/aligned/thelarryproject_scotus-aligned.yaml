@@ -2,8 +2,8 @@ preprocessor:
   default_batch_size: 8
   provenance:
     id_columns:
-    - term
-    - docket
+      - term
+      - docket
 dataset:
   type: DefaultDatasetConfig
   path: thelarryproject/scotus-unaligned
@@ -15,17 +15,17 @@ pipeline:
     batch_size: 1
     writer_batch_size: 4
     copy_columns:
-    - term
-    - docket
-    - case_name
-    - date_argued
-    - pdf_url
-    - page_url
+      - term
+      - docket
+      - case_name
+      - date_argued
+      - pdf_url
+      - page_url
   score_ctc_mismatch:
     type: CTCScoreMapperConfig
     text_column: text_original
   assign_composite_id:
     type: CompositeIDMapperConfig
     input_columns:
-    - docket
-    - start_s
+      - docket
+      - start_s

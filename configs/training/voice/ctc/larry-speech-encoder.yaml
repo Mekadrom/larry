@@ -9,7 +9,7 @@ trainer:
   tokenizer_model_path: /home/zadar/.cache/larry/tokenizers/ctc/larry-ctc-sp512.model
   speaker_mapping_path: /home/zadar/.cache/larry/speaker_mappings/asr/global_speaker_mapping.csv
   muon_last_layer_names:
-  - ctc_head.weight
+    - ctc_head.weight
   lr: 0.0005
   min_lr: 5.0e-05
   lr_scheduler_name: cosine
@@ -19,6 +19,6 @@ trainer:
   eval_steps: 2000
   viz_steps: 1000
   speed_augment_factors:
-  - 1.0
+    - 1.0
   speaker_leakage_probes:
     probe_every: 2000

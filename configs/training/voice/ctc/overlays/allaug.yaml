@@ -5,6 +5,6 @@ model:
     $delete: true
 trainer:
   speed_augment_factors:
-  - 0.9
-  - 1.0
-  - 1.1
+    - 0.9
+    - 1.0
+    - 1.1

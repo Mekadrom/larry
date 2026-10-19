@@ -2,11 +2,11 @@ preprocessor:
   provenance:
     ancestry:
       datasets:
-      - https://mozilladatacollective.com/datasets/cmu5jplf300nwmh07iqvk9leo
+        - https://mozilladatacollective.com/datasets/cmu5jplf300nwmh07iqvk9leo
     id_columns:
-    - id
-    - speaker_id
-    - sentence_id
+      - id
+      - speaker_id
+      - sentence_id
 dataset:
   type: CommonVoiceDatasetConfig
   download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/voice/mozilla-foundation_cv27/

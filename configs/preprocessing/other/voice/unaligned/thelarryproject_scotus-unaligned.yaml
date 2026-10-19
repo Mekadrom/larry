@@ -2,8 +2,8 @@ preprocessor:
   default_batch_size: 8
   provenance:
     id_columns:
-    - term
-    - docket
+      - term
+      - docket
 dataset:
   type: DefaultDatasetConfig
   path: thelarryproject/scotus-manifest

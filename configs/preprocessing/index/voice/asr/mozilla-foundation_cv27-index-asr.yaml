@@ -1,9 +1,9 @@
 preprocessor:
   provenance:
     id_columns:
-    - id
-    - speaker_id
-    - sentence_id
+      - id
+      - speaker_id
+      - sentence_id
 dataset:
   type: DefaultDatasetConfig
   path: parquet

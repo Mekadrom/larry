@@ -1,7 +1,7 @@
 preprocessor:
   provenance:
     id_columns:
-    - example_id
+      - example_id
 dataset:
   type: GoogleDOCCIMediaCachedDatasetConfig
   download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/google_docci-normalized/

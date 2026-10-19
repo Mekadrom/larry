@@ -4,9 +4,9 @@ preprocessor:
       datasets:
       - https://datashare.ed.ac.uk/handle/10283/3443
     id_columns:
-    - id
-    - speaker_id
-    - mic_id
+      - id
+      - speaker_id
+      - mic_id
 dataset:
   type: VCTKCachedDatasetProviderConfig
   download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/voice/edinburgh-datashare_vctk-normalized/

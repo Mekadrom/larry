@@ -2,8 +2,8 @@ preprocessor:
   default_batch_size: 8
   provenance:
     id_columns:
-    - term
-    - docket
+      - term
+      - docket
 dataset:
   type: DefaultDatasetConfig
   path: parquet
@@ -32,11 +32,11 @@ pipeline:
     type: SpeakerValidationSplittingPreprocessorConfig
     mode: matching
     matching_values:
-    - scotus:adv:GLEN GIFFORD
-    - scotus:adv:WILLIAM BROCKMAN
-    - scotus:adv:SUSAN SMITH
-    - scotus:adv:NATHANIEL ZELINSKY
-    - scotus:adv:ANN ADAMS
-    - scotus:adv:KRISSY NOBILE
-    - scotus:adv:MEIR FEDER
-    - scotus:adv:MARGIE PHELPS
+      - scotus:adv:GLEN GIFFORD
+      - scotus:adv:WILLIAM BROCKMAN
+      - scotus:adv:SUSAN SMITH
+      - scotus:adv:NATHANIEL ZELINSKY
+      - scotus:adv:ANN ADAMS
+      - scotus:adv:KRISSY NOBILE
+      - scotus:adv:MEIR FEDER
+      - scotus:adv:MARGIE PHELPS

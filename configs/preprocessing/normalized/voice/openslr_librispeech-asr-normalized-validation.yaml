@@ -1,9 +1,9 @@
 preprocessor:
   provenance:
     id_columns:
-    - id
-    - speaker_id
-    - chapter_id
+      - id
+      - speaker_id
+      - chapter_id
 dataset:
   type: DefaultDatasetConfig
   path: openslr/librispeech_asr
