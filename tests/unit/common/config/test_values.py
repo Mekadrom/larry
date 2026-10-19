@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from larry.common.config.values import ConfigValues, RunRecord, WorkingTree
+from larry.common.config.values import ConfigValues, RunRecord
 from larry.common.utils import git_utils
-from larry.common.utils.git_utils import RepoState
+from larry.common.utils.git_utils import RepoState, WorkingTree
 
 
 def _write(path: Path, data: dict[str, object]) -> Path:

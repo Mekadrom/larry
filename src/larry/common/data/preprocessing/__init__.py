@@ -3,8 +3,9 @@ import logging
 from pathlib import Path
 
 from larry.common.config.data.preprocessing import pipeline_config
-from larry.common.config.values import ConfigValues, WorkingTree
+from larry.common.config.values import ConfigValues
 from larry.common.data.preprocessing.pipeline import Pipeline
+from larry.common.utils.git_utils import WorkingTree
 from larry.common.utils.init_helpers import import_submodules
 
 log = logging.getLogger(__name__)

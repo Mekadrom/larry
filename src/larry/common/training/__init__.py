@@ -3,9 +3,10 @@ import logging
 from pathlib import Path
 
 from larry.common.config.training.definition import TrainingDefinition
-from larry.common.config.values import ConfigValues, WorkingTree
+from larry.common.config.values import ConfigValues
 from larry.common.training.training_run import TrainingRun
 from larry.common.utils import reexec_with_hash_seed, set_seed_everywhere
+from larry.common.utils.git_utils import WorkingTree
 from larry.common.utils.init_helpers import import_submodules
 
 log = logging.getLogger(__name__)

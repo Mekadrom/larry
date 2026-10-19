@@ -16,7 +16,7 @@ class Config(DataClassYAMLMixin):
 
 
 class TaggedConfig(Config):
-    class Config(Config.Config):
+    class Config(Config.Config):  # pyright: ignore[reportUnboundVariable] - false positive
         discriminator = Discriminator(
             field="type",
             include_subtypes=True,
@@ -27,6 +27,7 @@ class TaggedConfig(Config):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         if TaggedConfig in cls.__bases__:
             cls.Config = type("Config", (TaggedConfig.Config,), {})
+
         super().__init_subclass__(**kwargs)
 
     def __post_serialize__(self, d: dict[Any, Any]) -> dict[Any, Any]:

@@ -2,6 +2,7 @@ import argparse
 import csv
 import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Self
 
@@ -9,8 +10,9 @@ import pyarrow.parquet as pq
 
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.definition import TrainingDefinition
-from larry.common.config.values import ConfigValues, WorkingTree
+from larry.common.config.values import ConfigValues
 from larry.common.data.dataloading.indexed_dataset import index_split_files
+from larry.common.utils.git_utils import WorkingTree
 from larry.common.utils.init_helpers import import_submodules
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
@@ -84,7 +86,7 @@ class SpeakerMapping:
 class SpeakerMappingCreator:
     """Runner for producing a global speaker mapping from a specified training dataset."""
 
-    def __init__(self, sources: list[SpeechSourceConfig], output_prefix: Path) -> None:
+    def __init__(self, sources: Sequence[SpeechSourceConfig], output_prefix: Path) -> None:
         """Simple init."""
         self.sources = sources
         self.output_prefix = output_prefix

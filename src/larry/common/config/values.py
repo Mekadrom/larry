@@ -10,7 +10,6 @@ from typing import Any
 import yaml
 
 from larry.common.config.config import Config
-from larry.common.utils import git_utils
 
 
 class ConfigValues:
@@ -57,6 +56,7 @@ class ConfigValues:
             layer = yaml.safe_load(file.read_text()) or {}
             if not isinstance(layer, Mapping):
                 raise TypeError(f"{file} must contain a mapping at the top level")
+
             merged = self.merge(merged, layer)
 
         for assignment in self.sets:
@@ -76,6 +76,7 @@ class ConfigValues:
         value: Any = yaml.safe_load(raw)
         for key in reversed(path.split(".")):
             value = {key: value}
+
         return value
 
     @classmethod
@@ -126,17 +127,21 @@ class ConfigValues:
         for k, v in merged.items():
             if k == anchor and cls.BEFORE in value:
                 reordered[key] = entry
+
             reordered[k] = v
             if k == anchor and cls.AFTER in value:
                 reordered[key] = entry
+
         return reordered
 
     @classmethod
     def strip_directives(cls, value: Any) -> Any:
         if isinstance(value, Mapping):
             return {k: cls.strip_directives(v) for k, v in value.items() if k not in cls.DIRECTIVES}
+
         if isinstance(value, list):
             return [cls.strip_directives(v) for v in value]
+
         return value
 
 
@@ -159,16 +164,3 @@ class RunRecord:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / self.CONFIG_FILE).write_text(self.config_yaml())
         (directory / self.CLI_FILE).write_text(self.cli + "\n")
-
-
-class WorkingTree:
-    @staticmethod
-    def ensure_clean(allow_dirty: bool) -> None:
-        repo_state = git_utils.git_info()
-        if repo_state is None or not repo_state.git_dirty or allow_dirty:
-            return
-
-        raise SystemExit(
-            f"the git working tree at {repo_state.git_commit[:12]} has uncommitted or untracked changes; "
-            "commit them for a reproducible run or pass --allow_dirty"
-        )

@@ -12,8 +12,9 @@ import sentencepiece
 
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.definition import TrainingDefinition
-from larry.common.config.values import ConfigValues, WorkingTree
+from larry.common.config.values import ConfigValues
 from larry.common.data.dataloading.indexed_dataset import index_split_files
+from larry.common.utils.git_utils import WorkingTree
 from larry.common.utils.init_helpers import import_submodules
 from larry.voice.config.data.voice_data_configs import ASRSourceConfig
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
