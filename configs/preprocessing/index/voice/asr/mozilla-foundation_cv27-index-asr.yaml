@@ -2,8 +2,6 @@ preprocessor:
   provenance:
     id_columns:
       - id
-      - speaker_id
-      - sentence_id
 dataset:
   type: DefaultDatasetConfig
   path: parquet
@@ -20,7 +18,5 @@ pipeline:
     type: AudioDurationColumnPrunerConfig
   prune_quality:
     type: AudioQualityPrunerConfigForASR
-  drop_audio:
-    type: ColumnCastingPreprocessorConfig
-    column_casts:
-      audio: ~
+  minify_index:
+    type: SelectColumnsPreprocessorConfig

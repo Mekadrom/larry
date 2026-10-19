@@ -6,12 +6,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Self
 
-import pyarrow.parquet as pq
-
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.definition import TrainingDefinition
 from larry.common.config.values import ConfigValues
-from larry.common.data.dataloading.indexed_dataset import index_split_files
+from larry.common.data.dataloading.indexed_dataset import indexed_column, load_index, load_source_for_columns
 from larry.common.utils.git_utils import WorkingTree
 from larry.common.utils.init_helpers import import_submodules
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
@@ -109,14 +107,11 @@ class SpeakerMappingCreator:
         if source.speaker_id_column is None:
             return [None]
 
-        speaker_ids = set()
-        for file in index_split_files(source.index_path, source.split):
-            for batch in pq.ParquetFile(file).iter_batches(columns=[source.speaker_id_column], batch_size=65536):
-                # some sources store integer ids; a falsiness check would drop speaker 0
-                column = batch.column(source.speaker_id_column).to_pylist()
-                speaker_ids.update(str(t) for t in column if t is not None and t != "")
-
-        return sorted(speaker_ids)
+        index = load_index(source)
+        data = load_source_for_columns(source, index, [source.speaker_id_column])
+        column = indexed_column(index, data, source.speaker_id_column).unique()
+        # some sources store integer ids; a falsiness check would drop speaker 0
+        return sorted({str(t) for t in column.to_pylist() if t is not None and t != ""})
 
 
 def main() -> None:

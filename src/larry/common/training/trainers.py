@@ -14,7 +14,6 @@ from accelerate.data_loader import DataLoaderShard
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
 from datasets import Dataset as HFDataset
-from datasets import load_dataset
 from torch import nn
 from torch.optim import AdamW, Muon, Optimizer
 from torch.optim.lr_scheduler import LambdaLR, LRScheduler
@@ -26,7 +25,7 @@ from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.common.config.values import RunRecord
 from larry.common.criteria import criterion
-from larry.common.data.dataloading.indexed_dataset import IndexedDataset, load_index
+from larry.common.data.dataloading.indexed_dataset import IndexedDataset, load_index, load_source
 from larry.common.data.dataloading.samplers import ResumableBatchSampler
 from larry.common.metrics.metrics import MetricDict, Metrics, ScalarMetricEntry
 from larry.common.model.model import LarryModelOutput
@@ -625,17 +624,11 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
         sources: list[HFDataset | None] = []
         for config in configs:
             index = load_index(config)
-            if config.source_path is None:
+            source = load_source(config)
+            if source is None:
                 index = self.transform_as_source(config, index)
                 sources.append(None)
             else:
-                source = load_dataset(
-                    config.source_path,
-                    name=config.source_name,
-                    split=config.source_split,
-                    revision=config.source_revision,
-                    cache_dir=config.source_cache_dir,
-                )
                 sources.append(self.transform_as_source(config, source))
             indexes.append(index)
         return self.load_indexed(configs, indexes, sources, is_eval=is_eval)

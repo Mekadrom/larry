@@ -2,8 +2,6 @@ preprocessor:
   provenance:
     id_columns:
       - id
-      - speaker_id
-      - chapter_id
 dataset:
   type: DefaultDatasetConfig
   path: thelarryproject/librispeech-asr-validation
@@ -22,7 +20,5 @@ pipeline:
     type: AudioDurationColumnPrunerConfig
   prune_quality:
     type: AudioQualityPrunerConfigForASR
-  drop_audio:
-    type: RemoveColumnsPreprocessorConfig
-    remove_columns:
-    - audio
+  minify_index:
+    type: SelectColumnsPreprocessorConfig

@@ -2,8 +2,7 @@ preprocessor:
   default_batch_size: 8
   provenance:
     id_columns:
-      - term
-      - docket
+      - id
 dataset:
   type: DefaultDatasetConfig
   path: parquet
@@ -40,3 +39,5 @@ pipeline:
       - scotus:adv:KRISSY NOBILE
       - scotus:adv:MEIR FEDER
       - scotus:adv:MARGIE PHELPS
+  minify_index:
+    type: SelectColumnsPreprocessorConfig

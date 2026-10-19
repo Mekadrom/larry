@@ -23,6 +23,11 @@ class RemoveColumnsPreprocessorConfig(PreprocessorConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
+class SelectColumnsPreprocessorConfig(PreprocessorConfig):
+    keep_columns: list[str] = dataclasses.field(default_factory=lambda: ["row", "id"])
+
+
+@dataclasses.dataclass(kw_only=True)
 class JsonPathMapping(Config):
     json_path: str
     output_column: str

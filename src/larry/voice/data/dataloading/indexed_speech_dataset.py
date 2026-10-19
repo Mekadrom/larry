@@ -1,9 +1,8 @@
 import random
 from abc import ABC, abstractmethod
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
-import pyarrow as pa
 import torch
 from datasets import Dataset as HFDataset
 from torch.utils.data import get_worker_info
@@ -40,9 +39,8 @@ class IndexedSpeechDataset[C: SpeechSourceConfig = SpeechSourceConfig](IndexedDa
         """Provides new columns for the source dataset ID and duration for each example."""
         source_ids = []
         durations = []
-        for s, (config, index) in enumerate(zip(self.configs, self.indexes, strict=True)):
-            table = cast(pa.Table, index.select_columns([config.duration_column]).with_format("arrow")[:])
-            column = table.column(config.duration_column).to_numpy()
+        for s, config in enumerate(self.configs):
+            column = self.column(s, config.duration_column).to_numpy()
             durations.append(torch.from_numpy(column).double())
             source_ids.append(torch.full((len(column),), s, dtype=torch.long))
 
@@ -51,13 +49,12 @@ class IndexedSpeechDataset[C: SpeechSourceConfig = SpeechSourceConfig](IndexedDa
     def speaker_keys(self) -> list[str]:
         """Provides the ``SpeakerMapping`` key of every example, read from the indexes without decoding audio."""
         keys: list[str] = []
-        for config, index in zip(self.configs, self.indexes, strict=True):
+        for s, (config, index) in enumerate(zip(self.configs, self.indexes, strict=True)):
             if config.speaker_id_column is None:
                 keys.extend([SpeakerMapping.key(config, None)] * len(index))
                 continue
 
-            table = cast(pa.Table, index.select_columns([config.speaker_id_column]).with_format("arrow")[:])
-            keys.extend(SpeakerMapping.key(config, s) for s in table.column(config.speaker_id_column).to_pylist())
+            keys.extend(SpeakerMapping.key(config, i) for i in self.column(s, config.speaker_id_column).to_pylist())
 
         return keys
 

@@ -3,14 +3,13 @@ import os
 from collections import defaultdict
 from pathlib import Path
 
-import duckdb
 import pytest
 
 from larry.common.config.training.definition import TrainingDefinition
 from larry.common.config.values import ConfigValues
+from larry.common.data.dataloading.indexed_dataset import indexed_column, load_index, load_source_for_columns
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
-from larry.common.data.dataloading.indexed_dataset import index_split_files
 from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
 from tests.helpers.common import import_larry_submodules
 
@@ -48,13 +47,10 @@ def expected(sources: list[SpeechSourceConfig]) -> dict[str, set[str]]:
         if source.speaker_id_column is None:
             speakers[namespace].add(None)
             continue
-        files = index_split_files(source.index_path, source.split)
-        found = duckdb.execute(
-            f'SELECT DISTINCT CAST("{source.speaker_id_column}" AS VARCHAR) FROM read_parquet(?) '
-            f'WHERE "{source.speaker_id_column}" IS NOT NULL AND CAST("{source.speaker_id_column}" AS VARCHAR) <> \'\'',
-            [files],
-        ).fetchall()
-        speakers[namespace].update(speaker for (speaker,) in found)
+        index = load_index(source)
+        column = indexed_column(index, load_source_for_columns(source, index, [source.speaker_id_column]),
+                                source.speaker_id_column)
+        speakers[namespace].update(str(s) for s in column.unique().to_pylist() if s is not None and str(s) != "")
     return speakers
 
 

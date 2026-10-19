@@ -104,3 +104,18 @@ def test_main_reads_sources_and_vocabulary_from_a_training_config(
 
     sp = sentencepiece.SentencePieceProcessor(model_file=str(tmp_path / "tok" / "sp.model"))
     assert sp.get_piece_size() == 40
+
+
+def test_read_source_takes_missing_columns_from_the_source_by_row(tmp_path: Path) -> None:
+    write_parquet_split(tmp_path / "materialized", "train", {
+        "id": ["a", "b", "c"],
+        "text_normalized": ["HELLO", "SKIPPED", "WORLD"],
+        "duration_s": [1.0, 5.0, 2.5],
+    })
+    write_parquet_split(tmp_path / "index", "train", {"row": [0, 2], "id": ["a", "c"]})
+    source = ASRSourceConfig(name="m", index_path=str(tmp_path / "index"), source_path=str(tmp_path / "materialized"))
+
+    text = _trainer(tmp_path)._read_source(source)
+
+    assert text.counts == collections.Counter({"HELLO": 1, "WORLD": 1})
+    assert text.seconds == pytest.approx(3.5)

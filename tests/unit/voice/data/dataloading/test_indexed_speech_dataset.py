@@ -9,6 +9,7 @@ from larry.voice.config.data.voice_data_configs import ASRSourceConfig
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedASRDataset
 from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
 from larry.voice.training.voice_trainers import SpeechEncoderTrainer
+from tests.helpers.audio import wav
 from tests.helpers.common import uninitialized
 from tests.helpers.voice import clip_dataset, toy_source
 
@@ -108,3 +109,62 @@ def test_speaker_keys_respect_an_index_filter() -> None:
     dataset = IndexedASRDataset([ASRSourceConfig(name="s", index_path="s")], [index], [None], sample_rate=16000)
 
     assert dataset.speaker_keys() == ["s:a", "s:c"]
+
+
+def _minified(rows: list[int], ids: list[str]) -> Dataset:
+    return Dataset.from_dict({"row": rows, "id": ids})
+
+
+def _source(clips: list[tuple[str, str, float, str]]) -> Dataset:
+    return Dataset.from_dict({
+        "id": [c[0] for c in clips],
+        "audio": [{"bytes": wav(c[2], 16000), "path": f"{c[0]}.wav"} for c in clips],
+        "text_normalized": [c[1] for c in clips],
+        "duration_s": [c[2] for c in clips],
+        "speaker_id": [c[3] for c in clips],
+    })
+
+
+SOURCE_CLIPS = [("a", "ONE", 0.5, "s1"), ("b", "TWO", 1.0, "s2"), ("c", "THREE", 1.5, "s1")]
+
+
+def test_a_minified_index_reads_every_column_from_its_source_row() -> None:
+    dataset = IndexedASRDataset(
+        [toy_source()], [_minified([2, 0], ["c", "a"])], [_source(SOURCE_CLIPS)], sample_rate=16000
+    )
+
+    assert [dataset[i]["text"] for i in range(2)] == ["THREE", "ONE"]
+    assert dataset[0]["waveform"].shape[-1] == 24000
+    assert dataset.source_ids_and_durations()[1].tolist() == [1.5, 0.5]
+    assert dataset.speaker_keys() == ["toy:s1", "toy:s1"]
+
+
+def test_index_columns_take_precedence_over_the_source() -> None:
+    index = Dataset.from_dict({"row": [1], "id": ["b"], "text_normalized": ["DEUX"], "duration_s": [9.0]})
+    dataset = IndexedASRDataset([toy_source()], [index], [_source(SOURCE_CLIPS)], sample_rate=16000)
+
+    assert dataset[0]["text"] == "DEUX"
+    assert dataset.source_ids_and_durations()[1].tolist() == [9.0]
+    assert dataset.speaker_keys() == ["toy:s2"]
+
+
+def test_source_rows_follow_a_filtered_source() -> None:
+    source = _source([("x", "SKIP", 0.1, "s0"), *SOURCE_CLIPS]).filter(lambda r: r["id"] != "x")
+    dataset = IndexedASRDataset([toy_source()], [_minified([1], ["b"])], [source], sample_rate=16000)
+
+    assert dataset[0]["text"] == "TWO"
+    assert dataset.source_ids_and_durations()[1].tolist() == [1.0]
+
+
+def test_a_row_pointing_at_another_id_is_rejected() -> None:
+    dataset = IndexedASRDataset([toy_source()], [_minified([1], ["a"])], [_source(SOURCE_CLIPS)], sample_rate=16000)
+
+    with pytest.raises(KeyError, match="row 1 is b"):
+        dataset[0]
+
+
+def test_a_minified_index_without_a_source_names_the_missing_column() -> None:
+    dataset = IndexedASRDataset([toy_source()], [_minified([0], ["a"])], [None], sample_rate=16000)
+
+    with pytest.raises(KeyError, match="duration_s"):
+        dataset.source_ids_and_durations()

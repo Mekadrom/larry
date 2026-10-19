@@ -2,8 +2,6 @@ preprocessor:
   provenance:
     id_columns:
       - id
-      - speaker_id
-      - librivox_book_id
 dataset:
   type: DefaultDatasetConfig
   path: mythicinfinity/libriheavy
@@ -33,3 +31,10 @@ pipeline:
     - audio
   prune_ctc_mismatch:
     type: ASRCTCMismatchColumnValuesPrunerConfig
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id
+      - duration_s
+      - text_normalized

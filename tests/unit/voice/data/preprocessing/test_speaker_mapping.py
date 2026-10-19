@@ -154,3 +154,11 @@ def test_created_keys_match_mapping_keys(tmp_path: Path) -> None:
     mapping = _create(tmp_path, sources)
 
     assert mapping.items == [SpeakerMapping.key(sources[0], "p1"), SpeakerMapping.key(sources[1], None)]
+
+
+def test_read_source_takes_speakers_from_the_source_by_row(tmp_path: Path) -> None:
+    write_parquet_split(tmp_path / "materialized", "train", {"id": ["a", "b", "c"], "speaker_id": ["s1", "s2", "s3"]})
+    write_parquet_split(tmp_path / "index", "train", {"row": [0, 2], "id": ["a", "c"]})
+    source = SpeechSourceConfig(name="m", index_path=str(tmp_path / "index"), source_path=str(tmp_path / "materialized"))
+
+    assert SpeakerMappingCreator.read_source(source) == ["s1", "s3"]

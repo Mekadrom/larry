@@ -7,13 +7,12 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow.compute as pc
-import pyarrow.parquet as pq
 import sentencepiece
 
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.definition import TrainingDefinition
 from larry.common.config.values import ConfigValues
-from larry.common.data.dataloading.indexed_dataset import index_split_files
+from larry.common.data.dataloading.indexed_dataset import indexed_column, load_index, load_source_for_columns
 from larry.common.utils.git_utils import WorkingTree
 from larry.common.utils.init_helpers import import_submodules
 from larry.voice.config.data.voice_data_configs import ASRSourceConfig
@@ -74,14 +73,10 @@ class TokenizerTrainer:
 
     def _read_source(self, source: ASRSourceConfig) -> SourceText:
         """For all examples in a provided source dataset, count up sentence occurrences."""
-        counts: Counter[str] = Counter()
-        seconds = 0.0
-        columns = [source.text_column, source.duration_column]
-        for file in index_split_files(source.index_path, source.split):
-            for batch in pq.ParquetFile(file).iter_batches(columns=columns, batch_size=65536):
-                seconds += pc.sum(batch.column(source.duration_column)).as_py() or 0.0
-                counts.update(t for t in batch.column(source.text_column).to_pylist() if t)
-
+        index = load_index(source)
+        data = load_source_for_columns(source, index, [source.duration_column, source.text_column])
+        seconds = pc.sum(indexed_column(index, data, source.duration_column)).as_py() or 0.0
+        counts = Counter(t for t in indexed_column(index, data, source.text_column).to_pylist() if t)
         return SourceText(source.name, source.weight, seconds, counts)
 
     def _weighted_frequencies(self, sources: list[SourceText]) -> Counter[str]:

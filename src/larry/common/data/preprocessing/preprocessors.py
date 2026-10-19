@@ -19,6 +19,7 @@ from larry.common.config.data.preprocessing.preprocessor_configs import (
     PreprocessorConfig,
     RemoveColumnsPreprocessorConfig,
     RowIndexAssigningPreprocessorConfig,
+    SelectColumnsPreprocessorConfig,
 )
 from larry.common.data.utils import features_of
 from larry.common.utils.registrable import Registrable
@@ -85,6 +86,14 @@ class RemoveColumnsPreprocessor(Preprocessor[RemoveColumnsPreprocessorConfig]):
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         """Simply delegates to ``dataset.remove_columns``, passing the configured columns to remove."""
         return dataset.remove_columns(self.config.remove_columns)
+
+
+class SelectColumnsPreprocessor(Preprocessor[SelectColumnsPreprocessorConfig]):
+    def validate(self) -> None:
+        pass
+
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        return dataset.select_columns(self.config.keep_columns)
 
 
 class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConfig]):
