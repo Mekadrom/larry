@@ -30,10 +30,11 @@ class Pipeline:
 
         self.state = pipeline_config.PipelineState(config_file)
 
+        self.output_dir = output_dir
+
         if clean:
             self._clean(self.state.dataset_provider.config.cache_dir)
 
-        self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
         self.provenance_only = provenance_only
@@ -155,7 +156,7 @@ class Pipeline:
         indices[-1] = n
         return DatasetDict({
             name: dataset.select(range(int(a), int(b)))
-            for name, a, b in zip(fractions, indices[:-1], indices[1:], strict=False)
+            for name, a, b in zip(fractions, indices[:-1], indices[1:], strict=True)
         })
 
     def _save_shards(self, dataset: DatasetDict) -> None:

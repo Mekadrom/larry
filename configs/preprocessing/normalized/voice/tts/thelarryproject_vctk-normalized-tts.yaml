@@ -10,7 +10,7 @@ dataset:
     path: thelarryproject/vctk
     name: ~
     split: train
-    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/tts/mikhailt_lj-speech-normalized-tts/
+    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/tts/thelarryproject_vctk-normalized-tts/
 
 pipeline:
   - name: ColumnCastingPreprocessor

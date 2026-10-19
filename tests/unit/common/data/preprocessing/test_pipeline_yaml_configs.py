@@ -8,14 +8,12 @@ from typing import Any
 import pytest
 
 from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig
-from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 from larry.common.utils import load_yaml_dict
-from larry.common.utils.init_helpers import import_submodules
+from tests.helpers.common import import_larry_submodules, provenance
 
-import_submodules("larry", skip=("larry.common.training", "larry.voice.training", "larry.text.training",
-                                 "larry.image.training"))
+import_larry_submodules()
 
 CONFIG_ROOT = Path(__file__).resolve().parents[5] / "configs" / "preprocessing"
 YAML_FILES = sorted(CONFIG_ROOT.rglob("*.yaml"))
@@ -31,16 +29,7 @@ def _steps() -> list[tuple[str, int, dict[str, Any]]]:
 
 
 STEPS = _steps()
-
-
-def _provenance() -> Provenance:
-    return Provenance(
-        id_columns=[],
-        produced_on="",
-        git_commit="",
-        git_is_dirty=None,
-        ancestry=ProvenanceAncestry(datasets=set(), models=set()),
-    )
+parametrize_steps = pytest.mark.parametrize(("path", "index", "step"), STEPS, ids=[f"{p}[{i}]" for p, i, _ in STEPS])
 
 
 def _build_config(step: dict[str, Any]) -> PreprocessorConfig:
@@ -53,7 +42,7 @@ def test_yaml_files_were_found() -> None:
     assert STEPS
 
 
-@pytest.mark.parametrize(("path", "index", "step"), STEPS, ids=[f"{p}[{i}]" for p, i, _ in STEPS])
+@parametrize_steps
 def test_every_pipeline_step_resolves_and_constructs(
         path: str, index: int, step: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -63,10 +52,10 @@ def test_every_pipeline_step_resolves_and_constructs(
     preprocessor_type = Preprocessor.REGISTRY.resolve(step["name"])
     config = _build_config(step)
 
-    preprocessor_type(_provenance(), config)
+    preprocessor_type(provenance(), config)
 
 
-@pytest.mark.parametrize(("path", "index", "step"), STEPS, ids=[f"{p}[{i}]" for p, i, _ in STEPS])
+@parametrize_steps
 def test_mapper_column_lists_reflect_configured_column_fields(path: str, index: int, step: dict[str, Any]) -> None:
     config = _build_config(step)
     if not isinstance(config, MapperConfig):
@@ -95,7 +84,7 @@ def _config_attributes_read_by(preprocessor_type: type) -> set[str]:
     return names
 
 
-@pytest.mark.parametrize(("path", "index", "step"), STEPS, ids=[f"{p}[{i}]" for p, i, _ in STEPS])
+@parametrize_steps
 def test_preprocessor_only_reads_config_attributes_that_exist(path: str, index: int, step: dict[str, Any]) -> None:
     preprocessor_type = Preprocessor.REGISTRY.resolve(step["name"])
     config = _build_config(step)
@@ -105,7 +94,7 @@ def test_preprocessor_only_reads_config_attributes_that_exist(path: str, index: 
     assert not missing, f"{preprocessor_type.__name__} reads config attributes {type(config).__name__} lacks: {missing}"
 
 
-@pytest.mark.parametrize(("path", "index", "step"), STEPS, ids=[f"{p}[{i}]" for p, i, _ in STEPS])
+@parametrize_steps
 def test_mapper_column_lists_have_no_duplicates(path: str, index: int, step: dict[str, Any]) -> None:
     config = _build_config(step)
     if not isinstance(config, MapperConfig):

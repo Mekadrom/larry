@@ -18,7 +18,6 @@ from larry.voice.config.training.voice_trainer_configs import SpeakerLeakageProb
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
 from larry.voice.training import voice_trainers
 
-
 # TODO: make all modules/callbacks here agnostic of model type if possible (or take a generic interface)
 
 

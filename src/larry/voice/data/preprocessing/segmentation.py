@@ -137,7 +137,7 @@ class Segmenter:
                 else:
                     raise ValueError(f"null span: t={t}")
 
-        if len(aligned) / len(words) < self.config.min_aligned_fraction:
+        if not aligned or len(aligned) / len(words) < self.config.min_aligned_fraction:
             return None
 
         first_span = spans[piece[0]]

@@ -104,7 +104,7 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
         os.makedirs(self.output_file_path.parent, exist_ok=True)
 
         attempt = 0
-        content = None
+        downloaded = False
         last: Exception | None = None
         while attempt <= self.config.max_retries:
             attempt += 1
@@ -118,11 +118,12 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
 
             if content is not None and self._validate(content):
                 temp_file_path.move(self.output_file_path)
+                downloaded = True
                 break
 
             time.sleep(self.config.busy_wait)
 
-        if content is None:
+        if not downloaded:
             if last is None:
                 raise ValueError(f"Could not download file after {self.config.max_retries + 1} tries: {self.url}")
 
@@ -234,17 +235,16 @@ class MultiFileDownloader[C: MultiFileDownloaderConfig = MultiFileDownloaderConf
     def ensure_downloaded(self) -> bool:
         """Just delegates to each delegate's ``ensure_downloaded``.
 
-        Returns False if any delegate was required to perform a real download. Also performs busy wait throttling.
+        Returns True if any delegate was required to perform a real download. Also performs busy wait throttling.
         """
-        read_from_cache = True
+        downloaded = False
         for i, delegate in enumerate(self.delegates):
             if delegate.ensure_downloaded():
+                downloaded = True
                 if i < len(self.delegates) - 1:
                     time.sleep(self.config.busy_wait)
-            else:
-                read_from_cache = False
 
-        return read_from_cache
+        return downloaded
 
     def _delegate_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
         """Returns the configured delegate configs."""

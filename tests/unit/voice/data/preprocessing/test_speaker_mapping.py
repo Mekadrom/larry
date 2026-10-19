@@ -4,26 +4,19 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
-from larry.voice.data.preprocessing.global_speaker_map import SpeakerMapping, GlobalSpeakerMappingCreator
+from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping, SpeakerMappingCreator
+from tests.helpers.common import write_parquet_split
 
 
 def _index(root: Path, split: str, speaker_ids: list[Any], files: int = 1) -> str:
-    """Writes an index split as ``files`` parquet shards holding only a speaker_id column."""
-    (root / split).mkdir(parents=True, exist_ok=True)
-    per_file = -(-len(speaker_ids) // files)
-    for i in range(files):
-        chunk = speaker_ids[i * per_file:(i + 1) * per_file]
-        pq.write_table(pa.table({"speaker_id": chunk}), root / split / f"{i:05d}.parquet")
-    return str(root)
+    return str(write_parquet_split(root, split, {"speaker_id": speaker_ids}, files))
 
 
 def _create(tmp_path: Path, sources: list[SpeechSourceConfig]) -> SpeakerMapping:
-    GlobalSpeakerMappingCreator(sources, tmp_path / "out" / "speakers").run()
+    SpeakerMappingCreator(sources, tmp_path / "out" / "speakers").run()
     return SpeakerMapping.from_csv(tmp_path / "out" / "speakers.csv")
 
 
@@ -124,8 +117,8 @@ def test_ids_do_not_depend_on_string_hash_randomization(tmp_path: Path) -> None:
         "import sys\n"
         "from pathlib import Path\n"
         "from larry.voice.config.data.voice_data_configs import SpeechSourceConfig\n"
-        "from larry.voice.data.preprocessing.global_speaker_map import GlobalSpeakerMappingCreator\n"
-        f"GlobalSpeakerMappingCreator([SpeechSourceConfig(name='s', index_path={root!r})], Path(sys.argv[1])).run()\n"
+        "from larry.voice.data.preprocessing.speaker_mapping import SpeakerMappingCreator\n"
+        f"SpeakerMappingCreator([SpeechSourceConfig(name='s', index_path={root!r})], Path(sys.argv[1])).run()\n"
     )
     outputs = []
     for seed in ("1", "2"):

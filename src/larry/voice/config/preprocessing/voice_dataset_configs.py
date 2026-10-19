@@ -55,9 +55,13 @@ class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
         quoting=csv.QUOTE_NONE
     ))
 
-    media_dir: str = archive_root
+    media_dir: str = ""
     media_type: Audio | Image = dataclasses.field(default_factory=lambda: Audio(decode=False))
     media_column: str = "audio"
+
+    def __post_init__(self) -> None:
+        """Defaults ``media_dir`` to ``archive_root`` after any overrides of either are applied."""
+        self.media_dir = self.media_dir or self.archive_root
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -109,7 +113,7 @@ class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConf
 
     download_url: str = "https://datashare.ed.ac.uk"
     archive_file: str = "DS_10283_3443.zip"
-    download_path: str = f"download/{archive_file}"
+    download_path: str = ""
     inner_archive_file: str = "VCTK-Corpus-0.92.zip"
     archive_root: str = "wav48_silence_trimmed"
     manifest_file_name: str = "vctk_manifest.tsv"
@@ -145,6 +149,11 @@ class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConf
             ))
         ]
 
-    media_dir: str = archive_root
+    media_dir: str = ""
     media_type: Audio | Image = dataclasses.field(default_factory=lambda: Audio(decode=False))
     media_column: str = "audio"
+
+    def __post_init__(self) -> None:
+        """Defaults ``download_path`` and ``media_dir`` after any overrides of the fields they derive from."""
+        self.download_path = self.download_path or f"download/{self.archive_file}"
+        self.media_dir = self.media_dir or self.archive_root

@@ -1,5 +1,5 @@
 training:
-  metricsBackend: tensorboard
+  metrics_backend: tensorboard
 
 model:
   name: SpeechEncoderModel
@@ -22,7 +22,6 @@ trainer:
     lr_scheduler_name: cosine
     warmup_steps: 2000
     weight_decay: 0.1
-    adamw_betas: [0.9, 0.98]
     max_steps: 100000
     eval_steps: 2000
     viz_steps: 1000
@@ -56,7 +55,7 @@ trainer:
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
           weight: 0.01
           speaker_id_column: ~
-        - name: libriheavy-large-index-asr
+        - name: libriheavy-large-index
           index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
           source_path: mythicinfinity/libriheavy
           source_cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
@@ -80,10 +79,11 @@ trainer:
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
           split: dev.clean+dev.other
         - name: librispeech-asr
-          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/openslr_librispeech-asr-normalized-asr-validation/
+          index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/openslr_librispeech-asr-index-asr-validation/
+          source_path: /home/zadar/.cache/larry/datasets/normalized/voice/openslr_librispeech-asr-normalized-validation/
         - name: libriheavy-test-clean-large
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mythicinfinity_libriheavy-test_clean_large-normalized-asr/
-          speaker_namespace: libriheavy-large-index-asr
+          speaker_namespace: libriheavy-large-index
         - name: libriheavy-test-other-large
           index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mythicinfinity_libriheavy-test_other_large-normalized-asr/
-          speaker_namespace: libriheavy-large-index-asr
+          speaker_namespace: libriheavy-large-index

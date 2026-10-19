@@ -1,5 +1,5 @@
 training:
-  metricsBackend: tensorboard
+  metrics_backend: tensorboard
 
 model:
   name: SpeechDecoderModel
@@ -9,74 +9,73 @@ trainer:
   name: SpeechDecoderTrainer
   config: SpeechDecoderTrainerConfig
   overrides:
-    speaker_mapping_path: "/home/zadar/.cache/larry/speaker_mappings/asr/global_speaker_mapping.csv"
+    speaker_mapping_path: "/home/zadar/.cache/larry/speaker_mappings/tts/global_speaker_mapping.csv"
     muon_last_layer_names:
-      - ctc_head.weight
+      -
     lr: 5.0e-4
     min_lr: 5.0e-5
     lr_scheduler_name: cosine
     warmup_steps: 2000
     weight_decay: 0.1
-    adamw_betas: [0.9, 0.98]
     max_steps: 100000
     eval_steps: 2000
     viz_steps: 1000
-    speaker_leakage_steps: 2000
     dataset_config:
       sample_rate: 16000
       max_batch_seconds: 900
       pool_size: 30000
       train_sources:
         - name: scotus
-          index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/thelarryproject_scotus-index-asr/
+          index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/thelarryproject_scotus-index-tts/
           source_path: thelarryproject/scotus
           split: train
           weight: 0.25
         - name: vctk
-          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
+          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/thelarryproject_vctk-normalized-tts/
           split: train
           weight: 0.02
         - name: cv27
-          index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mozilla-foundation_cv27-index-asr/
+          index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mozilla-foundation_cv27-index-tts/
           split: train
           source_path: /home/zadar/.cache/larry/datasets/normalized/voice/mozilla-foundation_cv27-normalized/
           weight: 0.25
         - name: hifi-tts-all
-          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/mikhailt_hifi-tts-all-normalized-tts/
           split: train.clean+train.other
           weight: 0.03
         - name: lj-speech
-          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
-          weight: 0.01
-          speaker_id_column: ~
-        - name: libriheavy-large-index-asr
-          index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
+          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/mikhailt_lj-speech-normalized-tts/
+          weight: 0.01tts
+          speaker_id_column: ~tts
+        - name: libriheavy-large-index
+          index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mythicinfinity_libriheavy-large-index-tts/
           source_path: mythicinfinity/libriheavy
-          source_cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
+          source_cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/mythicinfinity_libriheavy-large-index-tts/
           source_name: large
           source_split: train
           weight: 0.44
       eval_sources:
         - name: scotus
-          index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/thelarryproject_scotus-index-asr/
+          index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/thelarryproject_scotus-index-tts/
           source_path: thelarryproject/scotus
           split: validation
         - name: vctk
-          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
+          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/thelarryproject_vctk-normalized-tts/
           split: validation
         - name: cv27
-          index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mozilla-foundation_cv27-index-asr/
+          index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mozilla-foundation_cv27-index-tts/
           split: validation
           source_path: /home/zadar/.cache/larry/datasets/normalized/voice/mozilla-foundation_cv27-normalized/
           source_split: dev
         - name: hifi-tts-all
-          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-tts/
           split: dev.clean+dev.other
         - name: librispeech-asr
-          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/openslr_librispeech-asr-normalized-asr-validation/
+          index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/openslr_librispeech-asr-index-tts-validation/
+          source_path: /home/zadar/.cache/larry/datasets/normalized/voice/openslr_librispeech-asr-normalized-validation/
         - name: libriheavy-test-clean-large
-          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mythicinfinity_libriheavy-test_clean_large-normalized-asr/
-          speaker_namespace: libriheavy-large-index-asr
+          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/mythicinfinity_libriheavy-test_clean_large-normalized-tts/
+          speaker_namespace: libriheavy-large-index
         - name: libriheavy-test-other-large
-          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mythicinfinity_libriheavy-test_other_large-normalized-asr/
-          speaker_namespace: libriheavy-large-index-asr
+          index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/mythicinfinity_libriheavy-test_other_large-normalized-tts/
+          speaker_namespace: libriheavy-large-index

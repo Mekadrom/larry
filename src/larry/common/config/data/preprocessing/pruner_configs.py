@@ -20,22 +20,37 @@ class ColumnValuesPrunerConfig(PrunerConfig):
     multiple_inputs_behavior: Literal["any", "all"] = "any"
     op_config: dict[str, Any] = dataclasses.field(default_factory=lambda: {
         "containing": False,
-        "case_insensitive": True,
+        "case_sensitive": False,
         "strip": True,
     })
 
 
 @dataclasses.dataclass(kw_only=True)
-class ASRCTCMismatchColumnValuesPrunerConfig(ColumnValuesPrunerConfig):
+class CTCMismatchColumnValuesPrunerConfig(ColumnValuesPrunerConfig):
     """Specific config class for the ``ColumnValuesPruner``.
 
-    Configures for a matcher to prune rows where the ctc_mismatch is greater than 0.5.
+    Configures for a matcher to prune rows where the ctc_mismatch is greater than ``max_value`` in ``op_config``.
     """
 
     input_columns: list[str] = dataclasses.field(default_factory=lambda: [
         "ctc_mismatch"
     ])
     op: Literal["matches", "nmatches", "in_range", "nin_range"] = "in_range"
+
+
+@dataclasses.dataclass(kw_only=True)
+class ASRCTCMismatchColumnValuesPrunerConfig(CTCMismatchColumnValuesPrunerConfig):
+    """Prunes rows where the ctc_mismatch is greater than 0.5."""
+
     op_config: dict[str, Any] = dataclasses.field(default_factory=lambda: {
         "max_value": 0.5
+    })
+
+
+@dataclasses.dataclass(kw_only=True)
+class TTSCTCMismatchColumnValuesPrunerConfig(CTCMismatchColumnValuesPrunerConfig):
+    """Prunes rows where the ctc_mismatch is greater than 0.2."""
+
+    op_config: dict[str, Any] = dataclasses.field(default_factory=lambda: {
+        "max_value": 0.2
     })

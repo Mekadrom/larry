@@ -1,15 +1,11 @@
-import os
-
-import duckdb
 import pytest
+
+from tests.helpers.duckdb_checks import env_connection, zero_rows_test
 
 
 @pytest.fixture(scope="session")
 def con():
-    root = os.environ.get("SCOTUS_UNALIGNED")
-    if root is None:
-        pytest.skip("SCOTUS_UNALIGNED not set")
-    c = duckdb.connect()
+    c, root = env_connection("SCOTUS_UNALIGNED")
     c.execute(f"CREATE VIEW t AS SELECT * FROM read_parquet('{root}/**/*.parquet')")
     c.execute("""
               CREATE VIEW lines AS
@@ -49,10 +45,7 @@ ZERO_ROWS = {
 }
 
 
-@pytest.mark.parametrize("sql", ZERO_ROWS.values(), ids=ZERO_ROWS.keys())
-def test_zero_rows(con, sql):
-    rows = con.execute(sql).fetchall()
-    assert not rows, f"{len(rows)} rows, e.g. {rows[:10]}"
+test_zero_rows = zero_rows_test(ZERO_ROWS)
 
 
 def test_words_per_second(con):

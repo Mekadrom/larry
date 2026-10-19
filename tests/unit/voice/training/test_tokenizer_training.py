@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 import sentencepiece
 import yaml
-from datasets import Dataset
 
 from larry.voice.config.data.voice_data_configs import ASRSourceConfig
 from larry.voice.training import tokenizer_training
 from larry.voice.training.tokenizer_training import SourceText, TokenizerTrainer
+from tests.helpers.common import write_parquet_split
 
 
 def _trainer(tmp_path: Path) -> TokenizerTrainer:
@@ -25,12 +25,11 @@ ALPHABET_LINES = [
 
 
 def _write_source(root: Path, name: str, rows: list[tuple[str, float]], split: str = "train") -> ASRSourceConfig:
-    (root / name / split).mkdir(parents=True)
-    Dataset.from_dict({
+    write_parquet_split(root / name, split, {
         "text_normalized": [t for t, _ in rows],
         "duration_s": [d for _, d in rows],
         "audio": [b"\x00" * 64 for _ in rows],
-    }).to_parquet(root / name / split / f"{split}-00000-of-00001.parquet")
+    })
     return ASRSourceConfig(name=name, index_path=str(root / name), split=split)
 
 

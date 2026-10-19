@@ -2,7 +2,6 @@ import itertools
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 
-import numpy as np
 import torch
 
 from larry.common.data.dataloading.samplers import ResumableBatchSampler
@@ -75,7 +74,7 @@ class WeightedBatchSampler(ResumableBatchSampler, ABC):
 
     def _source_counts(self, chunk: int) -> tuple[torch.Tensor, torch.Generator]:
         """Rows each source contributes to ``chunk``, and that chunk's generator for shuffling batch order."""
-        generator = torch.Generator().manual_seed(self.seed + chunk)
+        generator = self.seeded_generator(self.seed, chunk)
         draws = torch.multinomial(self.source_probs, self.pool_size, replacement=True, generator=generator)
         return torch.bincount(draws, minlength=len(self.rows_by_source)), generator
 
@@ -96,8 +95,7 @@ class WeightedBatchSampler(ResumableBatchSampler, ABC):
         if cached is not None and cached[0] == cycle:
             return cached[1]
 
-        seed = int(np.random.SeedSequence([self.seed, s, cycle]).generate_state(1)[0])
-        generator = torch.Generator().manual_seed(seed)
+        generator = self.seeded_generator(self.seed, s, cycle)
         rows = self.rows_by_source[s]
         permutation = rows[torch.randperm(len(rows), generator=generator)]
         self._permutations[s] = (cycle, permutation)

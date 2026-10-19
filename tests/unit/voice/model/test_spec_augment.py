@@ -1,7 +1,7 @@
 import torch
 
-from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.model.speech_encoder import SpeechEncoderModel
+from tests.helpers.voice import tiny_speech_encoder
 
 spec_augment = SpeechEncoderModel._spec_augment
 
@@ -17,14 +17,14 @@ def _mels() -> tuple[torch.Tensor, torch.Tensor]:
 def test_no_masks_leave_the_mels_unchanged() -> None:
     mels, lengths = _mels()
 
-    assert torch.equal(spec_augment(mels, lengths, 0, 5, 0, 0.1), mels)
+    assert torch.equal(spec_augment(mels, lengths, freq_masks=0, freq_width=5, time_masks=0, time_fraction=0.1), mels)
 
 
 def test_masked_cells_take_the_mean_of_the_clips_real_frames() -> None:
     mels, lengths = _mels()
     torch.manual_seed(1)
 
-    out = spec_augment(mels, lengths, 2, 5, 4, 0.2)
+    out = spec_augment(mels, lengths, freq_masks=2, freq_width=5, time_masks=4, time_fraction=0.2)
 
     for b, n in enumerate(lengths.tolist()):
         changed = out[b] != mels[b]
@@ -36,7 +36,7 @@ def test_time_masks_stay_inside_each_clip() -> None:
     mels, lengths = _mels()
     torch.manual_seed(2)
 
-    out = spec_augment(mels, lengths, 0, 0, 10, 0.2)
+    out = spec_augment(mels, lengths, freq_masks=0, freq_width=0, time_masks=10, time_fraction=0.2)
 
     assert torch.equal(out[1, :, 30:], mels[1, :, 30:])
     masked_frames = (out != mels).all(dim=1)
@@ -47,7 +47,7 @@ def test_frequency_masks_cover_whole_bins_within_the_width() -> None:
     mels, lengths = _mels()
     torch.manual_seed(3)
 
-    out = spec_augment(mels, lengths, 1, 5, 0, 0.0)
+    out = spec_augment(mels, lengths, freq_masks=1, freq_width=5, time_masks=0, time_fraction=0.0)
 
     masked_bins = (out[0] != mels[0]).all(dim=1)
     assert (out[0] != mels[0]).any(dim=1).equal(masked_bins)
@@ -58,12 +58,7 @@ def test_frequency_masks_cover_whole_bins_within_the_width() -> None:
 
 
 def _model(n_spec_freq_masks: int = 2, n_spec_time_masks: int = 10) -> SpeechEncoderModel:
-    torch.manual_seed(0)
-    return SpeechEncoderModel(SpeechEncoderModelConfig(
-        d_model=32, n_heads=4, n_query_groups=4, rotary_embedding_dim=8,
-        n_encoder1_layers=1, n_encoder2_layers=1, text_vocab_size=10,
-        n_spec_freq_masks=n_spec_freq_masks, n_spec_time_masks=n_spec_time_masks,
-    ))
+    return tiny_speech_encoder(10, n_spec_freq_masks=n_spec_freq_masks, n_spec_time_masks=n_spec_time_masks)
 
 
 def _forward(model: SpeechEncoderModel) -> torch.Tensor:

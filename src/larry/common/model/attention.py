@@ -71,9 +71,12 @@ class LarryAttention(nn.Module, QKModule):
 
         TODO: support 3-axis or n-axis m-rope (for image RoPE; global position dims, and row/column position dims)
         """
-        if self.config.use_split_rope and self.rotary_global and self.rotary_local and position_ids is not None:
+        if self.config.use_split_rope and self.rotary_global and self.rotary_local:
+            if position_ids is None:
+                raise ValueError("split RoPE requires position_ids of shape (N, t, 2)")
+
             # (N, t, 2) = [:, :, 0] global, [:, :, 1] local (local may be fractional)
-            global_pids = position_ids[..., 0].to(queries.device).float()
+            global_pids = position_ids[..., 0].to(queries.device).float() + position_offset
             local_pids = position_ids[..., 1].to(queries.device).float()
 
             fg = self.rotary_global(global_pids).unsqueeze(1)  # (N, 1, t, half)
@@ -95,17 +98,15 @@ class LarryAttention(nn.Module, QKModule):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """If the KV cache contains KV tensors, prepends those to the input sequence. Apply after rotary embedding."""
         if kv_cache is not None and kv_cache.key_cache is not None and kv_cache.value_cache is not None:
-            if self.n_rep > 1:
-                k = k.repeat_interleave(self.n_rep, dim=1)
-                v = v.repeat_interleave(self.n_rep, dim=1)
-
             k = torch.cat([kv_cache.key_cache, k], dim=2)
             v = torch.cat([kv_cache.value_cache, v], dim=2)
-        else:
-            # expand k/v for gqa
-            if self.n_rep > 1:
-                k = k.repeat_interleave(self.n_rep, dim=1)
-                v = v.repeat_interleave(self.n_rep, dim=1)
+        return k, v
+
+    def _expand_kv_groups(self, k: torch.Tensor, v: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Repeats each of the ``n_query_groups`` k/v heads so that every query head has a matching k/v head."""
+        if self.n_rep > 1:
+            k = k.repeat_interleave(self.n_rep, dim=1)
+            v = v.repeat_interleave(self.n_rep, dim=1)
         return k, v
 
     def _sliced_causal_mask(self, q_seq_len: int, k_seq_len: int) -> torch.Tensor:
@@ -133,30 +134,21 @@ class LarryAttention(nn.Module, QKModule):
             self,
             queries: torch.Tensor,
             keys: torch.Tensor,
-            causal_mask: torch.Tensor | None,
-            active_mask: torch.Tensor | None
+            attn_mask: torch.Tensor | None,
     ) -> torch.Tensor:
-        """Performs manual masked attention. Does not use SDPA. Uses both provided masks."""
+        """Performs manual masked attention. Does not use SDPA. Uses the same boolean mask that SDPA receives."""
         attention_scores = torch.matmul(queries, keys.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.d_queries)
 
-        if causal_mask is not None:
-            attention_scores = attention_scores.masked_fill(causal_mask == 0, float("-inf"))
-
-        if active_mask is not None:
-            attention_scores = attention_scores.masked_fill(active_mask.unsqueeze(1).unsqueeze(2) == 0, float("-inf"))
+        if attn_mask is not None:
+            attention_scores = attention_scores.masked_fill(~attn_mask, float("-inf"))
 
         return attention_scores
 
-    def _qk_max_logit(
-            self, q: torch.Tensor,
-            k: torch.Tensor,
-            causal_mask: torch.Tensor | None,
-            active_mask: torch.Tensor | None
-    ) -> None:
+    def _qk_max_logit(self, q: torch.Tensor, k: torch.Tensor, attn_mask: torch.Tensor | None) -> None:
         """Saves the maximum logit value from the attention scores for QK clipping."""
         with torch.no_grad():
-            attention_scores = self._masked_attention(q.float(), k.float(), causal_mask, active_mask)
+            attention_scores = self._masked_attention(q.float(), k.float(), attn_mask)
 
             # (N, heads, q_seq_len, k_seq_len) -> per-head max over batch and both position axes.
             full_max = attention_scores.amax(dim=3).amax(dim=2).amax(dim=0)
@@ -210,9 +202,9 @@ class LarryAttention(nn.Module, QKModule):
 
         new_kv_cache = None
         if use_cache:
-            new_kv_cache = KVCache()
-            new_kv_cache.key_cache = keys.clone()
-            new_kv_cache.value_cache = values.clone()
+            new_kv_cache = KVCache(key_cache=keys, value_cache=values)
+
+        keys, values = self._expand_kv_groups(keys, values)
 
         q_seq_len = queries.shape[2]
         k_seq_len = keys.shape[2]
@@ -223,9 +215,6 @@ class LarryAttention(nn.Module, QKModule):
 
         active_mask = encoder_attention_mask if is_cross_attention else attention_mask
 
-        if self.qk_probe_active:
-            self._qk_max_logit(queries, keys, causal_mask, active_mask)
-
         attn_mask = None
         if causal_mask is not None and not (active_mask is None and q_seq_len == k_seq_len):
             attn_mask = causal_mask != 0
@@ -235,14 +224,15 @@ class LarryAttention(nn.Module, QKModule):
             attn_mask = pad_bool if attn_mask is None else (attn_mask & pad_bool)
 
         # explicitly let each token attend to itself to avoid infs/NaNs
-        if attn_mask is not None:
-            eye = torch.eye(
-                q_seq_len,
-                k_seq_len,
-                dtype=torch.bool,
-                device=attn_mask.device
-            )[None, None, -q_seq_len:]
-            attn_mask = attn_mask | eye
+        if attn_mask is not None and not is_cross_attention:
+            query_positions = torch.arange(k_seq_len - q_seq_len, k_seq_len, device=attn_mask.device)
+            key_positions = torch.arange(k_seq_len, device=attn_mask.device)
+            eye = query_positions[:, None] == key_positions[None, :]
+            attn_mask = attn_mask | eye[None, None]
+
+        if self.qk_probe_active:
+            probe_mask = attn_mask if attn_mask is not None or causal_mask is None else causal_mask != 0
+            self._qk_max_logit(queries, keys, probe_mask)
 
         values = F.scaled_dot_product_attention(
             queries,

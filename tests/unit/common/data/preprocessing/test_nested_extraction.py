@@ -1,40 +1,17 @@
 import json
 from collections import Counter
+from typing import Any
 
 import pytest
 from datasets import Dataset, DatasetDict
 
-from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.common.config.data.preprocessing.preprocessor_configs import NestedExtractionPreprocessorConfig
 from larry.common.data.preprocessing.preprocessors import NestedExtractionPreprocessor
+from tests.helpers.common import provenance
 
 
-def dataset_both() -> Dataset:
-    exifs = [
-        {
-            "Image Copyright": "CC-BY-4.0",
-            "Image XPComment": "Photo depicts bruh"
-        }
-    ]
-    return Dataset.from_dict({"exif": [json.dumps(e) for e in exifs]})
-
-
-def dataset_one() -> Dataset:
-    exifs = [
-        {
-            "Image XPComment": "Photo depicts hurb"
-        }
-    ]
-    return Dataset.from_dict({"exif": [json.dumps(e) for e in exifs]})
-
-
-def dataset_neither() -> Dataset:
-    exifs = [
-        {
-            "Unrelated Field": "bruh",
-        },
-    ]
-    return Dataset.from_dict({"exif": [json.dumps(e) for e in exifs]})
+def _exif_dataset(exif: dict[str, Any]) -> Dataset:
+    return Dataset.from_dict({"exif": [json.dumps(exif)]})
 
 
 _config = NestedExtractionPreprocessorConfig(
@@ -49,9 +26,14 @@ _config = NestedExtractionPreprocessorConfig(
 @pytest.mark.parametrize(
     ("expected_text_original", "expected_copyright", "dataset", "config"),
     [
-        ("Photo depicts bruh", "CC-BY-4.0", dataset_both(), _config),
-        ("Photo depicts hurb", None, dataset_one(), _config),
-        (None, None, dataset_neither(), _config),
+        (
+            "Photo depicts bruh",
+            "CC-BY-4.0",
+            _exif_dataset({"Image Copyright": "CC-BY-4.0", "Image XPComment": "Photo depicts bruh"}),
+            _config,
+        ),
+        ("Photo depicts hurb", None, _exif_dataset({"Image XPComment": "Photo depicts hurb"}), _config),
+        (None, None, _exif_dataset({"Unrelated Field": "bruh"}), _config),
     ]
 )
 def test_nested_extraction_extracts(
@@ -60,16 +42,7 @@ def test_nested_extraction_extracts(
         dataset: Dataset | DatasetDict,
         config: NestedExtractionPreprocessorConfig
 ) -> None:
-    sut = NestedExtractionPreprocessor(
-        Provenance(
-            id_columns=[],
-            git_commit="",
-            git_is_dirty=None,
-            produced_on="bruh",
-            ancestry=ProvenanceAncestry(datasets=set(), models=set()),
-        ),
-        config
-    )
+    sut = NestedExtractionPreprocessor(provenance(), config)
 
     dataset = sut.preprocess_dataset(dataset)
 

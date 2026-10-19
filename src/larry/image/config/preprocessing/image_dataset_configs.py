@@ -66,7 +66,11 @@ class GoogleDOCCIMediaCachedDatasetConfig(ImageDatasetConfig, MediaCachedDataset
 
     split_column: str | None = "split"
 
-    media_dir: str = archive_root
+    media_dir: str = ""
     media_type: Audio | Image = dataclasses.field(default_factory=lambda: Image(decode=False))
     media_column: str = "image"
     media_path_column: str = "image_file"
+
+    def __post_init__(self) -> None:
+        """Defaults ``media_dir`` to ``archive_root`` after any overrides of either are applied."""
+        self.media_dir = self.media_dir or self.archive_root

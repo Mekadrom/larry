@@ -3,7 +3,7 @@ import csv
 import logging
 import os
 from pathlib import Path
-from typing import Self, Any
+from typing import Any, Self
 
 import pyarrow.parquet as pq
 
@@ -16,6 +16,10 @@ from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
 
 log = logging.getLogger(__name__)
+
+
+def default_speaker_id(source: SpeechSourceConfig) -> str:
+    return f"{source.name}_speaker_id"
 
 
 class SpeakerMapping:
@@ -51,7 +55,7 @@ class SpeakerMapping:
     def key(source: SpeechSourceConfig, speaker_id: object) -> str:
         """The mapping key for a speaker id read from a source; single speaker sources ignore ``speaker_id``."""
         if source.speaker_id_column is None:
-            speaker_id = f"{source.name}_speaker_id"
+            speaker_id = default_speaker_id(source)
         return f"{SpeakerMapping.namespace(source)}:{speaker_id}"
 
     def save_csv(self, output_prefix: Path) -> None:
@@ -77,7 +81,7 @@ class SpeakerMapping:
         return instance
 
 
-class GlobalSpeakerMappingCreator:
+class SpeakerMappingCreator:
     """Runner for producing a global speaker mapping from a specified training dataset."""
 
     def __init__(self, sources: list[SpeechSourceConfig], output_prefix: Path) -> None:
@@ -123,7 +127,7 @@ def main() -> None:
     ))
 
     argparser = argparse.ArgumentParser(
-        prog="global-speaker-map",
+        prog="speaker-mapping",
         description="Produces a global speaker mapping of (source, speaker_id_str): speaker_id_int.",
     )
     argparser.add_argument(
@@ -157,7 +161,7 @@ def main() -> None:
 
     output_prefix = Path(output_prefix).expanduser().resolve()
 
-    GlobalSpeakerMappingCreator(
+    SpeakerMappingCreator(
         mixture_config.train_sources + mixture_config.eval_sources,
         output_prefix
     ).run()

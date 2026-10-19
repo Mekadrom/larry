@@ -2,11 +2,11 @@ from typing import Any
 
 from datasets import Audio, Dataset
 
-from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.voice.config.preprocessing.voice_mapper_configs import SpeechSegmentationAligningMapperConfig
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 from larry.voice.data.preprocessing.transcript import Transcript, Turn
 from larry.voice.data.preprocessing.voice_mappers import SpeechSegmentationAligningMapper
+from tests.helpers.common import provenance
 
 
 class TwoSegmentsPerRowMapper(SpeechSegmentationAligningMapper[SpeechSegmentationAligningMapperConfig]):
@@ -43,16 +43,7 @@ def test_segmentation_mapper_replaces_rows_and_keeps_only_copied_columns() -> No
     config = SpeechSegmentationAligningMapperConfig(
         num_proc=1, batch_size=1, writer_batch_size=1, cache_results=False, copy_columns=["docket"],
     )
-    mapper = TwoSegmentsPerRowMapper(
-        Provenance(
-            id_columns=[],
-            produced_on="",
-            git_commit="",
-            git_is_dirty=None,
-            ancestry=ProvenanceAncestry(datasets=set(), models=set()),
-        ),
-        config,
-    )
+    mapper = TwoSegmentsPerRowMapper(provenance(), config)
 
     out = mapper.preprocess_dataset(dataset)
 

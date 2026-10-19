@@ -54,6 +54,7 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
 @dataclasses.dataclass(kw_only=True)
 class SpeechDecoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig):
     """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechDecoderModel``."""
+
     n_mels: int = 80
     n_fft: int = 640
 

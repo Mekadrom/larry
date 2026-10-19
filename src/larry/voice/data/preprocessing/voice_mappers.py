@@ -137,7 +137,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         aligner = _lazy_get_aligner(self.config.aligner_config, self.device_index)
         normalizer = _lazy_get_normalizer(self.config, self.make_normalizer)
 
-        for i, (audio, text) in enumerate(zip(audios, texts, strict=False)):
+        for i, (audio, text) in enumerate(zip(audios, texts, strict=True)):
             waveform = bytes_to_waveforms(audio["bytes"], self.config.sample_rate)[0]
             emissions = aligner.ctc_emissions(waveform)
 
@@ -304,7 +304,7 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
             return
 
         emissions = aligner.clip_emissions(waveforms)
-        for i, emission in zip(indices, emissions, strict=False):
+        for i, emission in zip(indices, emissions, strict=True):
             text = texts[i]
             if text is None:
                 continue

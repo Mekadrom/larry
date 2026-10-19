@@ -11,7 +11,7 @@ dataset:
   overrides:
     path: thelarryproject/librispeech-asr-validation
     split: train
-    cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/openslr_librispeech-asr-normalized-tts-validation/
+    cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/openslr_librispeech-asr-index-tts-validation/
 
 pipeline:
   - name: RowIndexAssigningPreprocessor

@@ -1,3 +1,5 @@
+import datetime
+import email.utils
 import hashlib
 import os
 import time
@@ -79,9 +81,10 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
                     # not found - typical, can actually be retried because sometimes this is transient in my experience
                     continue
                 if response.status_code == 429:
-                    time.sleep(float(response.headers.get("Retry-After", 60)))
+                    time.sleep(self._retry_after_seconds(response, default=60.0))
                     continue
                 if 500 <= response.status_code < 600:
+                    time.sleep(self._retry_after_seconds(response, default=0.0))
                     continue
 
                 if response.ok:
@@ -111,6 +114,27 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
             f"and nulls {'are' if self.config.filter_null_outputs else 'are not'} filtered out after mapping"
         )
         return None
+
+    @staticmethod
+    def _retry_after_seconds(response: requests.Response, default: float) -> float:
+        """Seconds to wait from a ``Retry-After`` header given as delay-seconds or an HTTP-date, else ``default``."""
+        retry_after = response.headers.get("Retry-After")
+        if retry_after is None:
+            return default
+
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            pass
+
+        try:
+            retry_at = email.utils.parsedate_to_datetime(retry_after)
+        except (TypeError, ValueError):
+            return default
+
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=datetime.UTC)
+        return max(0.0, (retry_at - datetime.datetime.now(datetime.UTC)).total_seconds())
 
     def _lazy_get_session(self) -> requests.Session:
         """Helper for caching to basically take the ``Session`` object out of the mapper's fingerprint state."""

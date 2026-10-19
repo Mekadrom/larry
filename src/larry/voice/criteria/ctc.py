@@ -3,19 +3,17 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
-from larry.common.config.criteria.criterion_configs import CTCCriterionConfig
-from larry.common.criteria.criterion import Criterion, SamplableCriterion
-from larry.common.model.model import LarrySpeechEncoderModelOutput
+from larry.common.criteria.criterion import SamplableCriterion
+from larry.voice.config.criterion.voice_criterion_configs import CTCCriterionConfig
+from larry.voice.model.voice_models import SpeechEncoderModelOutput
 
 
-class CTCCriterion(
-    SamplableCriterion[LarrySpeechEncoderModelOutput], Criterion[LarrySpeechEncoderModelOutput, CTCCriterionConfig]
-):
+class CTCCriterion(SamplableCriterion[SpeechEncoderModelOutput, CTCCriterionConfig]):
     """An implementation of ``Criterion`` for performing standard CTC loss calculation."""
 
     def forward(  # pyright: ignore[reportIncompatibleMethodOverride]
             self,
-            model_output: LarrySpeechEncoderModelOutput,
+            model_output: SpeechEncoderModelOutput,
             targets: torch.Tensor,
             target_lengths: torch.Tensor,
             **batch_kwargs: Any,
@@ -28,7 +26,7 @@ class CTCCriterion(
 
     def sample_losses(
             self,
-            model_output: LarrySpeechEncoderModelOutput,
+            model_output: SpeechEncoderModelOutput,
             targets: torch.Tensor,
             target_lengths: torch.Tensor,
     ) -> torch.Tensor:
@@ -40,7 +38,7 @@ class CTCCriterion(
 
     def _ctc_loss(
             self,
-            model_output: LarrySpeechEncoderModelOutput,
+            model_output: SpeechEncoderModelOutput,
             targets: torch.Tensor,
             target_lengths: torch.Tensor,
             reduction: str,

@@ -229,6 +229,8 @@ class AggregateMetricEntry(CountableMetricEntry[float | int]):
     def value(self) -> float | int:
         """Returns the total with an optional reduction applied as its value."""
         if self.average_reduce == "all":
+            if self.count == 0:
+                return 0
             return float(self.total) / float(self.count)
         return self.total
 
@@ -245,7 +247,7 @@ class AggregateMetricEntry(CountableMetricEntry[float | int]):
             return
         if isinstance(other, AggregateMetricEntry):
             self.total += other.total
-            self.n_items += 1
+            self.n_items += other.n_items
             return
         raise NotImplementedError(f"Can't add other={other} to {type(self).__name__}={self}")
 
@@ -266,6 +268,7 @@ class BatchMetricEntry(MetricEntry[list], ABC):
         self.metrics_list.extend(other.metrics_list)
 
 
+@dataclasses.dataclass(kw_only=True)
 class ImageMetric(MetricEntry[torch.Tensor]):
     """A MetricEntry containing an image."""
 
@@ -579,7 +582,7 @@ class TensorBoardMetrics(Metrics):
         self.add_scalar(f"{prefix}/total", norms.pow(2).sum().sqrt().item(), step)
         self.add_histogram(f"{prefix}/per_param", norms.numpy(), step)
         if per_param_scalars:
-            for name, n in zip(names, norms.tolist(), strict=False):
+            for name, n in zip(names, norms.tolist(), strict=True):
                 self.add_scalar(f"{prefix}/{name}", n, step)
 
     def flush(self) -> None:

@@ -31,6 +31,7 @@ dependencies = [
     "av>=19.0.1",
     "sentencepiece>=0.2.2",
     "rapidfuzz>=3.14.6",
+    "accelerate>=1.15.0",
 ]
 
 [[tool.uv.index]]
@@ -69,6 +70,9 @@ ignore = [
     "D213", # `multi-line-summary-second-line` - incompatible with (D212) `multi-line-summary-first-line`
     "ANN401", # disallows typing.Any
 ]
+unfixable = [
+    "B905", # zip-without-explicit-strict; autofix inserts strict=False
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -93,13 +97,11 @@ typeCheckingMode = "standard"
 reportPrivateImportUsage = false
 
 [project.scripts]
-# uv run add-modality --help
-add-modality = "buildscripts.add_modality:main"
 # uv run preprocessing --help
 preprocessing = "larry.common.data.preprocessing:main"
 # uv run training --help
 training = "larry.common.training:main"
 # uv run tokenizer-training --help
 tokenizer-training = "larry.voice.training.tokenizer_training:main"
-# uv run global-speaker-map --help
-global-speaker-map = "larry.voice.data.preprocessing.global_speaker_map:main"
+# uv run speaker-mapping --help
+speaker-mapping = "larry.voice.data.preprocessing.speaker_mapping:main"

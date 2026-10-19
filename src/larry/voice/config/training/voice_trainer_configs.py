@@ -4,7 +4,7 @@ from typing import Any
 
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
-from larry.voice.config.data.voice_data_configs import ASRMixtureConfig
+from larry.voice.config.data.voice_data_configs import ASRMixtureConfig, TTSMixtureConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -39,18 +39,19 @@ class VoiceTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](La
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechEncoderDecoderTrainerConfig(VoiceTrainerConfig[ASRMixtureConfig]):
-    tokenizer_model_path: str
     speaker_mapping_path: str
 
     @classmethod
     def mixture_config_type(cls) -> type[ASRMixtureConfig]:
-        """Speech trainers parse ``dataset_config`` into a ``SpeechMixtureConfig``."""
-        return ASRMixtureConfig
+        """Needs overridden."""
+        raise NotImplementedError
 
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
     """Config for ``SpeechTokenizerTrainer`` to configure the training and eval dataset sources."""
+
+    tokenizer_model_path: str
 
     speed_augment_factors: list[float] = dataclasses.field(default_factory=lambda: [1.0])
 
@@ -71,9 +72,20 @@ class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
             **self.speaker_leakage_probes_callback_overrides
         )
 
+    @classmethod
+    def mixture_config_type(cls) -> type[ASRMixtureConfig]:
+        """Speech trainers parse ``dataset_config`` into a ``ASRMixtureConfig``."""
+        return ASRMixtureConfig
+
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechDecoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
     """Config for ``SpeechDecoderTrainer``."""
 
-    reconstruction_criterion_config_overrides: dict[str, Any] = dataclasses.field(default_factory=dict)
+    upsample: float = 4.0
+    criterion_config_overrides: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def mixture_config_type(cls) -> type[TTSMixtureConfig]:
+        """Speech trainers parse ``dataset_config`` into a ``TTSMixtureConfig``."""
+        return TTSMixtureConfig

@@ -1,29 +1,14 @@
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
 import torch
-from accelerate.state import AcceleratorState
 
 from larry.common.metrics.metrics import MetricDict, ScalarMetricEntry
 from larry.common.training.trainers import StepOutput
-from tests.unit.common.training.test_step_based_training import (
-    NullMetrics,
-    ToyModel,
-    ToyTrainer,
-    ToyTrainerConfig,
-    provenance,
-)
-
-
-class RecordingMetrics(NullMetrics):
-    def __init__(self, log_dir: str) -> None:
-        super().__init__(log_dir)
-        self.scalars: dict[str, float] = {}
-
-    def add_scalar(self, tag: str, value: float, step: int, **kwargs: Any) -> None:
-        self.scalars[tag] = value
+from tests.helpers.metrics import RecordingMetrics
+from tests.unit.common.training.toy_training import ToyTrainer, toy_trainer
 
 
 class GroupedToyTrainer(ToyTrainer):
@@ -40,13 +25,6 @@ class GroupedToyTrainer(ToyTrainer):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
         assert output.sample_losses is not None
         return batch["idx"] % 2, output.sample_losses, 1 + batch["idx"] % 3
-
-
-@pytest.fixture(autouse=True)
-def fresh_accelerate_state() -> Iterator[None]:
-    AcceleratorState._reset_state(reset_partial_state=True)
-    yield
-    AcceleratorState._reset_state(reset_partial_state=True)
 
 
 class StatisticsToyTrainer(ToyTrainer):
@@ -68,16 +46,8 @@ class StatisticsToyTrainer(ToyTrainer):
 
 
 def _trainer(trainer_type: type[ToyTrainer], tmp_path: Path) -> tuple[ToyTrainer, RecordingMetrics]:
-    config = ToyTrainerConfig(
-        max_steps=1,
-        train_batch_size=2,
-        eval_batch_size=2,
-        num_dataloader_workers=0,
-        optimizer_name="adamw",
-        mixed_precision="bf16",
-    )
     metrics = RecordingMetrics(str(tmp_path))
-    trainer = trainer_type(provenance(), ToyModel(), config, metrics)
+    trainer = toy_trainer(trainer_type, metrics, max_steps=1)
     with torch.no_grad():
         trainer.model.linear.weight.fill_(1.0)
         trainer.model.linear.bias.zero_()

@@ -63,11 +63,13 @@ class LoggingTrainingCallback(TrainingCallback):
         """Delegates every ``self.logging_steps`` steps."""
         if step % self.logging_steps == 0:
             return self._on_step_begin(step)
+        return None
 
     def on_step_end(self, train_loss: torch.Tensor, step: int) -> MetricDict | None:
         """Delegates every ``self.logging_steps`` steps."""
         if step % self.logging_steps == 0:
-            self._on_step_end(train_loss, step)
+            return self._on_step_end(train_loss, step)
+        return None
 
     def _on_step_begin(self, step: int) -> MetricDict | None:
         """Subclasses override as they see fit."""

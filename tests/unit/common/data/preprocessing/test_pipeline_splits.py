@@ -4,20 +4,11 @@ from typing import Any
 import pytest
 import yaml
 import pyarrow.parquet as pq
-from datasets import Dataset
 
 from larry.common.data.preprocessing.pipeline import Pipeline
-from larry.common.utils.init_helpers import import_submodules
+from tests.helpers.common import import_larry_submodules, write_parquet_splits
 
-import_submodules("larry", skip=("larry.common.training", "larry.voice.training", "larry.text.training",
-                                 "larry.image.training"))
-
-
-def _write_source(root: Path, splits: dict[str, list[str]]) -> Path:
-    for name, texts in splits.items():
-        (root / name).mkdir(parents=True)
-        Dataset.from_dict({"text": texts}).to_parquet(root / name / f"{name}-00000-of-00001.parquet")
-    return root
+import_larry_submodules()
 
 
 def _pipeline(tmp_path: Path, source: Path, split: str | None, fractions: list[dict[str, Any]] | None) -> Pipeline:
@@ -56,25 +47,24 @@ def _saved(out: Path) -> dict[str, list[str]]:
 SPLITS = {"train": ["a", "b", "c", "d"], "validation": ["e"], "test": ["f", "g"]}
 
 
-def test_input_splits_keep_their_names(tmp_path: Path) -> None:
-    source = _write_source(tmp_path / "source", SPLITS)
+@pytest.fixture
+def source(tmp_path: Path) -> Path:
+    return write_parquet_splits(tmp_path / "source", {name: {"text": texts} for name, texts in SPLITS.items()})
 
+
+def test_input_splits_keep_their_names(tmp_path: Path, source: Path) -> None:
     _pipeline(tmp_path, source, split=None, fractions=None).preprocess_all()
 
     assert _saved(tmp_path / "out") == SPLITS
 
 
-def test_a_single_unnamed_dataset_is_saved_as_train(tmp_path: Path) -> None:
-    source = _write_source(tmp_path / "source", SPLITS)
-
+def test_a_single_unnamed_dataset_is_saved_as_train(tmp_path: Path, source: Path) -> None:
     _pipeline(tmp_path, source, split="test", fractions=None).preprocess_all()
 
     assert _saved(tmp_path / "out") == {"train": ["f", "g"]}
 
 
-def test_fractions_split_a_single_dataset_into_their_names(tmp_path: Path) -> None:
-    source = _write_source(tmp_path / "source", SPLITS)
-
+def test_fractions_split_a_single_dataset_into_their_names(tmp_path: Path, source: Path) -> None:
     _pipeline(
         tmp_path, source, split="train", fractions=[{"name": "train", "part": 0.75}, {"name": "holdout", "part": 0.25}]
     ).preprocess_all()
@@ -85,8 +75,9 @@ def test_fractions_split_a_single_dataset_into_their_names(tmp_path: Path) -> No
     assert len(saved["holdout"]) == 1
 
 
-def test_fractions_applied_to_several_input_splits_collide_before_anything_overlaps(tmp_path: Path) -> None:
-    source = _write_source(tmp_path / "source", SPLITS)
+def test_fractions_applied_to_several_input_splits_collide_before_anything_overlaps(
+        tmp_path: Path, source: Path
+) -> None:
     pipeline = _pipeline(tmp_path, source, split=None, fractions=[{"name": "train", "part": 1.0}])
 
     with pytest.raises(ValueError, match="already wrote"):
@@ -95,8 +86,6 @@ def test_fractions_applied_to_several_input_splits_collide_before_anything_overl
     assert sorted(d.name for d in (tmp_path / "out").iterdir() if d.is_dir()) == ["train"]
 
 
-def test_fractions_that_do_not_sum_to_one_are_rejected(tmp_path: Path) -> None:
-    source = _write_source(tmp_path / "source", SPLITS)
-
+def test_fractions_that_do_not_sum_to_one_are_rejected(tmp_path: Path, source: Path) -> None:
     with pytest.raises(ValueError, match="sum to 1"):
         _pipeline(tmp_path, source, split=None, fractions=[{"name": "train", "part": 0.5}])

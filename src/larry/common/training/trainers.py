@@ -13,7 +13,8 @@ from accelerate import Accelerator
 from accelerate.data_loader import DataLoaderShard
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
-from datasets import load_dataset, Dataset as HFDataset
+from datasets import Dataset as HFDataset
+from datasets import load_dataset
 from torch import nn
 from torch.optim import AdamW, Muon, Optimizer
 from torch.optim.lr_scheduler import LambdaLR, LRScheduler
@@ -203,6 +204,8 @@ D: Dataset = Dataset,
 
         Configuring for Muon still creates an AdamW optimizer for non-matrix parameters.
         """
+        trainable = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
+
         if self.config.optimizer_name == "muon":
             excluded = set(self.config.muon_first_layer_names + self.config.muon_last_layer_names)
             missing = excluded - {n for n, _ in model.named_parameters()}
@@ -210,21 +213,27 @@ D: Dataset = Dataset,
                 raise ValueError(f"excluded Muon params not found in model: {missing}")
 
             muon_params = []
-            for n, p in model.named_parameters():
+            for n, p in trainable:
                 if p.ndim == 2 and n not in excluded:
                     muon_params.append(p)
 
             other_params = []
-            for n, p in model.named_parameters():
+            for n, p in trainable:
                 if not (p.ndim == 2 and n not in excluded):
                     other_params.append(p)
 
-            return [
-                Muon(muon_params, adjust_lr_fn="match_rms_adamw", **self._optimizer_kwargs()),
-                AdamW(other_params, **self._optimizer_kwargs())
-            ]
+            optimizers: list[Optimizer] = []
+            if muon_params:
+                optimizers.append(Muon(muon_params, **{
+                    "adjust_lr_fn": "match_rms_adamw", **self._optimizer_kwargs(), **self.config.optimizer_config
+                }))
+            if other_params:
+                optimizers.append(AdamW(other_params, betas=self._adamw_betas(), **self._optimizer_kwargs()))
+            return optimizers
         elif self.config.optimizer_name == "adamw":
-            return [AdamW(model.parameters(), **self._optimizer_kwargs())]
+            return [AdamW([p for _, p in trainable], **{
+                "betas": self._adamw_betas(), **self._optimizer_kwargs(), **self.config.optimizer_config
+            })]
         raise ValueError(f"Unrecognized optimizer: {self.config.optimizer_name}")
 
     def _optimizer_kwargs(self) -> dict[str, Any]:
@@ -233,6 +242,10 @@ D: Dataset = Dataset,
             lr=self.config.lr,
             weight_decay=self.config.weight_decay
         )
+
+    def _adamw_betas(self) -> tuple[float, float]:
+        beta1, beta2 = self.config.adamw_betas
+        return float(beta1), float(beta2)
 
     def lr_factor(self, step: int) -> float:
         """The LR multiplier at an optimizer step: linear warmup, then constant or cosine decay to ``min_lr``.
@@ -323,14 +336,14 @@ D: Dataset = Dataset,
     def train(self, pbar: tqdm) -> None:
         """Does the entire training loop for all configured steps.
 
-        The train dataloader yields batches infinitely, so a break condition ends training.
+        The train dataloader yields batches infinitely, so the step count ends training before the next batch is fetched.
         """
         self.model.train()
 
-        for batch in self.train_loader:
-            # ends training
-            if self.train_state.global_step >= self.config.max_steps:
-                break
+        batches = iter(self.train_loader)
+        window_losses: list[torch.Tensor] = []
+        while self.train_state.global_step < self.config.max_steps:
+            batch = next(batches)
 
             metrics_step = self.train_state.global_step
 
@@ -341,6 +354,7 @@ D: Dataset = Dataset,
 
             with self.accelerator.accumulate(self.model):
                 output = self.train_forward_pass(batch)
+                window_losses.append(output.loss.detach())
 
                 if output.metrics:
                     step_metrics.update(output.metrics)
@@ -350,7 +364,9 @@ D: Dataset = Dataset,
 
             if self.accelerator.sync_gradients:
                 self.step_schedulers()
-                stats = self.after_optimizer_step(output.loss, metrics_step)
+                window_loss = torch.stack(window_losses).float().mean()
+                window_losses.clear()
+                stats = self.after_optimizer_step(window_loss, metrics_step)
                 if stats:
                     step_metrics.update(stats)
                 pbar.update(1)
@@ -421,7 +437,7 @@ D: Dataset = Dataset,
 
         if group_names:
             groups = _reduce_sum(self.accelerator, groups)
-            for name, (loss_sum, token_count) in zip(group_names, groups.tolist(), strict=False):
+            for name, (loss_sum, token_count) in zip(group_names, groups.tolist(), strict=True):
                 if token_count > 0:
                     eval_metrics.add_metric(ScalarMetricEntry(tag=f"eval/loss/{name}", scalar=loss_sum / token_count))
             total = groups.sum(dim=0)
@@ -442,7 +458,7 @@ D: Dataset = Dataset,
     def backward_and_step(self, loss: torch.Tensor) -> MetricDict | None:
         """Clips grads and performs all optimizer steps. Returns grad metrics from before zeroing."""
         self.accelerator.backward(loss)
-        grad_norm_metrics = self.clip_grads()
+        grad_norm_metrics = self.clip_grads() if self.accelerator.sync_gradients else None
 
         [o.step() for o in self.optimizers]
         [o.zero_grad() for o in self.optimizers]

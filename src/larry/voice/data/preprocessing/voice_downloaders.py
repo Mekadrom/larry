@@ -101,7 +101,7 @@ class SCOTUSCaseDetailSingleFileBackupDownloader(SingleFileBackupDownloader):
         """Generates backup paths by regex substitution of common patterns."""
         out = []
 
-        docket_upper_url = re.sub(self.docket, self.docket.upper(), default_url, flags=re.IGNORECASE)
+        docket_upper_url = re.sub(re.escape(self.docket), self.docket.upper(), default_url, flags=re.IGNORECASE)
         docker_suffix_url = re.sub(r"orig", "Orig", default_url, flags=re.IGNORECASE)
 
         for v in (docket_upper_url, docker_suffix_url):

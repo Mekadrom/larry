@@ -1,6 +1,7 @@
 import logging
 import os
 import random
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -41,4 +42,15 @@ def set_seed_everywhere(seed: int) -> None:
     # hf transformers
     hf_set_seed(seed)
 
-    os.environ['PYTHONHASHSEED'] = str(seed)
+
+def reexec_with_hash_seed(seed: int) -> None:
+    """Restarts this process with ``PYTHONHASHSEED`` set when it isn't already, since it only applies at startup.
+
+    The process is replaced in place (same pid, same arguments and environment), so launchers that track it by pid,
+    like ``accelerate launch``, are unaffected.
+    """
+    if os.environ.get("PYTHONHASHSEED") == str(seed):
+        return
+
+    log.info(f"restarting with PYTHONHASHSEED={seed}")
+    os.execve(sys.executable, sys.orig_argv, {**os.environ, "PYTHONHASHSEED": str(seed)})

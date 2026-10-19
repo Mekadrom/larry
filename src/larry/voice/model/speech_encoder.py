@@ -8,10 +8,9 @@ from torch import nn
 from larry.common.config.model.model_configs import FSMNAttentionConfig
 from larry.common.model.attention import FSMNAttention
 from larry.common.model.llm import LarrySimpleEncoderBlock
-from larry.common.model.model import LarrySpeechEncoderModelOutput
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.model.fsq import FSQ
-from larry.voice.model.voice_models import VoiceModel
+from larry.voice.model.voice_models import SpeechEncoderModelOutput, VoiceModel
 from larry.voice.model.voice_modules import ASRLogMelFrontend
 from larry.voice.utils import make_non_pad_mask
 
@@ -174,9 +173,8 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         masked = f_mask.unsqueeze(2) | t_mask.unsqueeze(1)
         return torch.where(masked, fill, mels)
 
-    def forward(self, waveforms: torch.Tensor, waveform_lengths: torch.Tensor) -> LarrySpeechEncoderModelOutput:
+    def forward(self, waveforms: torch.Tensor, waveform_lengths: torch.Tensor) -> SpeechEncoderModelOutput:
         """Given waveforms, produces a model output contained both the bottleneck token IDs and CTC ASR predictions."""
-
         ctc_log_probs = {}
 
         mels, mel_lengths = self.frontend(waveforms, waveform_lengths)
@@ -206,7 +204,7 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
 
         canonical_ctc_log_probs = F.log_softmax(self.ctc_head(hidden).float(), dim=-1)
         ctc_log_probs["encoder2_norm"] = canonical_ctc_log_probs
-        return LarrySpeechEncoderModelOutput(
+        return SpeechEncoderModelOutput(
             logits=canonical_ctc_log_probs,
             ctc_log_probs=ctc_log_probs,
             frame_lengths=frame_lengths,

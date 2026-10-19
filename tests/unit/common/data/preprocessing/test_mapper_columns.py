@@ -9,16 +9,7 @@ from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, 
     ValueOverrideMapperConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
 from larry.common.data.preprocessing.mappers import Mapper, SingleColumnMapper, ValueOverrideMapper
-
-
-def _provenance() -> Provenance:
-    return Provenance(
-        id_columns=[],
-        produced_on="",
-        git_commit="",
-        git_is_dirty=None,
-        ancestry=ProvenanceAncestry(datasets=set(), models=set()),
-    )
+from tests.helpers.common import provenance
 
 
 class LengthMapper(SingleColumnMapper[str | None, int | None, SingleColumnMapperConfig]):
@@ -65,8 +56,19 @@ def _dataset() -> Dataset:
     })
 
 
+def _length_mapper(input_column: str = "text", **kwargs: Any) -> LengthMapper:
+    config = SingleColumnMapperConfig(**_base(input_column=input_column, output_column="n", **kwargs))
+    return LengthMapper(provenance(), config)
+
+
+@pytest.fixture
+def saved_source(tmp_path: Path) -> Path:
+    _dataset().save_to_disk(tmp_path / "source")
+    return tmp_path / "source"
+
+
 def test_single_column_mapper_keeps_every_other_column_and_appends_output() -> None:
-    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(**_base(input_column="text", output_column="n")))
+    mapper = _length_mapper()
 
     out = mapper.preprocess_dataset(_dataset())
 
@@ -77,19 +79,15 @@ def test_single_column_mapper_keeps_every_other_column_and_appends_output() -> N
 
 
 def test_input_column_is_kept_unless_configured_for_removal() -> None:
-    kept = LengthMapper(_provenance(), SingleColumnMapperConfig(**_base(input_column="text", output_column="n")))
-    removed = LengthMapper(_provenance(), SingleColumnMapperConfig(
-        **_base(input_column="text", output_column="n", remove_columns=["text"])
-    ))
+    kept = _length_mapper()
+    removed = _length_mapper(remove_columns=["text"])
 
     assert "text" in kept.preprocess_dataset(_dataset()).column_names
     assert "text" not in removed.preprocess_dataset(_dataset()).column_names
 
 
 def test_remove_columns_can_name_columns_the_mapper_does_not_read() -> None:
-    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(
-        **_base(input_column="text", output_column="n", remove_columns=["audio"])
-    ))
+    mapper = _length_mapper(remove_columns=["audio"])
 
     out = mapper.preprocess_dataset(_dataset())
 
@@ -97,7 +95,7 @@ def test_remove_columns_can_name_columns_the_mapper_does_not_read() -> None:
 
 
 def test_in_place_output_replaces_the_input_column() -> None:
-    mapper = UpperMapper(_provenance(), SingleColumnMapperConfig(**_base(input_column="text", output_column="text")))
+    mapper = UpperMapper(provenance(), SingleColumnMapperConfig(**_base(input_column="text", output_column="text")))
 
     out = mapper.preprocess_dataset(_dataset())
 
@@ -107,7 +105,7 @@ def test_in_place_output_replaces_the_input_column() -> None:
 
 def test_existing_output_column_is_overwritten_not_duplicated() -> None:
     dataset = _dataset().add_column("n", [0] * 5)
-    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(**_base(input_column="text", output_column="n")))
+    mapper = _length_mapper()
 
     out = mapper.preprocess_dataset(dataset)
 
@@ -117,7 +115,7 @@ def test_existing_output_column_is_overwritten_not_duplicated() -> None:
 
 def test_source_with_indices_mapping_stays_row_aligned() -> None:
     dataset = _dataset().filter(lambda row: row["text"] != "yy")
-    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(**_base(input_column="text", output_column="n")))
+    mapper = _length_mapper()
 
     out = mapper.preprocess_dataset(dataset)
 
@@ -127,7 +125,7 @@ def test_source_with_indices_mapping_stays_row_aligned() -> None:
 
 def test_dataset_dict_splits_are_mapped_independently() -> None:
     dataset = DatasetDict({"train": _dataset(), "validation": _dataset().select(range(2))})
-    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(**_base(input_column="text", output_column="n")))
+    mapper = _length_mapper()
 
     out = mapper.preprocess_dataset(dataset)
 
@@ -135,9 +133,7 @@ def test_dataset_dict_splits_are_mapped_independently() -> None:
 
 
 def test_multiple_processes_produce_the_same_result() -> None:
-    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(
-        **_base(input_column="text", output_column="n", num_proc=2)
-    ))
+    mapper = _length_mapper(num_proc=2)
 
     out = mapper.preprocess_dataset(_dataset())
 
@@ -146,9 +142,7 @@ def test_multiple_processes_produce_the_same_result() -> None:
 
 def test_filter_null_outputs_drops_rows_with_null_outputs_only() -> None:
     dataset = _dataset().map(lambda row: {"text": "drop" if row["text"] == "zzz" else row["text"]})
-    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(
-        **_base(input_column="text", output_column="n", filter_null_outputs=True)
-    ))
+    mapper = _length_mapper(filter_null_outputs=True)
 
     out = mapper.preprocess_dataset(dataset)
 
@@ -157,9 +151,7 @@ def test_filter_null_outputs_drops_rows_with_null_outputs_only() -> None:
 
 
 def test_null_in_unrelated_column_does_not_trigger_filtering() -> None:
-    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(
-        **_base(input_column="text", output_column="n", filter_null_outputs=True)
-    ))
+    mapper = _length_mapper(filter_null_outputs=True)
 
     out = mapper.preprocess_dataset(_dataset())
 
@@ -168,7 +160,7 @@ def test_null_in_unrelated_column_does_not_trigger_filtering() -> None:
 
 def test_multi_column_mapper_reads_and_writes_configured_columns() -> None:
     dataset = Dataset.from_dict({"a": [1, 2, None], "b": [10, 20, 30], "audio": [b"x", b"y", b"z"]})
-    mapper = PairMapper(_provenance(), MapperConfig(
+    mapper = PairMapper(provenance(), MapperConfig(
         **_base(input_columns=["a", "b"], output_columns=["total", "label"])
     ))
 
@@ -181,7 +173,7 @@ def test_multi_column_mapper_reads_and_writes_configured_columns() -> None:
 
 def test_multi_column_mapper_filters_rows_with_a_null_in_any_output() -> None:
     dataset = Dataset.from_dict({"a": [1, 2, None], "b": [10, None, 30]})
-    mapper = PairMapper(_provenance(), MapperConfig(
+    mapper = PairMapper(provenance(), MapperConfig(
         **_base(input_columns=["a", "b"], output_columns=["total", "label"], filter_null_outputs=True)
     ))
 
@@ -223,7 +215,7 @@ def test_value_override_mapper_applies_rules_sharing_an_input_column() -> None:
          "output_column": "date_argued", "output_column_value": "2015-04-20"},
     ]))
 
-    out = ValueOverrideMapper(_provenance(), config).preprocess_dataset(dataset)
+    out = ValueOverrideMapper(provenance(), config).preprocess_dataset(dataset)
 
     assert sorted(out.column_names) == sorted(["date_argued", "docket", "pdf_url", "term"])
     assert out["pdf_url"] == ["new", "keep"]
@@ -232,12 +224,9 @@ def test_value_override_mapper_applies_rules_sharing_an_input_column() -> None:
     assert out["term"] == ["2014", "2019"]
 
 
-def test_columns_removed_from_a_filtered_source_are_not_rewritten(tmp_path: Path) -> None:
-    _dataset().save_to_disk(tmp_path / "source")
-    dataset = load_from_disk(tmp_path / "source").filter(lambda row: row["text"] != "yy")
-    mapper = LengthMapper(_provenance(), SingleColumnMapperConfig(**_base(
-        input_column="text", output_column="n", remove_columns=["audio"], num_proc=2, cache_results=True,
-    )))
+def test_columns_removed_from_a_filtered_source_are_not_rewritten(saved_source: Path) -> None:
+    dataset = load_from_disk(saved_source).filter(lambda row: row["text"] != "yy")
+    mapper = _length_mapper(remove_columns=["audio"], num_proc=2, cache_results=True)
 
     out = mapper.preprocess_dataset(dataset)
 
@@ -248,36 +237,25 @@ def test_columns_removed_from_a_filtered_source_are_not_rewritten(tmp_path: Path
             assert "audio" not in pa.ipc.open_stream(source).schema.names
 
 
-def test_chained_mappers_on_disk_backed_data_survive_multiprocess_sharding(tmp_path: Path) -> None:
-    _dataset().save_to_disk(tmp_path / "source")
-    dataset = load_from_disk(tmp_path / "source")
+def test_chained_mappers_on_disk_backed_data_survive_multiprocess_sharding(saved_source: Path) -> None:
+    dataset = load_from_disk(saved_source)
+    upper = SingleColumnMapperConfig(**_base(input_column="text", output_column="upper", cache_results=True))
 
-    def config(input_column: str, output_column: str, num_proc: int) -> SingleColumnMapperConfig:
-        return SingleColumnMapperConfig(**_base(
-            input_column=input_column, output_column=output_column, num_proc=num_proc, cache_results=True,
-        ))
-
-    dataset = UpperMapper(_provenance(), config("text", "upper", 1)).preprocess_dataset(dataset)
-    dataset = LengthMapper(_provenance(), config("upper", "n", 2)).preprocess_dataset(dataset)
+    dataset = UpperMapper(provenance(), upper).preprocess_dataset(dataset)
+    dataset = _length_mapper(input_column="upper", num_proc=2, cache_results=True).preprocess_dataset(dataset)
 
     assert dataset.column_names == ["audio", "text", "speaker", "upper", "n"]
     assert dataset["n"] == [1, 2, 3, 4, 5]
 
 
-def test_rerun_with_a_fresh_provenance_reuses_the_cached_result(tmp_path: Path) -> None:
-    _dataset().save_to_disk(tmp_path / "source")
-    config = SingleColumnMapperConfig(**_base(input_column="text", output_column="n", cache_results=True))
-
-    ancestry = ProvenanceAncestry.from_dict({})
-    first = LengthMapper(Provenance.new_provenance({}, ancestry), config).preprocess_dataset(
-        load_from_disk(tmp_path / "source"))
-    second = LengthMapper(Provenance.new_provenance({}, ancestry), config).preprocess_dataset(
-        load_from_disk(tmp_path / "source"))
+def test_rerun_with_a_fresh_provenance_reuses_the_cached_result(saved_source: Path) -> None:
+    first = _length_mapper(cache_results=True).preprocess_dataset(load_from_disk(saved_source))
+    second = _length_mapper(cache_results=True).preprocess_dataset(load_from_disk(saved_source))
 
     assert second._fingerprint == first._fingerprint
 
 
 def test_fresh_provenance_has_no_per_run_fields() -> None:
-    provenance = Provenance.new_provenance({}, ProvenanceAncestry.from_dict({}))
+    fresh = Provenance.new_provenance({}, ProvenanceAncestry.from_dict({}))
 
-    assert (provenance.produced_on, provenance.git_commit, provenance.git_is_dirty) == (None, None, None)
+    assert (fresh.produced_on, fresh.git_commit, fresh.git_is_dirty) == (None, None, None)

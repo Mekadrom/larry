@@ -41,7 +41,7 @@ class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](
     min_lr: float = 0
     weight_decay: float = 0.01
 
-    adamw_betas: tuple[float, float] = (0.99, 0.999)
+    adamw_betas: tuple[float, float] = (0.9, 0.999)
 
     muon_first_layer_names: list[str] = dataclasses.field(default_factory=list)
     muon_last_layer_names: list[str] = dataclasses.field(default_factory=list)

@@ -1,4 +1,5 @@
 import glob
+import json
 import logging
 import os.path
 from abc import ABC, abstractmethod
@@ -128,7 +129,7 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
             )
 
         for input_split, file in data_files.items():
-            if not self.config.split_column and self._is_complete(input_split):
+            if self._input_split_is_complete(input_split):
                 self.log.info(f"{input_split} parquets already exist in {self.parquet_dir}")
                 continue
             if not Path(file).exists():
@@ -165,14 +166,34 @@ class CachedDatasetProvider[C: CachedDatasetConfig = CachedDatasetConfig](Huggin
                 split_datasets[input_split] = ds
 
             # here is where transforming and saving is delegated out from here
+            written = []
             for split, split_ds in split_datasets.items():
                 if self.config.split_column_mappings is not None and split in self.config.split_column_mappings:
                     split = self.config.split_column_mappings[split]
                 self._write_split(split, split_ds)
+                written.append(split)
+
+            if self.config.split_column:
+                self._split_column_marker(input_split).write_text(json.dumps(written))
 
     def _is_complete(self, split: str) -> bool:
         """Simple helper for determining if a split's complete marker file is present."""
         return (self.parquet_dir / f"{split}.parquets.complete").exists()
+
+    def _split_column_marker(self, input_split: str) -> Path:
+        """Lists the output splits an input split was partitioned into by ``split_column``, once all were written."""
+        return self.parquet_dir / f"{input_split}.split_column.json"
+
+    def _input_split_is_complete(self, input_split: str) -> bool:
+        """Whether every output split produced from ``input_split`` is complete, so its input needn't be loaded."""
+        if not self.config.split_column:
+            return self._is_complete(input_split)
+
+        marker = self._split_column_marker(input_split)
+        if not marker.exists():
+            return False
+
+        return all(self._is_complete(split) for split in json.loads(marker.read_text()))
 
     def _write_split(self, split: str, split_ds: Dataset) -> None:
         """Does the mapping of a split using ``transform_batch`` and saves to disk."""

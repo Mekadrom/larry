@@ -6,11 +6,12 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, Subset
 
-from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.config.training.voice_trainer_configs import SpeakerLeakageProbesConfig, SpeechEncoderTrainerConfig
 from larry.voice.model.speech_encoder import SpeechEncoderModel
 from larry.voice.training.voice_callbacks import PooledActivations, SpeakerLeakageProbesCallback
 from larry.voice.training.voice_trainers import SpeechEncoderTrainer
+from tests.helpers.common import uninitialized
+from tests.helpers.voice import tiny_speech_encoder_config
 
 
 def _fake_trainer(model: nn.Module | None = None, is_main_process: bool = True) -> Any:
@@ -33,9 +34,8 @@ def _keys(counts: dict[str, int]) -> list[str]:
 
 
 def _trainer(max_batch_seconds: float) -> SpeechEncoderTrainer:
-    trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
-    vars(trainer).update(_config=SimpleNamespace(mixture_config=SimpleNamespace(max_batch_seconds=max_batch_seconds)))
-    return trainer
+    mixture_config = SimpleNamespace(max_batch_seconds=max_batch_seconds)
+    return uninitialized(SpeechEncoderTrainer, _config=SimpleNamespace(mixture_config=mixture_config))
 
 
 def test_speakers_below_the_clip_floor_are_dropped() -> None:
@@ -348,8 +348,7 @@ def test_probe_results_are_reproducible() -> None:
 
 
 def test_steps_off_the_schedule_and_non_main_processes_do_nothing() -> None:
-    trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
-    vars(trainer).update(accelerator=SimpleNamespace(is_main_process=False))
+    trainer = uninitialized(SpeechEncoderTrainer, accelerator=SimpleNamespace(is_main_process=False))
     callback = _callback(trainer, probe_every=10)
 
     assert callback.on_step_end(torch.tensor(0.0), 7) is None
@@ -371,9 +370,7 @@ def test_trainer_config_builds_the_probes_config_from_overrides() -> None:
 
 
 def test_default_layers_exist_in_the_speech_tokenizer_and_output_sequences() -> None:
-    model_config = SpeechEncoderModelConfig(
-        d_model=128, n_heads=2, n_query_groups=2, n_encoder1_layers=1, n_encoder2_layers=1, text_vocab_size=8
-    )
+    model_config = tiny_speech_encoder_config(8, d_model=128, n_heads=2, n_query_groups=2, rotary_embedding_dim=64)
     model = SpeechEncoderModel(model_config).eval()
     activations = PooledActivations(SpeakerLeakageProbesConfig(probe_every=1).layers)
 
@@ -411,14 +408,18 @@ def test_fit_keeps_the_weights_from_the_best_validation_step() -> None:
     assert not torch.equal(probe.weight, callback.snapshots[-1])
 
 
+def _fit_a_small_probe(callback: _ScriptedValidationCallback) -> int:
+    return callback._fit_probe(nn.Linear(4, 3), torch.randn(9, 4), torch.arange(9) % 3,
+                               torch.randn(9, 4), torch.arange(9) % 3)
+
+
 def test_fit_validates_on_the_last_step_when_it_is_off_the_interval() -> None:
     callback = _ScriptedValidationCallback(
         SpeakerLeakageProbesConfig(probe_every=1, train_epochs=25, validate_every=10),
         scores=[0.1, 0.2, 0.9],
     )
 
-    best_step = callback._fit_probe(nn.Linear(4, 3), torch.randn(9, 4), torch.arange(9) % 3,
-                                    torch.randn(9, 4), torch.arange(9) % 3)
+    best_step = _fit_a_small_probe(callback)
 
     assert best_step == 25
     assert len(callback.snapshots) == 3
@@ -430,8 +431,7 @@ def test_ties_keep_the_earlier_step() -> None:
         scores=[0.4, 0.4, 0.4],
     )
 
-    best_step = callback._fit_probe(nn.Linear(4, 3), torch.randn(9, 4), torch.arange(9) % 3,
-                                    torch.randn(9, 4), torch.arange(9) % 3)
+    best_step = _fit_a_small_probe(callback)
 
     assert best_step == 10
 

@@ -113,7 +113,7 @@ class Aligner:
 
             logits = self.model(x.to(self.dtype)).logits.float()
             log_probs = torch.log_softmax(logits, dim=-1)
-            for s, chunk_log_probs in zip(group, log_probs, strict=False):
+            for s, chunk_log_probs in zip(group, log_probs, strict=True):
                 self._place(out, filled, s, chunk_log_probs, trim_frames, total_frames)
 
         for s in tail:
@@ -203,7 +203,7 @@ class Aligner:
 
         # use list instead of tuple for mutability
         out: list[SpanScore | None] = [None] * len(words)
-        for span, word_idx in zip(spans, owners, strict=False):
+        for span, word_idx in zip(spans, owners, strict=True):
             if word_idx < 0:
                 continue
 

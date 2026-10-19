@@ -6,11 +6,11 @@ from larry.common.utils.convert_np import make_np
 
 
 def mel_to_db(mels: torch.Tensor | np.ndarray) -> torch.Tensor | np.ndarray:
-    """Converts mels to DB scale."""
+    """Converts log10 power mels to DB scale."""
     mels = make_np(mels)
     if mels.ndim == 3:
         mels = mels.squeeze(0)
-    return mels * 10.0 / np.log(10.0)
+    return mels * 10.0
 
 
 def bytes_to_waveforms(audio_bytes: bytes, sample_rate: int) -> torch.Tensor:

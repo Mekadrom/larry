@@ -2,15 +2,12 @@ from pathlib import Path
 
 import torch
 
-from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.model.speech_encoder import SpeechEncoderModel
+from tests.helpers.voice import tiny_speech_encoder_config
 
 
 def test_save_pretrained_round_trips_config_and_weights(tmp_path: Path) -> None:
-    config = SpeechEncoderModelConfig(
-        d_model=32, n_heads=4, n_query_groups=4, rotary_embedding_dim=8,
-        n_encoder1_layers=1, n_encoder2_layers=1, text_vocab_size=40, mlp_dropout_p=0.0,
-    )
+    config = tiny_speech_encoder_config(40, mlp_dropout_p=0.0)
     model = SpeechEncoderModel(config)
 
     model.save_pretrained(tmp_path)

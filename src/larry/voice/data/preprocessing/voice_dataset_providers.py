@@ -63,7 +63,7 @@ class CommonVoiceMediaCachedDatasetProvider(MediaCachedDatasetProvider[CommonVoi
         """Supermethod pulls the media by path into the batch, this implementation joins duration_s."""
         batch = super().transform_batch(batch)
         batch.update({
-            "duration_s": [self._get_audio_duration(p, a) for p, a in zip(batch["path"], batch["audio"], strict=False)]
+            "duration_s": [self._get_audio_duration(p, a) for p, a in zip(batch["path"], batch["audio"], strict=True)]
         })
         return batch
 

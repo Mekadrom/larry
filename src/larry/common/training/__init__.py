@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 from larry.common.training.training_run import TrainingRun
-from larry.common.utils import set_seed_everywhere
+from larry.common.utils import reexec_with_hash_seed, set_seed_everywhere
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ def main() -> None:
 
     argparser.add_argument(
         "--seed",
+        type=int,
         required=False,
         default=42,
         help="Random seed for literally every operation I could find to set the seed for."
@@ -53,6 +54,7 @@ def main() -> None:
     )
 
     args = argparser.parse_args()
+    reexec_with_hash_seed(args.seed)
 
     config_file = Path(args.config_file).expanduser().resolve()
     run_dir = Path(args.logdir).expanduser().resolve() / args.run_name

@@ -1,3 +1,4 @@
+import itertools
 import textwrap
 from abc import ABC, abstractmethod
 from typing import Any, cast
@@ -18,7 +19,7 @@ from larry.voice.utils import collapse_ctc_emissions
 def pick_rows(offsets: list[int], per_source: int) -> list[int]:
     """Picks the same rows from each dataset source for visualization."""
     rows: list[int] = []
-    for start, end in zip(offsets, offsets[1:], strict=False):
+    for start, end in itertools.pairwise(offsets):
         span = end - start
         rows += sorted({start + (j * span) // per_source for j in range(min(per_source, span))})
 

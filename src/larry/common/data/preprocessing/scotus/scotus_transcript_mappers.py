@@ -54,7 +54,7 @@ class SCOTUSTranscriptPdfTextMapper(Mapper[SCOTUSTranscriptPdfTextMapperConfig])
         pdf_bytes_in = batch[self.config.pdf_bytes_column]
         docket_in = batch[self.config.docket_column]
         date_argued_in = batch[self.config.date_argued_column]
-        for pdf_bytes, docket, date_argued in zip(pdf_bytes_in, docket_in, date_argued_in, strict=False):
+        for pdf_bytes, docket, date_argued in zip(pdf_bytes_in, docket_in, date_argued_in, strict=True):
             # delegates most of the real work to a somewhat generalized transcript parser that has been overridden
             # for SCOTUS-specific idiosyncrasies
             tr = scotus_transcript.SCOTUSTranscript(SCOTUSTranscriptConfig(), docket, date_argued)

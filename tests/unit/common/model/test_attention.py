@@ -67,3 +67,86 @@ def test_cached_decoding_matches_a_full_causal_pass(n_query_groups: int) -> None
         steps.append(out)
 
     assert torch.allclose(torch.cat(steps, dim=1), full, atol=1e-5)
+
+
+def test_cached_decode_of_a_left_padded_row_matches_the_full_forward() -> None:
+    attention = _attention(n_query_groups=2, is_causal=True)
+    x = torch.randn(2, 5, 64)
+    mask = torch.tensor([[1, 1, 1, 1, 1], [0, 0, 1, 1, 1]])
+
+    full, _ = attention(x, attention_mask=mask)
+    _, cache = attention(x[:, :4], attention_mask=mask[:, :4], use_cache=True)
+    last, _ = attention(x[:, 4:], attention_mask=mask, kv_cache=cache, position_offset=4)
+
+    torch.testing.assert_close(last[:, 0], full[:, 4])
+
+
+def test_the_cache_holds_one_head_per_query_group() -> None:
+    attention = _attention(n_query_groups=2, is_causal=True)
+
+    _, cache = attention(torch.randn(2, 4, 64), use_cache=True)
+
+    assert cache is not None and cache.key_cache is not None and cache.value_cache is not None
+    assert cache.key_cache.shape == (2, 2, 4, 8)
+    assert cache.value_cache.shape == (2, 2, 4, 8)
+
+
+def test_split_rope_cached_decode_offsets_the_global_positions() -> None:
+    torch.manual_seed(0)
+    config = AttentionModuleConfig(
+        d_model=64,
+        n_heads=8,
+        n_query_groups=2,
+        rotary_embedding_dim=8,
+        use_split_rope=True,
+        attention_dropout_p=0.0,
+        proj_dropout_p=0.0,
+        is_causal=True,
+    )
+    attention = LarryAttention(config).eval()
+    x = torch.randn(2, 5, 64)
+    global_positions = torch.arange(5.0).expand(2, 5)
+    position_ids = torch.stack([global_positions, global_positions * 0.5], dim=-1)
+
+    full, _ = attention(x, position_ids=position_ids)
+    _, cache = attention(x[:, :4], position_ids=position_ids[:, :4], use_cache=True)
+    decode_ids = position_ids[:, 4:].clone()
+    decode_ids[..., 0] -= 4
+    last, _ = attention(x[:, 4:], kv_cache=cache, position_offset=4, position_ids=decode_ids)
+
+    torch.testing.assert_close(last[:, 0], full[:, 4])
+
+
+def test_split_rope_without_position_ids_raises() -> None:
+    config = AttentionModuleConfig(d_model=64, n_heads=8, n_query_groups=2, rotary_embedding_dim=8, use_split_rope=True)
+
+    with pytest.raises(ValueError):
+        LarryAttention(config)(torch.randn(1, 3, 64))
+
+
+@pytest.mark.parametrize("is_causal", [False, True])
+def test_the_qk_probe_scores_under_the_same_mask_sdpa_receives(
+        monkeypatch: pytest.MonkeyPatch, is_causal: bool
+) -> None:
+    attention = _attention(n_query_groups=2, is_causal=is_causal)
+    attention.qk_probe_active = True
+    masks: dict[str, torch.Tensor | None] = {}
+    masked_attention = attention._masked_attention
+    sdpa = torch.nn.functional.scaled_dot_product_attention
+
+    def probe(queries: torch.Tensor, keys: torch.Tensor, attn_mask: torch.Tensor | None) -> torch.Tensor:
+        masks["probe"] = attn_mask
+        return masked_attention(queries, keys, attn_mask)
+
+    def recording_sdpa(*args: object, attn_mask: torch.Tensor | None = None, **kwargs: object) -> torch.Tensor:
+        masks["sdpa"] = attn_mask
+        return sdpa(*args, attn_mask=attn_mask, **kwargs)
+
+    monkeypatch.setattr(attention, "_masked_attention", probe)
+    monkeypatch.setattr(torch.nn.functional, "scaled_dot_product_attention", recording_sdpa)
+
+    attention(torch.randn(2, 5, 64), attention_mask=torch.tensor([[1, 1, 1, 1, 1], [0, 0, 1, 1, 1]]))
+
+    assert masks["probe"] is not None and masks["sdpa"] is not None
+    assert torch.equal(masks["probe"], masks["sdpa"])
+    assert attention.qk_max_logit is not None and torch.isfinite(attention.qk_max_logit).all()

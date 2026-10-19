@@ -40,8 +40,8 @@ class Pruner[C: PrunerConfig = PrunerConfig](Preprocessor[C]):
         """
         names = self.config.input_columns
         keep = []
-        for values in zip(*columns, strict=False):
-            row = dict(zip(names, values, strict=False))
+        for values in zip(*columns, strict=True):
+            row = dict(zip(names, values, strict=True))
             keep.append(self._keep_example(row))
         return keep
 

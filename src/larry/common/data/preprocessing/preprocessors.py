@@ -242,7 +242,7 @@ class RowIndexAssigningPreprocessor(Preprocessor[RowIndexAssigningPreprocessorCo
         # take chunks out of the arange to produce sets of arrays spanning the unique integer ID ranges for each chunk
         # of the dataset (instead of assigning to each in one big go, which requires copying the whole data for workers)
         column = pa.chunked_array(
-            [pa.array(np.arange(s, s + n, dtype=np.int64)) for s, n in zip(starts, lengths, strict=False)],
+            [pa.array(np.arange(s, s + n, dtype=np.int64)) for s, n in zip(starts, lengths, strict=True)],
             type=pa.int64(),
         )
 

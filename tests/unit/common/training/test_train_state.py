@@ -2,7 +2,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from accelerate import Accelerator, debug_launcher
-from accelerate.state import AcceleratorState
 
 from larry.common.training.trainers import TrainerBase, TrainState
 
@@ -40,8 +39,4 @@ def _count_and_sync_on_each_process() -> None:
 
 def test_tokens_seen_sums_every_process_and_agrees_on_all_of_them() -> None:
     # accelerate keeps process-wide state; one left by an earlier single-process Accelerator would leak into the fork
-    AcceleratorState._reset_state(reset_partial_state=True)
-    try:
-        debug_launcher(_count_and_sync_on_each_process, num_processes=2)
-    finally:
-        AcceleratorState._reset_state(reset_partial_state=True)
+    debug_launcher(_count_and_sync_on_each_process, num_processes=2)

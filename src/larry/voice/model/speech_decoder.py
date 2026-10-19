@@ -1,9 +1,8 @@
 import torch
 from torch import nn
 
-from larry.common.model.model import LarrySpeechDecoderModelOutput
 from larry.voice.config.model.voice_model_configs import SpeechDecoderModelConfig
-from larry.voice.model.voice_models import VoiceModel
+from larry.voice.model.voice_models import SpeechDecoderModelOutput, VoiceModel
 from larry.voice.model.voice_modules import ASRLogMelFrontend
 
 
@@ -61,7 +60,7 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig]):
             speaker_ids: torch.Tensor,
             waveforms: torch.Tensor,
             waveform_lengths: torch.Tensor
-    ) -> LarrySpeechDecoderModelOutput:
+    ) -> SpeechDecoderModelOutput:
         speaker_embeddings, mu, logvar = self.speaker_latent_embeddings(speaker_ids)
         mels, mel_lengths = self.frontend(waveforms, waveform_lengths)
         unit_embeddings = self.unit_encoder(unit_ids)
@@ -69,10 +68,15 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig]):
         # timestep addition/flow matching bullshit
         ...
 
-        return LarrySpeechDecoderModelOutput(
+        kl_element = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
+        total_kl = torch.sum(kl_element, dim=1)
+
+        return SpeechDecoderModelOutput(
             logits=mels,
-            speaker_mu=mu,
-            speaker_logvar=logvar,
+            speaker_mus=mu,
+            speaker_logvars=logvar,
+            kl=total_kl,
+            speaker_embeddings=speaker_embeddings,
             target_mels=mels,
             target_mel_lengths=mel_lengths,
         )

@@ -1,9 +1,8 @@
-import itertools
-
 import pytest
 import torch
 
 from larry.voice.data.dataloading.voice_dataloading import AudioDurationBucketingWeightedBatchSampler
+from tests.helpers.common import first
 
 SOURCE_SIZES = [37, 11, 5]
 SOURCE_SECONDS = [(2.0, 6.0), (8.0, 20.0), (1.0, 3.0)]
@@ -19,7 +18,9 @@ def _inputs() -> tuple[torch.Tensor, torch.Tensor]:
     return torch.cat(source_ids), torch.cat(durations)
 
 
-def _sampler(pool_size: int = 16, max_batch_seconds: float = 40.0) -> AudioDurationBucketingWeightedBatchSampler:
+def _sampler(
+        pool_size: int = 16, max_batch_seconds: float = 40.0, seed: int = 7
+) -> AudioDurationBucketingWeightedBatchSampler:
     source_ids, durations = _inputs()
     return AudioDurationBucketingWeightedBatchSampler(
         source_ids,
@@ -27,21 +28,17 @@ def _sampler(pool_size: int = 16, max_batch_seconds: float = 40.0) -> AudioDurat
         WEIGHTS,
         max_batch_seconds=max_batch_seconds,
         pool_size=pool_size,
-        seed=7,
+        seed=seed,
     )
-
-
-def _first(sampler: AudioDurationBucketingWeightedBatchSampler, n: int) -> list[list[int]]:
-    return list(itertools.islice(sampler, n))
 
 
 def test_iteration_is_endless_and_repeatable() -> None:
     sampler = _sampler()
 
-    first = _first(sampler, 200)
+    batches = first(sampler, 200)
 
-    assert len(first) == 200
-    assert _first(sampler, 200) == first
+    assert len(batches) == 200
+    assert first(sampler, 200) == batches
 
 
 def test_chunks_follow_each_other_without_gaps() -> None:
@@ -49,17 +46,17 @@ def test_chunks_follow_each_other_without_gaps() -> None:
 
     expected = [batch for chunk in range(6) for batch in sampler._batches(chunk)]
 
-    assert _first(sampler, len(expected)) == expected
+    assert first(sampler, len(expected)) == expected
 
 
 @pytest.mark.parametrize("consumed", [0, 1, 7, 13, 50, 123])
 def test_start_at_resumes_exactly_where_consumption_stopped(consumed: int) -> None:
-    uninterrupted = _first(_sampler(), consumed + 30)
+    uninterrupted = first(_sampler(), consumed + 30)
 
     resumed = _sampler()
     resumed.start_at(consumed)
 
-    assert _first(resumed, 30) == uninterrupted[consumed:]
+    assert first(resumed, 30) == uninterrupted[consumed:]
 
 
 def test_each_source_yields_every_row_once_before_any_repeat() -> None:
@@ -83,7 +80,7 @@ def test_time_shares_approach_weights() -> None:
     sampler = _sampler(pool_size=400, max_batch_seconds=200.0)
     source_ids, durations = _inputs()
     seconds = torch.zeros(len(SOURCE_SIZES), dtype=torch.float64)
-    for batch in _first(sampler, sum(sampler._batch_count(c) for c in range(25))):
+    for batch in first(sampler, sum(sampler._batch_count(c) for c in range(25))):
         for row in batch:
             seconds[source_ids[row]] += durations[row]
 
@@ -95,7 +92,7 @@ def test_time_shares_approach_weights() -> None:
 def test_batches_respect_padded_seconds() -> None:
     sampler = _sampler(pool_size=64)
     _, durations = _inputs()
-    for batch in _first(sampler, 100):
+    for batch in first(sampler, 100):
         if len(batch) > 1:
             assert len(batch) * float(durations[batch].max()) <= sampler.max_batch_seconds
 
@@ -104,3 +101,7 @@ def test_source_without_rows_is_rejected() -> None:
     source_ids, durations = _inputs()
     with pytest.raises(ValueError):
         AudioDurationBucketingWeightedBatchSampler(source_ids, durations, WEIGHTS + [0.1], 40.0, 16, 7)
+
+
+def test_adjacent_seeds_do_not_share_chunks() -> None:
+    assert _sampler(seed=7)._batches(1) != _sampler(seed=8)._batches(0)

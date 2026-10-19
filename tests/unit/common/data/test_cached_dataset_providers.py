@@ -110,3 +110,29 @@ def test_split_without_a_completion_marker_is_not_loaded(tmp_path: Path) -> None
     (provider.parquet_dir / "test.parquets.complete").unlink()
 
     assert sorted(provider.data_files) == ["dev", "train"]
+
+
+def _split_column_files(tmp_path: Path) -> dict[str, str]:
+    return {"train": _write_csv(tmp_path / "all.csv", [("a", "train"), ("b", "val"), ("c", "train")])}
+
+
+def test_a_completed_split_column_input_is_not_read_again(tmp_path: Path) -> None:
+    files = _split_column_files(tmp_path)
+    _provider(tmp_path, files, split_column="split").load_dataset()
+    Path(files["train"]).unlink()
+
+    dataset = _provider(tmp_path, files, split_column="split").load_dataset()
+
+    assert isinstance(dataset, DatasetDict)
+    assert sorted(dataset) == ["train", "val"]
+
+
+def test_a_split_column_input_is_read_again_when_one_of_its_splits_is_incomplete(tmp_path: Path) -> None:
+    files = _split_column_files(tmp_path)
+    provider = _provider(tmp_path, files, split_column="split")
+    provider.load_dataset()
+    (provider.parquet_dir / "val.parquets.complete").unlink()
+    Path(files["train"]).unlink()
+
+    with pytest.raises(FileNotFoundError, match="train"):
+        _provider(tmp_path, files, split_column="split").load_dataset()

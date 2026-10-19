@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
@@ -17,28 +17,3 @@ class TeacherForcedVocabularyCrossEntropyCriterionConfig(CriterionConfig):
     """Config for simple causal teacher forced criterion (Cross Entropy on next position targets)."""
 
     label_smoothing: float = 0.0
-
-
-@dataclasses.dataclass(kw_only=True)
-class WeightedCompositeCriterionConfig(CriterionConfig):
-    """Config for multiple different criteria, providing weights for each."""
-
-    criterion_configs: list[dict[str, Any]] = dataclasses.field(default_factory=list)
-
-
-@dataclasses.dataclass(kw_only=True)
-class CTCCriterionConfig(CriterionConfig):
-    """Config for CTC criteria."""
-
-    blank: int
-    zero_infinity: bool = True
-
-    ctc_layer_loss_weights: dict[str, float] = dataclasses.field(default_factory=lambda: {
-        "encoder2_norm": 1.0,
-    })
-
-
-@dataclasses.dataclass(kw_only=True)
-class MelReconstructionCriterionConfig(CriterionConfig):
-    l1_weight: float = 1.0
-    mse_weight: float = 1.0

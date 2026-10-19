@@ -8,24 +8,19 @@ import pytest
 
 from larry.common.config.training import build_trainer_config
 from larry.common.utils import load_yaml_dict
-from larry.common.utils.init_helpers import import_submodules
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
 from larry.common.data.dataloading.indexed_dataset import index_split_files
-from larry.voice.data.preprocessing.global_speaker_map import SpeakerMapping
+from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
+from tests.helpers.common import import_larry_submodules
 
 
 @pytest.fixture(scope="session")
 def trainer_config() -> SpeechEncoderTrainerConfig:
-    config_file = os.environ.get("GLOBAL_SPEAKER_MAPPING_CONFIG")
+    config_file = os.environ.get("SPEAKER_MAPPING_CONFIG")
     if config_file is None:
-        pytest.skip("GLOBAL_SPEAKER_MAPPING_CONFIG not set")
-    import_submodules("larry", skip=(
-        "larry.common.training",
-        "larry.voice.training",
-        "larry.text.training",
-        "larry.image.training"
-    ))
+        pytest.skip("SPEAKER_MAPPING_CONFIG not set")
+    import_larry_submodules()
     definition = load_yaml_dict(Path(config_file).expanduser().resolve())
     config = build_trainer_config(definition.get("trainer", {}))
     assert isinstance(config, SpeechEncoderTrainerConfig)

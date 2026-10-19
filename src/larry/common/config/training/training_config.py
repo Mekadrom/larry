@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 from accelerate import PartialState
-from datasets.naming import camelcase_to_snakecase
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.training import build_model_config, build_trainer_config
@@ -25,7 +24,7 @@ _metrics: FactoryRegistry[Metrics] = {
 class TrainingRunConfig:
     """Config for the entire training pipeline."""
 
-    metrics_backend: Literal["wandb", "tensorboard", "db"] = "wandb"
+    metrics_backend: Literal["wandb", "tensorboard", "tb"] = "tensorboard"
 
     provenance: dict[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -43,13 +42,8 @@ class TrainingRunState:
         definition = load_yaml_dict(config_file)
         self.log.info("Training config loaded.")
 
-        training_config_dict: dict[str, Any] = definition.get("training", {})
-        metrics_backend = training_config_dict.get("metricsBackend", "tensorboard")
-        self.log.info(f"Using {metrics_backend} metrics backend.")
-
-        training_config_dict = {camelcase_to_snakecase(k): v for k, v in training_config_dict.items()}
-
-        self.config = TrainingRunConfig(**training_config_dict)
+        self.config = TrainingRunConfig(**definition.get("training", {}))
+        self.log.info(f"Using {self.config.metrics_backend} metrics backend.")
 
         trainer_config_dict = definition.get("trainer", {})
         trainer_type_name = trainer_config_dict.get("name")
@@ -61,13 +55,14 @@ class TrainingRunState:
         model_config = build_model_config(model_config_dict)
 
         state = PartialState()
-        metrics = _metrics[metrics_backend](log_dir) if state.is_main_process else NoneMetrics(log_dir=log_dir)
+        metrics_type = _metrics[self.config.metrics_backend]
+        metrics = metrics_type(log_dir) if state.is_main_process else NoneMetrics(log_dir=log_dir)
 
         model_type = LarryModel.REGISTRY.resolve(model_type_name)
         model = model_type(model_config)
 
         trainer_type = trainers.TrainerBase.REGISTRY.resolve(trainer_type_name)
-        provenance = Provenance.new_provenance(training_config_dict.get("provenance", {}))
+        provenance = Provenance.new_provenance(self.config.provenance)
 
         self.trainer = trainer_type(provenance, model, self.trainer_config, metrics, resume_dir=resume_dir)
 

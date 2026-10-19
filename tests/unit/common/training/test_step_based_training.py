@@ -1,99 +1,14 @@
-import dataclasses
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 import torch
-from accelerate.state import AcceleratorState
-from torch import nn
-from torch.utils.data import Sampler
 
-from larry.common.config.criteria.criterion_configs import CriterionConfig
-from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
-from larry.common.config.model.model_configs import ModelConfig
-from larry.common.config.training.trainer_configs import LarryTrainerConfig
-from larry.common.criteria.criterion import Criterion
-from larry.common.data.dataloading.samplers import ShuffledBatchSampler
-from larry.common.metrics.metrics import Metrics
-from larry.common.model.model import LarryModelOutput
-from larry.common.training.trainers import LarryTrainer
-from larry.common.training.training_model import LarryModel
-from larry.common.training.viz_callbacks import VizCallback
-
-
-@dataclasses.dataclass(kw_only=True)
-class ToyTrainerConfig(LarryTrainerConfig):
-    ...
-
-
-@dataclasses.dataclass(kw_only=True)
-class ToyCriterionConfig(CriterionConfig):
-    ...
-
-
-class ToyModel(LarryModel[ModelConfig]):
-    def __init__(self) -> None:
-        super().__init__(ModelConfig(d_model=1, max_position_embeddings=1))
-        self.linear = nn.Linear(1, 1)
-        self.seen: list[list[int]] = []
-
-    def forward(self, x: torch.Tensor, idx: torch.Tensor) -> LarryModelOutput:
-        if self.training:
-            self.seen.append(idx.tolist())
-        return LarryModelOutput(logits=self.linear(x.float().unsqueeze(-1)))
-
-
-class ToyCriterion(Criterion[LarryModelOutput, ToyCriterionConfig]):
-    def forward(self, model_output: LarryModelOutput, **batch_kwargs: Any) -> torch.Tensor:
-        return model_output.logits.pow(2).mean()
-
-
-class NullMetrics(Metrics):
-    def add_scalar(self, *args: Any, **kwargs: Any) -> None: ...
-
-    def add_image(self, *args: Any, **kwargs: Any) -> None: ...
-
-    def add_audio(self, *args: Any, **kwargs: Any) -> None: ...
-
-    def add_figure(self, *args: Any, **kwargs: Any) -> None: ...
-
-    def add_grad_norms(self, *args: Any, **kwargs: Any) -> None: ...
-
-    def add_histogram(self, *args: Any, **kwargs: Any) -> None: ...
-
-    def add_hparams(self, *args: Any, **kwargs: Any) -> None: ...
-
-    def add_text(self, *args: Any, **kwargs: Any) -> None: ...
-
-    def close(self) -> None: ...
-
-    def flush(self) -> None: ...
-
-
-class ToyTrainer(LarryTrainer[ToyModel, ToyTrainerConfig]):
-    def make_dataset_dict(self) -> Mapping[str, Any]:
-        rows = [{"x": float(i), "idx": i} for i in range(11)]
-        return {"train": rows, "validation": rows[:4]}
-
-    def load_indexed(self, configs: list[Any], indexes: list[Any], sources: list[Any], is_eval: bool = False) -> Any:
-        raise NotImplementedError
-
-    def make_train_sampler(self, dataset: Any, weights: list[float]) -> Sampler:
-        return ShuffledBatchSampler(len(dataset), self.config.train_batch_size, self.config.seed)
-
-    def make_eval_sampler(self, dataset: Any) -> Iterable[list[int]]:
-        size = self.config.eval_batch_size
-        return [list(range(start, min(start + size, len(dataset)))) for start in range(0, len(dataset), size)]
-
-    def make_criterion(self) -> Criterion:
-        return ToyCriterion(ToyCriterionConfig())
-
-    def make_viz_callback(self, viz_steps: int) -> VizCallback:
-        raise NotImplementedError
-
-    def update_provenance(self, provenance: Provenance) -> None:
-        ...
+from larry.common.training.trainers import StepOutput
+from tests.helpers.common import reset_accelerate_state
+from tests.helpers.metrics import NullMetrics
+from tests.unit.common.training.toy_training import ToyTrainer, toy_trainer, train_toy
 
 
 class EvalRecordingToyTrainer(ToyTrainer):
@@ -106,49 +21,11 @@ class EvalRecordingToyTrainer(ToyTrainer):
         return super().evaluate()
 
 
-def provenance() -> Provenance:
-    return Provenance.new_provenance({}, ProvenanceAncestry.from_dict({}))
-
-
-@pytest.fixture(autouse=True)
-def fresh_accelerate_state() -> Iterator[None]:
-    AcceleratorState._reset_state(reset_partial_state=True)
-    yield
-    AcceleratorState._reset_state(reset_partial_state=True)
-
-
-def _train[T: ToyTrainer](
-        log_dir: Path,
-        max_steps: int,
-        gradient_accumulation: int = 1,
-        resume_dir: str | None = None,
-        save_steps: int = 1000,
-        eval_steps: int | None = None,
-        trainer_type: type[T] = ToyTrainer,
-) -> T:
-    config = ToyTrainerConfig(
-        max_steps=max_steps,
-        gradient_accumulation=gradient_accumulation,
-        train_batch_size=2,
-        eval_batch_size=2,
-        num_dataloader_workers=0,
-        save_steps=save_steps,
-        eval_steps=eval_steps,
-        logging_steps=1000,
-        optimizer_name="adamw",
-        mixed_precision="bf16",
-        seed=5,
-    )
-    trainer = trainer_type(provenance(), ToyModel(), config, NullMetrics(str(log_dir)), resume_dir=resume_dir)
-    trainer.run()
-    return trainer
-
-
 @pytest.mark.parametrize("gradient_accumulation", [1, 2])
 def test_training_stops_at_max_steps_and_cycles_past_the_end_of_the_data(
         tmp_path: Path, gradient_accumulation: int
 ) -> None:
-    trainer = _train(tmp_path, max_steps=9, gradient_accumulation=gradient_accumulation)
+    trainer = train_toy(tmp_path, max_steps=9, gradient_accumulation=gradient_accumulation)
 
     assert trainer.train_state.global_step == 9
     assert len(trainer.model.seen) == 9 * gradient_accumulation
@@ -159,15 +36,15 @@ def test_training_stops_at_max_steps_and_cycles_past_the_end_of_the_data(
 def test_resumed_run_sees_the_same_batches_as_an_uninterrupted_one(
         tmp_path: Path, gradient_accumulation: int
 ) -> None:
-    uninterrupted = _train(tmp_path / "full", max_steps=9, gradient_accumulation=gradient_accumulation)
+    uninterrupted = train_toy(tmp_path / "full", max_steps=9, gradient_accumulation=gradient_accumulation)
 
-    _train(tmp_path / "part", max_steps=4, gradient_accumulation=gradient_accumulation)
-    AcceleratorState._reset_state(reset_partial_state=True)
-    resumed = _train(
+    train_toy(tmp_path / "part", max_steps=4, gradient_accumulation=gradient_accumulation)
+    reset_accelerate_state()
+    resumed = train_toy(
         tmp_path / "rest",
+        resume_dir=str(tmp_path / "part" / "checkpoint-4"),
         max_steps=9,
         gradient_accumulation=gradient_accumulation,
-        resume_dir=str(tmp_path / "part" / "checkpoint-4"),
     )
 
     assert resumed.train_state.global_step == 9
@@ -175,33 +52,134 @@ def test_resumed_run_sees_the_same_batches_as_an_uninterrupted_one(
 
 
 def test_checkpoints_are_named_for_completed_steps_and_the_last_is_written_once(tmp_path: Path) -> None:
-    _train(tmp_path, max_steps=9, save_steps=3)
+    train_toy(tmp_path, max_steps=9, save_steps=3)
 
     assert sorted(p.name for p in tmp_path.glob("checkpoint-*")) == ["checkpoint-3", "checkpoint-6", "checkpoint-9"]
 
 
 def test_a_final_checkpoint_is_written_when_max_steps_is_not_a_save_step(tmp_path: Path) -> None:
-    _train(tmp_path, max_steps=7, save_steps=3)
+    train_toy(tmp_path, max_steps=7, save_steps=3)
 
     assert sorted(p.name for p in tmp_path.glob("checkpoint-*")) == ["checkpoint-3", "checkpoint-6", "checkpoint-7"]
 
 
 def test_a_fresh_run_evaluates_before_training_and_after_every_eval_steps_completed(tmp_path: Path) -> None:
-    trainer = _train(tmp_path, max_steps=9, eval_steps=4, trainer_type=EvalRecordingToyTrainer)
+    trainer = train_toy(tmp_path, EvalRecordingToyTrainer, max_steps=9, eval_steps=4)
 
     assert trainer.eval_steps_seen == [0, 4, 8]
 
 
 def test_a_resumed_run_skips_the_baseline_evaluation(tmp_path: Path) -> None:
-    _train(tmp_path / "part", max_steps=4, save_steps=4)
-    AcceleratorState._reset_state(reset_partial_state=True)
+    train_toy(tmp_path / "part", max_steps=4, save_steps=4)
+    reset_accelerate_state()
 
-    resumed = _train(
+    resumed = train_toy(
         tmp_path / "rest",
+        EvalRecordingToyTrainer,
+        resume_dir=str(tmp_path / "part" / "checkpoint-4"),
         max_steps=9,
         eval_steps=4,
-        resume_dir=str(tmp_path / "part" / "checkpoint-4"),
-        trainer_type=EvalRecordingToyTrainer,
     )
 
     assert resumed.eval_steps_seen == [8]
+
+
+class ClipCountingToyTrainer(ToyTrainer):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.clip_calls = 0
+        super().__init__(*args, **kwargs)
+
+    def clip_grads(self) -> Any:
+        self.clip_calls += 1
+        return super().clip_grads()
+
+
+@pytest.mark.parametrize("gradient_accumulation", [1, 3])
+def test_grads_are_clipped_once_per_optimizer_step(tmp_path: Path, gradient_accumulation: int) -> None:
+    trainer = train_toy(tmp_path, ClipCountingToyTrainer, max_steps=4, gradient_accumulation=gradient_accumulation)
+
+    assert trainer.clip_calls == 4
+
+
+class LossRecordingToyTrainer(ToyTrainer):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.microbatch_losses: list[float] = []
+        self.step_losses: list[float] = []
+        super().__init__(*args, **kwargs)
+
+    def train_forward_pass(self, batch: Any) -> StepOutput:
+        output = super().train_forward_pass(batch)
+        self.microbatch_losses.append(output.loss.item())
+        return output
+
+    def after_optimizer_step(self, loss: torch.Tensor, step: int) -> Any:
+        self.step_losses.append(loss.item())
+        return super().after_optimizer_step(loss, step)
+
+
+def test_each_optimizer_step_reports_the_mean_loss_of_its_microbatches(tmp_path: Path) -> None:
+    trainer = train_toy(tmp_path, LossRecordingToyTrainer, max_steps=3, gradient_accumulation=2)
+
+    expected = [sum(trainer.microbatch_losses[i:i + 2]) / 2 for i in range(0, 6, 2)]
+    assert trainer.step_losses == pytest.approx(expected)
+
+
+class CountingIterable:
+    def __init__(self, inner: Iterable[Any]) -> None:
+        self.inner = inner
+        self.taken = 0
+
+    def __iter__(self) -> Iterator[Any]:
+        for item in self.inner:
+            self.taken += 1
+            yield item
+
+
+@pytest.mark.parametrize("gradient_accumulation", [1, 2])
+def test_training_takes_no_batch_past_the_last_step(tmp_path: Path, gradient_accumulation: int) -> None:
+    trainer = toy_trainer(
+        ToyTrainer, NullMetrics(str(tmp_path)), max_steps=5, gradient_accumulation=gradient_accumulation
+    )
+    loader = CountingIterable(trainer.train_loader)
+    trainer.train_loader = loader
+
+    trainer.run()
+
+    assert loader.taken == 5 * gradient_accumulation
+
+
+def test_adamw_uses_the_configured_betas(tmp_path: Path) -> None:
+    trainer = toy_trainer(ToyTrainer, NullMetrics(str(tmp_path)), max_steps=1, adamw_betas=(0.8, 0.95))
+
+    assert [group["betas"] for o in trainer.optimizers for group in o.param_groups] == [(0.8, 0.95)]
+
+
+def test_optimizer_config_reaches_the_configured_optimizer(tmp_path: Path) -> None:
+    adamw = toy_trainer(ToyTrainer, NullMetrics(str(tmp_path / "adamw")), max_steps=1, optimizer_config={"eps": 1e-5})
+    reset_accelerate_state()
+    muon = toy_trainer(
+        ToyTrainer,
+        NullMetrics(str(tmp_path / "muon")),
+        max_steps=1,
+        optimizer_name="muon",
+        optimizer_config={"momentum": 0.9},
+    )
+
+    assert [group["eps"] for group in adamw.optimizers[0].param_groups] == [1e-5]
+    assert [group["momentum"] for group in muon.optimizers[0].param_groups] == [0.9]
+    assert [group["betas"] for group in muon.optimizers[1].param_groups] == [(0.9, 0.999)]
+
+
+class FrozenBiasToyTrainer(ToyTrainer):
+    def make_optimizers(self, model: torch.nn.Module) -> Any:
+        model.get_submodule("linear").bias.requires_grad_(False)
+        return super().make_optimizers(model)
+
+
+@pytest.mark.parametrize("optimizer_name", ["adamw", "muon"])
+def test_frozen_params_are_left_out_of_the_optimizers(tmp_path: Path, optimizer_name: str) -> None:
+    trainer = toy_trainer(FrozenBiasToyTrainer, NullMetrics(str(tmp_path)), max_steps=1, optimizer_name=optimizer_name)
+
+    optimized = [p for o in trainer.optimizers for group in o.param_groups for p in group["params"]]
+    assert len(optimized) == 1
+    assert all(p.requires_grad for p in optimized)

@@ -150,7 +150,7 @@ class NormalizedTokens:
         self.tokens = tokens
         self.readings = [
             normalizer.normalize_token(token, prev_token)
-            for token, prev_token in zip(tokens, [None] + tokens, strict=False)
+            for token, prev_token in zip(tokens, [None, *tokens][:len(tokens)], strict=True)
         ]
 
         self.choice = [0] * len(self.readings)

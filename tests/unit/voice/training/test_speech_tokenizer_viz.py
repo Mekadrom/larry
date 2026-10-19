@@ -1,80 +1,19 @@
-import io
-import math
-import struct
-import wave
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import torch
-from datasets import Dataset
 
-from larry.text.tokenizer.text_tokenizer import TextTokenizer
-from larry.voice.config.data.voice_data_configs import ASRSourceConfig
-from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
-from larry.voice.data.dataloading.indexed_speech_dataset import IndexedASRDataset
 from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator
-from larry.voice.model.speech_encoder import SpeechEncoderModel
 from larry.voice.training.voice_trainers import SpeechEncoderTrainer
 from larry.voice.training.voice_viz_callbacks import SpeechEncoderVizCallback, pick_rows
 from larry.voice.utils import collapse_ctc_emissions
-
-ALPHABET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-
-class CharTokenizer(TextTokenizer):
-    def encode(self, text: str) -> list[int]:
-        return [ALPHABET.index(c) for c in text]
-
-    def decode(self, token_ids: list[int]) -> str:
-        return "".join(ALPHABET[i] for i in token_ids)
-
-    def vocab_size(self) -> int:
-        return len(ALPHABET)
-
-    def id_to_piece(self, token_id: int) -> str:
-        return ALPHABET[token_id]
-
-
-class RecordingMetrics:
-    def __init__(self) -> None:
-        self.audio: list[tuple[str, int]] = []
-        self.text: list[tuple[str, str, int]] = []
-        self.figures: list[tuple[str, int]] = []
-
-    def add_audio(self, tag: str, audio_array: torch.Tensor, step: int, sample_rate: int, **kwargs: Any) -> None:
-        self.audio.append((tag, step))
-
-    def add_text(self, tag: str, text: str, step: int, **kwargs: Any) -> None:
-        self.text.append((tag, text, step))
-
-    def add_figure(self, tag: str, figure: Any, step: int, **kwargs: Any) -> None:
-        self.figures.append((tag, step))
-
-
-def _wav(seconds: float, sample_rate: int) -> bytes:
-    frames = b"".join(
-        struct.pack("<h", int(6000 * math.sin(2 * math.pi * 300 * i / sample_rate)))
-        for i in range(int(seconds * sample_rate))
-    )
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sample_rate)
-        w.writeframes(frames)
-    return buffer.getvalue()
-
-
-def _model() -> SpeechEncoderModel:
-    torch.manual_seed(0)
-    return SpeechEncoderModel(SpeechEncoderModelConfig(
-        d_model=32, n_heads=4, n_query_groups=4, rotary_embedding_dim=8,
-        n_encoder1_layers=1, n_encoder2_layers=1, text_vocab_size=len(ALPHABET),
-    ))
+from tests.helpers.common import uninitialized
+from tests.helpers.metrics import RecordingMetrics
+from tests.helpers.voice import LETTERS, CharTokenizer, clip_dataset, tiny_speech_encoder, toy_source
 
 
 def test_frame_seconds_matches_the_encoder_frame_rate() -> None:
-    model = _model().eval()
+    model = tiny_speech_encoder(len(LETTERS)).eval()
 
     with torch.no_grad():
         output = model(torch.zeros(1, 32000), torch.tensor([32000]))
@@ -90,27 +29,20 @@ def test_rows_are_spread_over_each_source_and_never_repeat() -> None:
 def test_greedy_frames_collapse_and_time_each_new_token() -> None:
     blank = 0
     frames = torch.tensor([0, 3, 3, 0, 3, 5, 5, 0])
-    callback = SpeechEncoderVizCallback.__new__(SpeechEncoderVizCallback)
-    vars(callback).update(tokenizer=CharTokenizer(), blank=blank)
+    callback = uninitialized(SpeechEncoderVizCallback, tokenizer=CharTokenizer(), blank=blank)
 
     assert collapse_ctc_emissions(frames, blank) == [3, 3, 5]
     assert callback._timeline(frames, 0.04) == "`0.04` C `0.16` C `0.20` E"
     assert callback._timeline(None, 0.04) == "(no alignment)"
 
 
-def test_viz_logs_audio_once_and_alignments_for_every_example_each_time() -> None:
-    index = Dataset.from_dict({
-        "audio": [{"bytes": _wav(1.0, 16000), "path": "a.wav"}, {"bytes": _wav(1.5, 16000), "path": "b.wav"}],
-        "text_normalized": ["HI", "OK GO"],
-        "duration_s": [1.0, 1.5],
-    })
-    source = ASRSourceConfig(name="toy", index_path="toy")
-    dataset = IndexedASRDataset([source], [index], [None], sample_rate=16000)
+def test_viz_logs_audio_once_and_alignments_for_every_example_each_time(tmp_path: Path) -> None:
+    dataset = clip_dataset([("HI", 1.0), ("OK GO", 1.5)])
     tokenizer = CharTokenizer()
-    model = _model()
-    metrics = RecordingMetrics()
-    trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
-    vars(trainer).update(
+    model = tiny_speech_encoder(len(LETTERS))
+    metrics = RecordingMetrics(str(tmp_path))
+    trainer = uninitialized(
+        SpeechEncoderTrainer,
         accelerator=SimpleNamespace(
             is_main_process=True,
             device=torch.device("cpu"),
@@ -122,10 +54,10 @@ def test_viz_logs_audio_once_and_alignments_for_every_example_each_time() -> Non
         _model=model,
         tokenizer=tokenizer,
         model_config=model.config,
-        _config=SimpleNamespace(mixture_config=SimpleNamespace(eval_sources=[source], sample_rate=16000)),
+        _config=SimpleNamespace(mixture_config=SimpleNamespace(eval_sources=[toy_source()], sample_rate=16000)),
         metrics=metrics,
     )
-    callback = SpeechEncoderVizCallback(trainer, viz_steps=10, blank=len(ALPHABET), tokenizer=tokenizer)
+    callback = SpeechEncoderVizCallback(trainer, viz_steps=10, blank=len(LETTERS), tokenizer=tokenizer)
 
     callback.viz(0)
     callback.viz(10)

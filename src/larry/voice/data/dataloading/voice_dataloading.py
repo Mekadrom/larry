@@ -62,20 +62,57 @@ class SpeechCTCCollator:
 
     def __call__(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         """Normalizes and converts lists of numbers to tensors where applicable. The true batch is returned."""
-        waveforms = [
-            item["waveform"]
-            for item in items
-        ]
-        targets = [
-            torch.tensor(self.text_tokenizer.encode(item["text"]), dtype=torch.long)
-            for item in items
-        ]
+        waveforms = []
+        waveform_lengths = []
+        targets = []
+        target_lengths = []
+        source_ids = []
+        for item in items:
+            waveform = item["waveform"]
+            waveforms.append(waveform)
+            waveform_lengths.append(len(waveform))
+
+            target = self.text_tokenizer.encode(item["text"])
+            targets.append(torch.tensor(target, dtype=torch.long))
+            target_lengths.append(len(target))
+
+            source_ids.append(item["source"])
+
         return {
             "waveforms": pad_sequence(waveforms, batch_first=True),
-            "waveform_lengths": torch.tensor([len(w) for w in waveforms]),
+            "waveform_lengths": torch.tensor(waveform_lengths),
             "targets": pad_sequence(targets, batch_first=True),
-            "target_lengths": torch.tensor([len(t) for t in targets]),
-            "source_ids": torch.tensor([item["source"] for item in items], dtype=torch.long),
-            # a plain int stays on the cpu when the batch is moved to the device, so reading it never syncs
-            "n_target_tokens": sum(len(t) for t in targets),
+            "target_lengths": torch.tensor(target_lengths),
+            "source_ids": torch.tensor(source_ids, dtype=torch.long),
+            "n_target_tokens": sum(target_lengths),
+        }
+
+
+class SpeechDecoderCollator:
+    def __call__(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        waveforms = []
+        waveform_lengths = []
+        unit_ids = []
+        unit_id_lengths = []
+        source_ids = []
+        speaker_ids = []
+        for item in items:
+            waveform = item["waveform"]
+            waveforms.append(waveform)
+            waveform_lengths.append(len(waveform))
+
+            units = item["unit_ids"]
+            unit_ids.append(torch.tensor(units, dtype=torch.long))
+            unit_id_lengths.append(len(units))
+
+            source_ids.append(item["source"])
+            speaker_ids.append(item["speaker_id"])
+
+        return {
+            "waveforms": pad_sequence(waveforms, batch_first=True),
+            "waveform_lengths": torch.tensor(waveform_lengths),
+            "unit_ids": pad_sequence(unit_ids, batch_first=True),
+            "unit_id_lengths": torch.tensor(unit_id_lengths),
+            "source_ids": torch.tensor(source_ids, dtype=torch.long),
+            "speaker_ids": torch.tensor(speaker_ids, dtype=torch.long),
         }

@@ -36,7 +36,9 @@ class Criterion[O: LarryModelOutput, C: CriterionConfig](nn.Module, Registrable,
         ...
 
 
-class SamplableCriterion[O: LarryModelOutput = LarryModelOutput](ABC):
+class SamplableCriterion[O: LarryModelOutput = LarryModelOutput, C: CriterionConfig = CriterionConfig](
+    Criterion[O, C], ABC
+):
     @abstractmethod
     def sample_losses(
             self,

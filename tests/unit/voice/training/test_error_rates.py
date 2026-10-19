@@ -5,9 +5,7 @@ import torch
 from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
 
 from larry.common.metrics.metrics import MetricDict
-from larry.common.model.model import LarrySpeechEncoderModelOutput
 from larry.common.training.trainers import StepOutput
-from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.training.voice_trainers import (
     ErrorCounts,
@@ -16,24 +14,12 @@ from larry.voice.training.voice_trainers import (
     _normalize_for_scoring,
     _normalize_reference_for_scoring,
 )
+from tests.helpers.common import uninitialized
+from tests.helpers.voice import LETTERS, CharTokenizer, ctc_output
 
-ALPHABET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ'"
+ALPHABET = LETTERS + "'"
 BLANK = len(ALPHABET)
 SPELLINGS = {"colour": "color", "grey": "gray"}
-
-
-class CharTokenizer(TextTokenizer):
-    def encode(self, text: str) -> list[int]:
-        return [ALPHABET.index(c) for c in text]
-
-    def decode(self, token_ids: list[int]) -> str:
-        return "".join(ALPHABET[i] for i in token_ids)
-
-    def vocab_size(self) -> int:
-        return len(ALPHABET)
-
-    def id_to_piece(self, token_id: int) -> str:
-        return ALPHABET[token_id]
 
 
 def test_identical_text_has_no_errors() -> None:
@@ -55,18 +41,22 @@ def test_whitespace_differences_are_not_character_errors() -> None:
     assert error_counts("  YES   SIR ", "YES SIR").char_errors == 0
 
 
-def _trainer(sources: list[str] | None = None) -> SpeechEncoderTrainer:
-    trainer = SpeechEncoderTrainer.__new__(SpeechEncoderTrainer)
-    vars(trainer).update(
-        tokenizer=CharTokenizer(),
+@pytest.fixture
+def normalizer() -> EnglishTextNormalizer:
+    return EnglishTextNormalizer(SPELLINGS)
+
+
+def _trainer(sources: list[str]) -> SpeechEncoderTrainer:
+    return uninitialized(
+        SpeechEncoderTrainer,
+        tokenizer=CharTokenizer(ALPHABET),
         whisper_normalizer=EnglishTextNormalizer(SPELLINGS),
         model_config=SimpleNamespace(text_vocab_size=BLANK, fsq_dims=2, fsq_levels=3, n_units=3 ** 2),
         _config=SimpleNamespace(mixture_config=SimpleNamespace(
-            eval_sources=[SpeechSourceConfig(name=n, index_path=n) for n in sources or []],
+            eval_sources=[SpeechSourceConfig(name=n, index_path=n) for n in sources],
         )),
         accelerator=SimpleNamespace(device=torch.device("cpu")),
     )
-    return trainer
 
 
 @pytest.mark.parametrize(("text", "expected"), [
@@ -75,20 +65,17 @@ def _trainer(sources: list[str] | None = None) -> SpeechEncoderTrainer:
     ("TWENTY FIVE PERCENT OF FIVE HUNDRED DOLLARS", "25% of $500"),
     ("", ""),
 ])
-def test_scoring_normalization_is_whispers(text: str, expected: str) -> None:
-    assert _normalize_for_scoring(_trainer().whisper_normalizer, text) == expected
+def test_scoring_normalization_is_whispers(normalizer: EnglishTextNormalizer, text: str, expected: str) -> None:
+    assert _normalize_for_scoring(normalizer, text) == expected
 
 
-def test_different_readings_of_a_number_score_the_same() -> None:
-    normalizer = _trainer().whisper_normalizer
-
+def test_different_readings_of_a_number_score_the_same(normalizer: EnglishTextNormalizer) -> None:
     spelled = _normalize_for_scoring(normalizer, "ONE NINE SEVEN ZERO")
 
     assert spelled == _normalize_for_scoring(normalizer, "NINETEEN SEVENTY")
 
 
-def test_reference_normalization_matches_and_is_cached() -> None:
-    normalizer = _trainer().whisper_normalizer
+def test_reference_normalization_matches_and_is_cached(normalizer: EnglishTextNormalizer) -> None:
     _normalize_reference_for_scoring.cache_clear()
 
     first = _normalize_reference_for_scoring(normalizer, "IN NINETEEN SEVENTY")
@@ -129,10 +116,7 @@ def test_eval_statistics_report_greedy_error_rates_per_source_and_overall() -> N
         "target_lengths": torch.tensor([len(r) for r in references]),
         "source_ids": torch.tensor([0, 1, 1]),
     }
-    output = StepOutput(loss=torch.tensor(0.0), metrics=MetricDict(), model_output=LarrySpeechEncoderModelOutput(
-        logits=log_probs, ctc_log_probs={"encoder2_norm": log_probs}, frame_lengths=frame_lengths,
-        unit_ids=torch.zeros(frame_lengths.shape[0], log_probs.shape[1], dtype=torch.long),
-    ))
+    output = StepOutput(loss=torch.tensor(0.0), metrics=MetricDict(), model_output=ctc_output(log_probs, frame_lengths))
 
     statistics = trainer.eval_statistics()
     trainer.update_eval_statistics(statistics, batch, output)

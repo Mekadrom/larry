@@ -3,22 +3,8 @@ from typing import Any, cast
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator
-
-
-class CharTokenizer(TextTokenizer):
-    def encode(self, text: str) -> list[int]:
-        return [ord(c) % 7 for c in text]
-
-    def decode(self, token_ids: list[int]) -> str:
-        raise NotImplementedError
-
-    def vocab_size(self) -> int:
-        return 7
-
-    def id_to_piece(self, token_id: int) -> str:
-        raise NotImplementedError
+from tests.helpers.voice import CharTokenizer
 
 
 ITEMS = [
