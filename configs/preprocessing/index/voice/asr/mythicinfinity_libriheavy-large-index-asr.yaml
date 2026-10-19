@@ -1,42 +1,35 @@
 preprocessor:
-  inputs:
-    provenance:
-      id_columns:
-        - id
-        - speaker_id
-        - librivox_book_id
-
+  provenance:
+    id_columns:
+    - id
+    - speaker_id
+    - librivox_book_id
 dataset:
-  config: DefaultDatasetConfig
-  overrides:
-    path: mythicinfinity/libriheavy
-    name: large
-    split: train
-    cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
-
+  type: DefaultDatasetConfig
+  path: mythicinfinity/libriheavy
+  name: large
+  split: train
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
 pipeline:
-  - name: RowIndexAssigningPreprocessor
-    config: RowIndexAssigningPreprocessorConfig
-  - name: ColumnCastingPreprocessor
-    config: ColumnCastingPreprocessorConfig
-    inputs:
-      column_casts:
-        audio: "audio_no_decode"
-        text_transcription: ~
-  - name: ColumnRenamingPreprocessor
-    config: ColumnRenamingPreprocessorConfig
-    inputs:
-      column_name_mappings:
-        audio_duration: duration_s
-  - name: AudioDurationColumnPruner
-    config: AudioDurationColumnPrunerConfig
-  - name: AudioQualityPruner
-    config: AudioQualityPrunerConfigForASR
-  - name: CTCScoreMapper
-    config: CTCScoreMapperConfig
-    inputs:
-      text_column: text_original
-      remove_columns:
-        - audio
-  - name: ColumnValuesPruner
-    config: ASRCTCMismatchColumnValuesPrunerConfig
+  assign_row_index:
+    type: RowIndexAssigningPreprocessorConfig
+  skip_audio_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      audio: audio_no_decode
+      text_transcription: ~
+  rename_columns:
+    type: ColumnRenamingPreprocessorConfig
+    column_name_mappings:
+      audio_duration: duration_s
+  prune_duration:
+    type: AudioDurationColumnPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForASR
+  score_ctc_mismatch:
+    type: CTCScoreMapperConfig
+    text_column: text_original
+    remove_columns:
+    - audio
+  prune_ctc_mismatch:
+    type: ASRCTCMismatchColumnValuesPrunerConfig

@@ -2,6 +2,8 @@ import argparse
 import logging
 from pathlib import Path
 
+from larry.common.config.data.preprocessing import pipeline_config
+from larry.common.config.values import ConfigValues, WorkingTree
 from larry.common.data.preprocessing.pipeline import Pipeline
 from larry.common.utils.init_helpers import import_submodules
 
@@ -19,12 +21,7 @@ def main() -> None:
                     "per-task.",
     )
 
-    argparser.add_argument(
-        "--config_file",
-        type=Path,
-        required=True,
-        help="A path specifying the config.yaml to use for this preprocessing run."
-    )
+    ConfigValues.add_arguments(argparser)
 
     argparser.add_argument(
         "--output_dir",
@@ -48,11 +45,13 @@ def main() -> None:
 
     args = argparser.parse_args()
 
+    WorkingTree.ensure_clean(args.allow_dirty)
+
     output_dir = Path(args.output_dir).expanduser().resolve()
-    config_file = Path(args.config_file).expanduser().resolve()
+    definition = ConfigValues.from_args(args).load(pipeline_config.PipelineDefinition)
 
     # override the "clean" flag top False so provenance-only output actually survives
     if args.provenance_only:
         args.clean = False
 
-    Pipeline(config_file, output_dir, clean=args.clean, provenance_only=args.provenance_only).run()
+    Pipeline(definition, output_dir, clean=args.clean, provenance_only=args.provenance_only).run()

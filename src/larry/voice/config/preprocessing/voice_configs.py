@@ -1,13 +1,11 @@
 import dataclasses
-from typing import ClassVar
 
+from larry.common.config.config import Config
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
-from larry.common.utils.registrable import Registrable
-from larry.common.utils.types import TypeRegistry
 
 
 @dataclasses.dataclass(kw_only=True)
-class SampleRateConfig:
+class SampleRateConfig(Config):
     """Provides a config with a sample rate."""
 
     sample_rate: int = 16000
@@ -19,10 +17,8 @@ class VoiceConfig(PreprocessorConfig, SampleRateConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class AlignerConfig(Registrable, SampleRateConfig, root=True):
+class AlignerConfig(SampleRateConfig):
     """Helper dataclass for configuring an aligner that wraps an alignment model."""
-
-    REGISTRY: ClassVar[TypeRegistry[AlignerConfig]]
 
     stride: int = 320
     model_id: str = "facebook/wav2vec2-large-960h-lv60-self"
@@ -33,11 +29,8 @@ class AlignerConfig(Registrable, SampleRateConfig, root=True):
 
 
 @dataclasses.dataclass(kw_only=True)
-class TranscriptConfig:
+class TranscriptConfig(Config):
     """Configures a transcript parser."""
-
-    REGISTRY: ClassVar[TypeRegistry[TranscriptConfig]]
-    ...
 
 
 @dataclasses.dataclass(kw_only=True)

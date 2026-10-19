@@ -1,34 +1,7 @@
-preprocessor:
-  inputs:
-    provenance:
-      id_columns:
-        - id
-        - speaker_id
-        - chapter_id
-
 dataset:
-  config: DefaultDatasetConfig
-  overrides:
-    path: thelarryproject/librispeech-asr-validation
-    split: train
-    cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/openslr_librispeech-asr-index-tts-validation/
-
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/openslr_librispeech-asr-index-tts-validation/
 pipeline:
-  - name: RowIndexAssigningPreprocessor
-    config: RowIndexAssigningPreprocessorConfig
-  - name: ColumnCastingPreprocessor
-    config: ColumnCastingPreprocessorConfig
-    inputs:
-      column_casts:
-        audio: "audio_no_decode"
-  - name: ColumnValuesPruner
-    config: TTSCTCMismatchColumnValuesPrunerConfig
-  - name: AudioDurationColumnPruner
-    config: AudioDurationColumnPrunerConfig
-  - name: AudioQualityPruner
-    config: AudioQualityPrunerConfigForTTS
-  - name: RemoveColumnsPreprocessor
-    config: RemoveColumnsPreprocessorConfig
-    inputs:
-      remove_columns:
-        - audio
+  prune_ctc_mismatch:
+    type: TTSCTCMismatchColumnValuesPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForTTS

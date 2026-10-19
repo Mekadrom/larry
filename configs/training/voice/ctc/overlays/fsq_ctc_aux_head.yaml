@@ -1,0 +1,9 @@
+model:
+  enable_fsq_ctc_head: true
+trainer:
+  ctc_layer_loss_weights:
+    fsq: 0.3
+    encoder2_norm: 0.7
+  muon_last_layer_names:
+  - ctc_head.weight
+  - fsq_ctc_head.weight

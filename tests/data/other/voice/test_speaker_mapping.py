@@ -6,8 +6,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from larry.common.config.training import build_trainer_config
-from larry.common.utils import load_yaml_dict
+from larry.common.config.training.definition import TrainingDefinition
+from larry.common.config.values import ConfigValues
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
 from larry.common.data.dataloading.indexed_dataset import index_split_files
@@ -21,8 +21,7 @@ def trainer_config() -> SpeechEncoderTrainerConfig:
     if config_file is None:
         pytest.skip("SPEAKER_MAPPING_CONFIG not set")
     import_larry_submodules()
-    definition = load_yaml_dict(Path(config_file).expanduser().resolve())
-    config = build_trainer_config(definition.get("trainer", {}))
+    config = ConfigValues(config_file.split(os.pathsep)).load(TrainingDefinition).trainer
     assert isinstance(config, SpeechEncoderTrainerConfig)
     return config
 

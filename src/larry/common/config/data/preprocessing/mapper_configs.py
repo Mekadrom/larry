@@ -1,6 +1,7 @@
 import dataclasses
 from typing import Any
 
+from larry.common.config.config import Config
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
 
 
@@ -59,8 +60,8 @@ class SingleColumnMapperConfig(MapperConfig):
         return [self.output_column]
 
 
-@dataclasses.dataclass
-class ValueOverride:
+@dataclasses.dataclass(kw_only=True)
+class ValueOverride(Config):
     """Config helper dataclass for type hinting."""
 
     input_column: str
@@ -73,15 +74,7 @@ class ValueOverride:
 class ValueOverrideMapperConfig(MapperConfig):
     """Config class for the ``ValueOverrideMapper``."""
 
-    mappings_config: list[dict[str, Any]]
-
-    @property
-    def mappings(self) -> list[ValueOverride]:
-        """Turns the raw dictionary config into dataclass instances."""
-        return [
-            ValueOverride(m["input_column"], m["input_column_value"], m["output_column"], m["output_column_value"])
-            for m in self.mappings_config
-        ]
+    mappings: list[ValueOverride]
 
     def required_input_columns(self) -> list[str]:
         """Dynamically assigns input columns as both the input columns and output columns (for convenience)."""

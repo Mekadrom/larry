@@ -1,46 +1,7 @@
-preprocessor:
-  inputs:
-    provenance:
-      id_columns:
-        - id
-        - speaker_id
-
 dataset:
-  config: DefaultDatasetConfig
-  overrides:
-    path: MikhailT/hifi-tts
-    name: all
-    split: ~
-    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/tts/mikhailt_hifi-tts-all-normalized-tts/
-
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/tts/mikhailt_hifi-tts-all-normalized-tts/
 pipeline:
-  - name: ColumnCastingPreprocessor
-    config: ColumnCastingPreprocessorConfig
-    inputs:
-      column_casts:
-        audio: "audio_no_decode"
-        # removes:
-        #   - text (normalized lowercase text)
-        #   - text_no_preprocessing (original text from gutenberg)
-        text: ~
-        text_no_preprocessing: ~
-  - name: ColumnRenamingPreprocessor
-    config: ColumnRenamingPreprocessorConfig
-    inputs:
-      column_name_mappings:
-        duration: duration_s
-        # the text_normalized column looks the most like what we want as input to the CTCScoreMapper
-        text_normalized: text_original
-        file: id
-        speaker: speaker_id
-  - name: AudioDurationColumnPruner
-    config: AudioDurationColumnPrunerConfig
-  - name: AudioQualityPruner
-    config: AudioQualityPrunerConfigForTTS
-  - name: CTCScoreMapper
-    config: CTCScoreMapperConfig
-    inputs:
-      num_proc: 4
-      text_column: text_original
-  - name: ColumnValuesPruner
-    config: TTSCTCMismatchColumnValuesPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForTTS
+  prune_ctc_mismatch:
+    type: TTSCTCMismatchColumnValuesPrunerConfig

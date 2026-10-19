@@ -214,7 +214,7 @@ class ValueOverrideMapper(Mapper[ValueOverrideMapperConfig]):
         """Validates the input and output columns in addition to configured value mappings."""
         super().validate()
         if not self.config.mappings:
-            raise ValueError(f"mappings_config must be specified for {self.__class__.__name__}")
+            raise ValueError(f"mappings must be specified for {self.__class__.__name__}")
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         """Batch preprocessor for overriding specific row values.

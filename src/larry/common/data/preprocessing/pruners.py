@@ -4,7 +4,12 @@ from typing import Any, assert_never
 from datasets import Dataset, DatasetDict
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
-from larry.common.config.data.preprocessing.pruner_configs import ColumnValuesPrunerConfig, PrunerConfig
+from larry.common.config.data.preprocessing.pruner_configs import (
+    ColumnValuesPrunerConfig,
+    MatchOpConfig,
+    PrunerConfig,
+    RangeOpConfig,
+)
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 
 
@@ -92,7 +97,7 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
         return any(results)
 
     @classmethod
-    def op_matches(cls, op_config: dict[str, Any], example: Any) -> bool:
+    def op_matches(cls, op_config: MatchOpConfig, example: Any) -> bool:
         """Whether this example's value in a single column matches the operation's configured values.
 
         Other configuration included in ``self.config.op_config`` is used to tune the matching behavior.
@@ -101,10 +106,10 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
         if example is None:
             return False
 
-        containing: bool = op_config.get("containing", False)
-        case_sensitive: bool = op_config.get("case_sensitive", True)
-        strip: bool = op_config.get("strip", True)
-        values: list[Any | None] = op_config.get("values", [])
+        containing = op_config.containing
+        case_sensitive = op_config.case_sensitive
+        strip = op_config.strip
+        values = op_config.values
 
         example_str = str(example)
 
@@ -129,7 +134,7 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
         return False
 
     @classmethod
-    def op_nmatches(cls, op_config: dict[str, Any], example: Any) -> bool:
+    def op_nmatches(cls, op_config: MatchOpConfig, example: Any) -> bool:
         """Inverts ``op_matches``, except for null examples which still get pruned."""
         if example is None:
             return False
@@ -137,7 +142,7 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
         return not cls.op_matches(op_config, example)
 
     @classmethod
-    def op_in_range(cls, op_config: dict[str, Any], example: Any) -> bool:
+    def op_in_range(cls, op_config: RangeOpConfig, example: Any) -> bool:
         """Tests that a number value is within a max and min value range, unbounded if either is null.
 
         If example is None, returns False in order to prune it, overriding the default ``prune_nulls`` configuration.
@@ -145,15 +150,15 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
         if example is None:
             return False
 
-        min_value: float | None = op_config.get("min_value")
-        max_value: float | None = op_config.get("max_value")
+        min_value = op_config.min_value
+        max_value = op_config.max_value
 
         if min_value is not None and example <= min_value:
             return False
         return not (max_value is not None and example >= max_value)
 
     @classmethod
-    def op_nin_range(cls, op_config: dict[str, Any], example: Any) -> bool:
+    def op_nin_range(cls, op_config: RangeOpConfig, example: Any) -> bool:
         """Inverts ``op_in_range``, except when example is None, which still returns False."""
         if example is None:
             return False

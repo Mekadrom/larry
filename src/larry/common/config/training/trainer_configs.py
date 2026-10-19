@@ -1,22 +1,16 @@
 import dataclasses
-import functools
 from abc import ABC
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, Literal
 
+from larry.common.config.config import TaggedConfig
 from larry.common.config.data.data_configs import DatasetMixtureConfig
-from larry.common.utils.registrable import Registrable
-from larry.common.utils.types import TypeRegistry
 
 
 @dataclasses.dataclass(kw_only=True)
-class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](
-    Registrable, ABC, root=True
-):
+class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](TaggedConfig, ABC):
     """Superclass config for all ``TrainerBase`` and ``LarryTrainer`` implementations."""
 
-    REGISTRY: ClassVar[TypeRegistry[LarryTrainerConfig]]
-
-    dataset_config: dict[str, Any] = dataclasses.field(default_factory=dict)
+    mixture_config: M
 
     mixed_precision: Literal["bf16", "fp16", "no"] = "bf16"
     gradient_accumulation: int = 1
@@ -52,14 +46,3 @@ class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](
     warmup_steps: int = 0
     lr_scheduler_name: Literal["constant", "cosine"] = "constant"
     decay_start_step: int | None = None
-
-    @classmethod
-    def mixture_config_type(cls) -> type[M]:
-        """The concrete mixture config class that ``dataset_config`` is parsed into."""
-        # noinspection PyTypeHints
-        return cast("type[M]", DatasetMixtureConfig)
-
-    @functools.cached_property
-    def mixture_config(self) -> M:
-        """Converts the raw dictionary config from yaml to a nested structure of config dataclasses."""
-        return self.mixture_config_type().from_dict(self.dataset_config)

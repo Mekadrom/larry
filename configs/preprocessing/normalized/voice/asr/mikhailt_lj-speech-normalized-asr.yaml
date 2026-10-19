@@ -1,40 +1,33 @@
 preprocessor:
-  inputs:
-    provenance:
-      id_columns:
-        - id
-
+  provenance:
+    id_columns:
+    - id
 dataset:
-  config: DefaultDatasetConfig
-  overrides:
-    path: MikhailT/lj-speech
-    name: ~
-    split: full
-    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
-
+  type: DefaultDatasetConfig
+  path: MikhailT/lj-speech
+  name: ~
+  split: full
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
 pipeline:
-  - name: ColumnCastingPreprocessor
-    config: ColumnCastingPreprocessorConfig
-    inputs:
-      column_casts:
-        audio: "audio_no_decode"
-        spoken_text: ~
-  - name: ColumnRenamingPreprocessor
-    config: ColumnRenamingPreprocessorConfig
-    inputs:
-      column_name_mappings:
-        normalized_text: text_original
-        file: id
-  - name: AudioDurationMapper
-    config: AudioDurationMapperConfig
-  - name: AudioDurationColumnPruner
-    config: AudioDurationColumnPrunerConfig
-  - name: AudioQualityPruner
-    config: AudioQualityPrunerConfigForASR
-  - name: CTCScoreMapper
-    config: CTCScoreMapperConfig
-    inputs:
-      num_proc: 4
-      text_column: text_original
-  - name: ColumnValuesPruner
-    config: ASRCTCMismatchColumnValuesPrunerConfig
+  skip_audio_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      audio: audio_no_decode
+      spoken_text: ~
+  rename_columns:
+    type: ColumnRenamingPreprocessorConfig
+    column_name_mappings:
+      normalized_text: text_original
+      file: id
+  measure_duration:
+    type: AudioDurationMapperConfig
+  prune_duration:
+    type: AudioDurationColumnPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForASR
+  score_ctc_mismatch:
+    type: CTCScoreMapperConfig
+    num_proc: 4
+    text_column: text_original
+  prune_ctc_mismatch:
+    type: ASRCTCMismatchColumnValuesPrunerConfig

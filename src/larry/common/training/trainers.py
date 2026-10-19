@@ -24,6 +24,7 @@ from tqdm import tqdm
 from larry.common.config.data.data_configs import DatasetSourceConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
+from larry.common.config.values import RunRecord
 from larry.common.criteria import criterion
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset, load_index
 from larry.common.data.dataloading.samplers import ResumableBatchSampler
@@ -74,7 +75,7 @@ class TrainerBase[
 M: LarryModel,
 C: LarryTrainerConfig[Any] = LarryTrainerConfig[Any],
 D: Dataset = Dataset,
-](Registrable, ABC, root=True):
+](Registrable, ABC, root=True, config_root=LarryTrainerConfig):
     """Superclass for all trainers."""
 
     REGISTRY: ClassVar[TypeRegistry[TrainerBase]]
@@ -228,11 +229,11 @@ D: Dataset = Dataset,
                     "adjust_lr_fn": "match_rms_adamw", **self._optimizer_kwargs(), **self.config.optimizer_config
                 }))
             if other_params:
-                optimizers.append(AdamW(other_params, betas=self._adamw_betas(), **self._optimizer_kwargs()))
+                optimizers.append(AdamW(other_params, betas=self.config.adamw_betas, **self._optimizer_kwargs()))
             return optimizers
         elif self.config.optimizer_name == "adamw":
             return [AdamW([p for _, p in trainable], **{
-                "betas": self._adamw_betas(), **self._optimizer_kwargs(), **self.config.optimizer_config
+                "betas": self.config.adamw_betas, **self._optimizer_kwargs(), **self.config.optimizer_config
             })]
         raise ValueError(f"Unrecognized optimizer: {self.config.optimizer_name}")
 
@@ -242,10 +243,6 @@ D: Dataset = Dataset,
             lr=self.config.lr,
             weight_decay=self.config.weight_decay
         )
-
-    def _adamw_betas(self) -> tuple[float, float]:
-        beta1, beta2 = self.config.adamw_betas
-        return float(beta1), float(beta2)
 
     def lr_factor(self, step: int) -> float:
         """The LR multiplier at an optimizer step: linear warmup, then constant or cosine decay to ``min_lr``.
@@ -591,11 +588,11 @@ D: Dataset = Dataset,
     def _compile_and_save_provenance(self) -> None:
         """Saves a separate json file that records the sources of this saved dataset."""
         self.provenance.populate_mutables()
-        (Path(self.metrics.log_dir).expanduser().resolve() / "provenance.json").write_text(json.dumps(
-            dataclasses.asdict(self.provenance),
-            default=list,
-            indent="\t"
-        ))
+        run_dir = Path(self.metrics.log_dir).expanduser().resolve()
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "provenance.json").write_text(json.dumps(self.provenance.to_dict(), indent="\t"))
+        if self.provenance.config is not None and self.provenance.cli is not None:
+            RunRecord(config=self.provenance.config, cli=self.provenance.cli).write(run_dir)
 
 
 class LarryTrainer[

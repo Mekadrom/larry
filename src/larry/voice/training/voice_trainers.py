@@ -25,7 +25,7 @@ from larry.common.metrics.metrics import MetricDict, ScalarMetricEntry
 from larry.common.model.model import LarryModelOutput
 from larry.common.training.trainers import LarryTrainer, StepOutput, VizCallback
 from larry.text.tokenizer.text_tokenizer import SentencePieceTokenizer, TextTokenizer
-from larry.voice.config.criterion.voice_criterion_configs import CTCCriterionConfig, SpeechDecoderCriterionConfig
+from larry.voice.config.criterion.voice_criterion_configs import CTCCriterionConfig
 from larry.voice.config.data.voice_data_configs import ASRSourceConfig, SpeechSourceConfig, TTSSourceConfig
 from larry.voice.config.model.voice_model_configs import (
     SpeechDecoderModelConfig,
@@ -119,7 +119,7 @@ O: LarryModelOutput = LarryModelOutput,
         if self.model_config.sample_rate != self.config.mixture_config.sample_rate:
             raise ValueError(
                 f"sample_rates do not match: model_config={self.model_config.sample_rate}, "
-                f"dataset_config={self.config.mixture_config.sample_rate}"
+                f"mixture_config={self.config.mixture_config.sample_rate}"
             )
         return super().make_dataset_dict()
 
@@ -238,7 +238,7 @@ class SpeechEncoderTrainer(
     def add_training_callbacks(self) -> None:
         """Adds the default training callbacks as well as an infrequent callback for training speaker leakage probes."""
         super().add_training_callbacks()
-        probes_config = self.config.speaker_leakage_probes_config
+        probes_config = self.config.speaker_leakage_probes
         if probes_config is not None:
             self.training_callbacks.append(voice_callbacks.SpeakerLeakageProbesCallback(self, probes_config))
 
@@ -442,7 +442,7 @@ class SpeechDecoderTrainer(
         return SpeechDecoderCollator()
 
     def make_criterion(self) -> criterion.Criterion:
-        return SpeechDecoderCriterion(SpeechDecoderCriterionConfig(**self.config.criterion_config_overrides))
+        return SpeechDecoderCriterion(self.config.criterion)
 
     def make_viz_callback(self, viz_steps: int) -> VizCallback:
         return voice_viz_callbacks.SpeechDecoderVizCallback(self, viz_steps)

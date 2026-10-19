@@ -1,15 +1,12 @@
 import dataclasses
-from typing import ClassVar
 
-from larry.common.utils.registrable import Registrable
-from larry.common.utils.types import TypeRegistry
+from larry.common.config.config import Config
 
 
 @dataclasses.dataclass(kw_only=True)
-class CriterionConfig(Registrable, root=True):
+class CriterionConfig(Config):
     """Superclass for all criterion configs."""
 
-    REGISTRY: ClassVar[TypeRegistry[CriterionConfig]]
 
 
 @dataclasses.dataclass(kw_only=True)

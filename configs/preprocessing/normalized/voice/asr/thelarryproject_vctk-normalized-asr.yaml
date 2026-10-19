@@ -1,43 +1,36 @@
 preprocessor:
-  inputs:
-    provenance:
-      id_columns:
-        - id
-
+  provenance:
+    id_columns:
+    - id
 dataset:
-  config: DefaultDatasetConfig
-  overrides:
-    path: thelarryproject/vctk
-    name: ~
-    split: train
-    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
-
+  type: DefaultDatasetConfig
+  path: thelarryproject/vctk
+  name: ~
+  split: train
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
 pipeline:
-  - name: ColumnCastingPreprocessor
-    config: ColumnCastingPreprocessorConfig
-    inputs:
-      column_casts:
-        audio: "audio_no_decode"
-  - name: ColumnValuesPruner
-    config: ColumnValuesPrunerConfig
-    inputs:
-      input_columns:
-        - mic_id
-      op: matches
-      op_config:
-        values:
-          - mic1
-        containing: true
-        strip: true
-        case_sensitive: false
-  - name: AudioDurationColumnPruner
-    config: AudioDurationColumnPrunerConfig
-  - name: ColumnValuesPruner
-    config: ASRCTCMismatchColumnValuesPrunerConfig
-  - name: AudioQualityPruner
-    config: AudioQualityPrunerConfigForASR
-  - name: SpeakerValidationSplittingPreprocessor
-    config: SpeakerValidationSplittingPreprocessorConfig
-    inputs:
-      mode: random
-      validation_percent: 5
+  skip_audio_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      audio: audio_no_decode
+  keep_mic1:
+    type: ColumnValuesPrunerConfig
+    input_columns:
+    - mic_id
+    op: matches
+    op_config:
+      values:
+      - mic1
+      containing: true
+      strip: true
+      case_sensitive: false
+  prune_duration:
+    type: AudioDurationColumnPrunerConfig
+  prune_ctc_mismatch:
+    type: ASRCTCMismatchColumnValuesPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForASR
+  split_validation_speakers:
+    type: SpeakerValidationSplittingPreprocessorConfig
+    mode: random
+    validation_percent: 5

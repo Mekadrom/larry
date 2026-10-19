@@ -2,25 +2,12 @@ import logging
 import os
 import random
 import sys
-from pathlib import Path
-from typing import Any
 
 import numpy as np
 import torch
-import yaml
 from transformers import set_seed as hf_set_seed
 
 log = logging.getLogger(__name__)
-
-
-def load_yaml_dict(yaml_file: Path) -> dict[str, Any]:
-    """Loads a yaml file to a dictionary."""
-    with open(yaml_file) as stream:
-        try:
-            return yaml.safe_load(stream)
-        except:
-            log.exception(f"Error loading config file {yaml_file}:")
-            raise
 
 
 def set_seed_everywhere(seed: int) -> None:

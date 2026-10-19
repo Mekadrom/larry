@@ -86,26 +86,19 @@ def test_main_reads_sources_and_vocabulary_from_a_training_config(
     source = _write_source(tmp_path, "a", [(line, 3.0) for line in ALPHABET_LINES] * 20)
     config_file = tmp_path / "train.yaml"
     config_file.write_text(yaml.safe_dump({
-        "model": {
-            "name": "SpeechEncoderModel",
-            "config": "SpeechEncoderModelConfig",
-            "overrides": {"text_vocab_size": 40},
-        },
+        "model": {"type": "SpeechEncoderModelConfig", "text_vocab_size": 40},
         "trainer": {
-            "name": "SpeechEncoderTrainer",
-            "config": "SpeechEncoderTrainerConfig",
-            "overrides": {
-                "max_steps": 1,
-                "tokenizer_model_path": str(tmp_path / "tok" / "sp.model"),
-                "speaker_mapping_path": str(tmp_path / "speakers.csv"),
-                "dataset_config": {
-                    "train_sources": [{"name": source.name, "index_path": source.index_path}],
-                    "eval_sources": [],
-                },
+            "type": "SpeechEncoderTrainerConfig",
+            "max_steps": 1,
+            "tokenizer_model_path": str(tmp_path / "tok" / "sp.model"),
+            "speaker_mapping_path": str(tmp_path / "speakers.csv"),
+            "mixture_config": {
+                "train_sources": {source.name: {"index_path": source.index_path}},
+                "eval_sources": {},
             },
         },
     }))
-    monkeypatch.setattr(sys, "argv", ["tokenizer-training", "--config_file", str(config_file)])
+    monkeypatch.setattr(sys, "argv", ["tokenizer-training", "-f", str(config_file), "--allow_dirty"])
 
     tokenizer_training.main()
 

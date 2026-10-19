@@ -34,7 +34,7 @@ class GenerativeModel[I, O: GenerationOutput](ABC):
         ...
 
 
-class LarryModel[C: ModelConfig = ModelConfig](nn.Module, Registrable, ABC, root=True):
+class LarryModel[C: ModelConfig = ModelConfig](nn.Module, Registrable, ABC, root=True, config_root=ModelConfig):
     """Superclass for most models in this project that need a config and device."""
 
     REGISTRY: ClassVar[TypeRegistry[LarryModel]]

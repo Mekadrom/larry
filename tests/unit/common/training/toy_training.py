@@ -8,6 +8,7 @@ from torch import nn
 from torch.utils.data import Sampler
 
 from larry.common.config.criteria.criterion_configs import CriterionConfig
+from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.model.model_configs import ModelConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
@@ -82,6 +83,7 @@ def toy_config(**overrides: Any) -> ToyTrainerConfig:
         "logging_steps": 1000,
         "optimizer_name": "adamw",
         "seed": 5,
+        "mixture_config": DatasetMixtureConfig(),
         **overrides,
     })
 

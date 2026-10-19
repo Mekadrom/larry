@@ -6,6 +6,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, Subset
 
+from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.voice.config.training.voice_trainer_configs import SpeakerLeakageProbesConfig, SpeechEncoderTrainerConfig
 from larry.voice.model.speech_encoder import SpeechEncoderModel
 from larry.voice.training.voice_callbacks import PooledActivations, SpeakerLeakageProbesCallback
@@ -356,17 +357,17 @@ def test_steps_off_the_schedule_and_non_main_processes_do_nothing() -> None:
     assert callback.loader is None
 
 
-def test_trainer_config_builds_the_probes_config_from_overrides() -> None:
-    config = SpeechEncoderTrainerConfig(
-        max_steps=1, tokenizer_model_path="t", speaker_mapping_path="s",
-        speaker_leakage_steps=500, speaker_leakage_probes_callback_overrides={"train_epochs": 7, "layers": ["fsq"]},
-    )
-    disabled = SpeechEncoderTrainerConfig(max_steps=1, tokenizer_model_path="t", speaker_mapping_path="s")
+def test_trainer_config_reads_the_nested_probes_config() -> None:
+    def trainer_config(**fields: object) -> LarryTrainerConfig:
+        return LarryTrainerConfig.from_dict({
+            "type": "SpeechEncoderTrainerConfig", "max_steps": 1, "tokenizer_model_path": "t",
+            "speaker_mapping_path": "s", "mixture_config": {}, **fields,
+        })
 
-    assert config.speaker_leakage_probes_config == SpeakerLeakageProbesConfig(
-        probe_every=500, train_epochs=7, layers=["fsq"]
-    )
-    assert disabled.speaker_leakage_probes_config is None
+    config = trainer_config(speaker_leakage_probes={"probe_every": 500, "train_epochs": 7, "layers": ["fsq"]})
+
+    assert config.speaker_leakage_probes == SpeakerLeakageProbesConfig(probe_every=500, train_epochs=7, layers=["fsq"])
+    assert trainer_config().speaker_leakage_probes is None
 
 
 def test_default_layers_exist_in_the_speech_tokenizer_and_output_sequences() -> None:

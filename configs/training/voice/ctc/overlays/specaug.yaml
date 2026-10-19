@@ -1,0 +1,5 @@
+model:
+  n_spec_freq_masks:
+    $delete: true
+  n_spec_time_masks:
+    $delete: true

@@ -7,7 +7,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from accelerate.state import AcceleratorState
 
-from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.utils.init_helpers import import_submodules
 
 
@@ -21,7 +21,7 @@ def import_larry_submodules() -> None:
 
 
 def provenance() -> Provenance:
-    return Provenance.new_provenance({}, ProvenanceAncestry.from_dict({}))
+    return Provenance()
 
 
 def reset_accelerate_state() -> None:

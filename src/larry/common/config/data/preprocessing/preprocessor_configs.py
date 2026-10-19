@@ -1,15 +1,13 @@
 import dataclasses
-from typing import ClassVar
 
-from larry.common.utils.registrable import Registrable
-from larry.common.utils.types import TypeRegistry
+from larry.common.config.config import Config, TaggedConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class PreprocessorConfig(Registrable, root=True):
+class PreprocessorConfig(TaggedConfig):
     """Superclass for configs for any step in a preprocessing pipeline for datasets."""
 
-    REGISTRY: ClassVar[TypeRegistry[PreprocessorConfig]]
+    name: str = ""
 
     batch_size: int = 1000
     writer_batch_size: int = 1000
@@ -25,6 +23,12 @@ class RemoveColumnsPreprocessorConfig(PreprocessorConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
+class JsonPathMapping(Config):
+    json_path: str
+    output_column: str
+
+
+@dataclasses.dataclass(kw_only=True)
 class NestedExtractionPreprocessorConfig(PreprocessorConfig):
     """Config for the ``NestedExtractionPreprocessor``, allowing configuration of json queries for extracted data.
 
@@ -33,21 +37,21 @@ class NestedExtractionPreprocessorConfig(PreprocessorConfig):
 
     input_column: str
     remove_columns: list[str] = dataclasses.field(default_factory=list)
-    json_path_to_output_column_mappings: list[dict[str, str]] = dataclasses.field(default_factory=list)
+    json_path_mappings: list[JsonPathMapping] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(kw_only=True)
 class ColumnCastingPreprocessorConfig(PreprocessorConfig):
     """Config for the ``ColumnCastingPreprocessor``, allowing configuration of column cast mappings."""
 
-    column_casts: dict[str, str] = dataclasses.field(default_factory=dict)
+    column_casts: dict[str, str | None] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(kw_only=True)
 class ColumnRenamingPreprocessorConfig(PreprocessorConfig):
     """Config for the ``ColumnRenamingPreprocessor``, allowing configuration of column name mappings."""
 
-    column_name_mappings: dict[str, str] = dataclasses.field(default_factory=dict)
+    column_name_mappings: dict[str, str | None] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(kw_only=True)

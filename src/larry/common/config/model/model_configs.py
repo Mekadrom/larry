@@ -1,19 +1,16 @@
 import dataclasses
-from typing import ClassVar, Literal, Self
+from typing import Literal, Self
 
-from larry.common.utils.registrable import Registrable
-from larry.common.utils.types import TypeRegistry
+from larry.common.config.config import TaggedConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class ModelConfig(Registrable, root=True):
+class ModelConfig(TaggedConfig):
     """Superclass for configs for ``LarryModel`` implementations.
 
     Includes configuration for a maximum sequence length (since all ``LarryModel`` implementations work on sequential,
     varying length data) and a base d_model.
     """
-
-    REGISTRY: ClassVar[TypeRegistry[ModelConfig]]
 
     d_model: int = 16
 
@@ -45,13 +42,7 @@ class AttentionModuleConfig(ModelConfig):
 
         Uses the applicable values from an instance of a subclass of ``AttentionModuleConfig`` to override defaults.
         """
-        config_dict = dataclasses.asdict(config)
-        dummy = dataclasses.asdict(cls())
-        return cls(**{
-            k: config_dict.get(k, v)
-            for k, v in dummy.items()
-            if k in config_dict
-        })
+        return cls(**{f.name: getattr(config, f.name) for f in dataclasses.fields(cls) if hasattr(config, f.name)})
 
 
 @dataclasses.dataclass(kw_only=True)

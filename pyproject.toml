@@ -22,7 +22,6 @@ dependencies = [
     "wandb>=0.30.0",
     "trl>=1.14.1",
     "rotary-embedding-torch>=0.9.1",
-    "dacite>=1.9.2",
     "tensorboard>=2.21.0",
     "pandas>=3.0.6",
     "gitpython>=3.2.0",
@@ -32,6 +31,7 @@ dependencies = [
     "sentencepiece>=0.2.2",
     "rapidfuzz>=3.14.6",
     "accelerate>=1.15.0",
+    "mashumaro>=3.23",
 ]
 
 [[tool.uv.index]]

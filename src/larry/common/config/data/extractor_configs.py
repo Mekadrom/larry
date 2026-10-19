@@ -1,9 +1,11 @@
 import dataclasses
 import logging
 
+from larry.common.config.config import Config
+
 
 @dataclasses.dataclass(kw_only=True)
-class ExtractorConfig:
+class ExtractorConfig(Config):
     """Superclass for all configs for ``Extractor`` implementations."""
 
     ...

@@ -2,28 +2,24 @@ import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
-from datasets import Audio, Image, Split
+from datasets import Audio, Image
 
+from larry.common.config.config import TaggedConfig
 from larry.common.config.data.downloader_configs import DownloaderConfig
 from larry.common.config.data.extractor_configs import ExtractorConfig
-from larry.common.utils.registrable import Registrable
-from larry.common.utils.types import TypeRegistry
 
 
 @dataclasses.dataclass(kw_only=True)
-class DatasetConfig(Registrable, root=True):
+class DatasetConfig(TaggedConfig):
     """Superclass for configs for all dataset providers for preprocessing pipelines only."""
 
-    REGISTRY: ClassVar[TypeRegistry[DatasetConfig]]
-
-    provider_name: str = "HuggingFaceDatasetProvider"
     path: str
     name: str | None = None
     data_dir: str | None = None
     data_files: str | Sequence[str] | Mapping[str, str | Sequence[str]] | None = None
-    split: str | Split | list[str] | list[Split] | None = "train"
+    split: str | list[str] | None = "train"
     cache_dir: str | Path | None = None
     keep_in_memory: bool | None = None
     streaming: bool = False
@@ -45,7 +41,7 @@ class CachedDatasetConfig(DatasetConfig, ABC):
     """
 
     path: str = "parquet"
-    split: str | Split | list[str] | list[Split] | None = None
+    split: str | list[str] | None = None
 
     download_extract_cache_dir: str
 

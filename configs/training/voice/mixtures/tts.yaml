@@ -1,0 +1,60 @@
+trainer:
+  mixture_config:
+    sample_rate: 16000
+    max_batch_seconds: 900
+    pool_size: 30000
+    train_sources:
+      scotus:
+        index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/thelarryproject_scotus-index-tts/
+        source_path: thelarryproject/scotus
+        split: train
+        weight: 0.25
+      vctk:
+        index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/thelarryproject_vctk-normalized-tts/
+        split: train
+        weight: 0.02
+      cv27:
+        index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mozilla-foundation_cv27-index-tts/
+        split: train
+        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/mozilla-foundation_cv27-normalized/
+        weight: 0.25
+      hifi-tts-all:
+        index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/mikhailt_hifi-tts-all-normalized-tts/
+        split: train.clean+train.other
+        weight: 0.03
+      lj-speech:
+        index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/mikhailt_lj-speech-normalized-tts/
+        weight: 0.01
+        speaker_id_column: ~
+      libriheavy-large-index:
+        index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mythicinfinity_libriheavy-large-index-tts/
+        source_path: mythicinfinity/libriheavy
+        source_cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/mythicinfinity_libriheavy-large-index-tts/
+        source_name: large
+        source_split: train
+        weight: 0.44
+    eval_sources:
+      scotus:
+        index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/thelarryproject_scotus-index-tts/
+        source_path: thelarryproject/scotus
+        split: validation
+      vctk:
+        index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/thelarryproject_vctk-normalized-tts/
+        split: validation
+      cv27:
+        index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mozilla-foundation_cv27-index-tts/
+        split: validation
+        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/mozilla-foundation_cv27-normalized/
+        source_split: dev
+      hifi-tts-all:
+        index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-tts/
+        split: dev.clean+dev.other
+      librispeech-asr:
+        index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/openslr_librispeech-asr-index-tts-validation/
+        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/openslr_librispeech-asr-normalized-validation/
+      libriheavy-test-clean-large:
+        index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/mythicinfinity_libriheavy-test_clean_large-normalized-tts/
+        speaker_namespace: libriheavy-large-index
+      libriheavy-test-other-large:
+        index_path: /home/zadar/.cache/larry/datasets/normalized/voice/tts/mythicinfinity_libriheavy-test_other_large-normalized-tts/
+        speaker_namespace: libriheavy-large-index

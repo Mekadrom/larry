@@ -55,6 +55,8 @@ _SYMBOL = {
 _ROMAN = re.compile(r"(X{0,3})(IX|IV|V?I{0,3})")
 _ROMAN_HEAD = re.compile(r"^([IVX]+)(?![A-Za-z])(.*)$")
 _ROMAN_TRIGGERS = {"ARTICLE", "TITLE", "WAR", "SCHEDULE", "PHASE"}
+_ROMAN_LIST_CONNECTORS = {"OR", "AND", "&"}
+_ROMAN_LIST_SEPARATORS = (",", ";")
 _ROMAN_VALUES = {"I": 1, "V": 5, "X": 10}
 
 _ABBREVIATIONS_NO_PERIOD = {"MR", "MRS", "V"}
@@ -239,6 +241,43 @@ class TextNormalizer:
                 piece_options.append([[word]])
 
         return self._combine(piece_options)
+
+    def normalize_in_context(self, tokens: list[str], index: int) -> list[list[str]]:
+        context = self.context_token(tokens, index)
+        readings = self.normalize_token(tokens[index], context)
+        carried = index > 0 and context is not tokens[index - 1]
+        if carried and tokens[index].strip(".,;:!?()\"'") == "I" and ["I"] not in readings:
+            readings = [["I"], *readings]
+        return readings
+
+    def context_token(self, tokens: list[str], index: int) -> str | None:
+        if index == 0:
+            return None
+
+        j = index - 1
+        if not self._continues_roman_list(tokens, j):
+            return tokens[j]
+
+        while j >= 0 and self._continues_roman_list(tokens, j):
+            j -= 1
+        return tokens[j] if j >= 0 else None
+
+    def _continues_roman_list(self, tokens: list[str], j: int) -> bool:
+        core = tokens[j].strip(".,;:!?()\"'")
+        if core.upper() in _ROMAN_LIST_CONNECTORS:
+            return True
+
+        if not self._is_roman(core):
+            return False
+
+        followed_by_connector = (
+            j + 1 < len(tokens) and tokens[j + 1].strip(".,;:!?()\"'").upper() in _ROMAN_LIST_CONNECTORS
+        )
+        return tokens[j].rstrip(")\"'").endswith(_ROMAN_LIST_SEPARATORS) or followed_by_connector
+
+    @staticmethod
+    def _is_roman(core: str) -> bool:
+        return bool(core) and _ROMAN.fullmatch(core) is not None
 
     def _abbreviation_readings(self, token: str) -> list[list[str]] | None:
         """Returns all potential readings for a provided abbreviation token."""

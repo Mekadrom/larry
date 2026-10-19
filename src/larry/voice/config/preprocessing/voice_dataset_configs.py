@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Sequence
 from typing import Any
 
-from datasets import Audio, Image
+from datasets import Audio
 
 from larry.common.config.data.downloader_configs import DownloaderConfig, SingleFileDownloaderConfig
 from larry.common.config.data.extractor_configs import ExtractorConfig, SingleFileExtractorConfig
@@ -31,8 +31,6 @@ class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
     archive_file: str = "downloaded.tar.gz"
     archive_root: str = "cv-corpus-27.0-2026-09-11/en"
 
-    provider_name: str = "CommonVoiceMediaCachedDatasetProvider"
-
     def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
         """No download can be done automatically.
 
@@ -56,7 +54,7 @@ class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
     ))
 
     media_dir: str = ""
-    media_type: Audio | Image = dataclasses.field(default_factory=lambda: Audio(decode=False))
+    media_type: Audio = dataclasses.field(default_factory=lambda: Audio(decode=False))
     media_column: str = "audio"
 
     def __post_init__(self) -> None:
@@ -70,7 +68,6 @@ class SCOTUSManifestCachedDatasetConfig(CachedDatasetConfig, VoiceDatasetConfig)
 
     path: str = "parquet"
     base_url: str = "https://www.supremecourt.gov/"
-    provider_name: str = "SCOTUSManifestCachedDatasetProvider"
 
     term_manifest_file_name: str = "term_manifest.tsv"
     docket_manifest_file_name: str = "docket_manifest.tsv"
@@ -118,8 +115,6 @@ class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConf
     archive_root: str = "wav48_silence_trimmed"
     manifest_file_name: str = "vctk_manifest.tsv"
 
-    provider_name: str = "VCTKCachedDatasetProvider"
-
     download_extract_file_type: str = "csv"
     download_extract_transform_kwargs: dict[str, Any] = dataclasses.field(default_factory=lambda: dict(
         delimiter="\t",
@@ -150,7 +145,7 @@ class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConf
         ]
 
     media_dir: str = ""
-    media_type: Audio | Image = dataclasses.field(default_factory=lambda: Audio(decode=False))
+    media_type: Audio = dataclasses.field(default_factory=lambda: Audio(decode=False))
     media_column: str = "audio"
 
     def __post_init__(self) -> None:

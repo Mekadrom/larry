@@ -2,8 +2,11 @@ import argparse
 import logging
 from pathlib import Path
 
+from larry.common.config.training.definition import TrainingDefinition
+from larry.common.config.values import ConfigValues, WorkingTree
 from larry.common.training.training_run import TrainingRun
 from larry.common.utils import reexec_with_hash_seed, set_seed_everywhere
+from larry.common.utils.init_helpers import import_submodules
 
 log = logging.getLogger(__name__)
 
@@ -16,12 +19,7 @@ def main() -> None:
                     "per-task.",
     )
 
-    argparser.add_argument(
-        "--config_file",
-        type=Path,
-        required=True,
-        help="A path specifying the config_file.yaml to use for this preprocessing run."
-    )
+    ConfigValues.add_arguments(argparser)
 
     argparser.add_argument(
         "--logdir",
@@ -55,10 +53,12 @@ def main() -> None:
 
     args = argparser.parse_args()
     reexec_with_hash_seed(args.seed)
+    WorkingTree.ensure_clean(args.allow_dirty)
 
-    config_file = Path(args.config_file).expanduser().resolve()
+    import_submodules("larry")
+    definition = ConfigValues.from_args(args).load(TrainingDefinition)
     run_dir = Path(args.logdir).expanduser().resolve() / args.run_name
 
     set_seed_everywhere(args.seed)
 
-    TrainingRun(config_file, run_dir, resume_dir=args.resume_dir).run()
+    TrainingRun(definition, run_dir, resume_dir=args.resume_dir).run()

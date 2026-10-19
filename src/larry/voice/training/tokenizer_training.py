@@ -11,9 +11,9 @@ import pyarrow.parquet as pq
 import sentencepiece
 
 from larry.common.config.data.data_configs import DatasetMixtureConfig
-from larry.common.config.training import build_model_config, build_trainer_config
+from larry.common.config.training.definition import TrainingDefinition
+from larry.common.config.values import ConfigValues, WorkingTree
 from larry.common.data.dataloading.indexed_dataset import index_split_files
-from larry.common.utils import load_yaml_dict
 from larry.common.utils.init_helpers import import_submodules
 from larry.voice.config.data.voice_data_configs import ASRSourceConfig
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
@@ -127,12 +127,7 @@ def main() -> None:
         description="Trains the SentencePiece text tokenizer for a speech tokenizer training config, weighting each "
                     "train source's transcripts by its mixture weight.",
     )
-    argparser.add_argument(
-        "--config_file",
-        type=Path,
-        required=True,
-        help="The training config.yaml whose train_sources and model text_vocab_size to use.",
-    )
+    ConfigValues.add_arguments(argparser)
     argparser.add_argument(
         "--output_prefix",
         type=Path,
@@ -142,9 +137,10 @@ def main() -> None:
     )
     args = argparser.parse_args()
 
-    definition = load_yaml_dict(Path(args.config_file).expanduser().resolve())
-    trainer_config = build_trainer_config(definition.get("trainer", {}))
-    model_config = build_model_config(definition.get("model", {}))
+    WorkingTree.ensure_clean(args.allow_dirty)
+    definition = ConfigValues.from_args(args).load(TrainingDefinition)
+    trainer_config = definition.trainer
+    model_config = definition.model
 
     if not isinstance(trainer_config, SpeechEncoderTrainerConfig):
         raise TypeError(f"expected a SpeechTokenizerTrainerConfig, got {type(trainer_config).__name__}")

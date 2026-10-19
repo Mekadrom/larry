@@ -4,11 +4,14 @@ from typing import Any
 
 import pytest
 import torch
+import yaml
 
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
+from larry.common.config.values import RunRecord
 from larry.common.training.trainers import StepOutput
 from tests.helpers.common import reset_accelerate_state
-from tests.helpers.metrics import NullMetrics
-from tests.unit.common.training.toy_training import ToyTrainer, toy_trainer, train_toy
+from tests.helpers.metrics import NullMetrics, RecordingMetrics
+from tests.unit.common.training.toy_training import ToyModel, ToyTrainer, toy_config, toy_trainer, train_toy
 
 
 class EvalRecordingToyTrainer(ToyTrainer):
@@ -183,3 +186,22 @@ def test_frozen_params_are_left_out_of_the_optimizers(tmp_path: Path, optimizer_
     optimized = [p for o in trainer.optimizers for group in o.param_groups for p in group["params"]]
     assert len(optimized) == 1
     assert all(p.requires_grad for p in optimized)
+
+
+def test_a_run_records_its_rendered_config_and_cli_in_the_run_dir_and_metrics(tmp_path: Path) -> None:
+    metrics = RecordingMetrics(str(tmp_path))
+    trainer = ToyTrainer(
+        Provenance(config={"trainer": {"type": "ToyTrainerConfig"}}, cli="training -f toy.yaml"),
+        ToyModel(),
+        toy_config(max_steps=1),
+        metrics,
+    )
+
+    trainer.run()
+
+    assert yaml.safe_load((tmp_path / RunRecord.CONFIG_FILE).read_text()) == {"trainer": {"type": "ToyTrainerConfig"}}
+    assert (tmp_path / RunRecord.CLI_FILE).read_text() == "training -f toy.yaml\n"
+    logged = {tag: text for tag, text, _ in metrics.text}
+    assert "type: ToyTrainerConfig" in logged["run/config"]
+    assert "training -f toy.yaml" in logged["run/cli"]
+    assert "type: ToyTrainerConfig" in logged["run/trainer_config"]

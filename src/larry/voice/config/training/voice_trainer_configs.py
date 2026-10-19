@@ -1,14 +1,15 @@
 import dataclasses
-import functools
 from typing import Any
 
+from larry.common.config.config import Config
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
+from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig
 from larry.voice.config.data.voice_data_configs import ASRMixtureConfig, TTSMixtureConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeakerLeakageProbesConfig:
+class SpeakerLeakageProbesConfig(Config):
     """Config for ``SpeakerLeakageProbesCallback``: which activations to probe, how often, and probe training."""
 
     probe_every: int
@@ -38,54 +39,28 @@ class VoiceTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](La
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechEncoderDecoderTrainerConfig(VoiceTrainerConfig[ASRMixtureConfig]):
+class SpeechEncoderDecoderTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](VoiceTrainerConfig[M]):
     speaker_mapping_path: str
-
-    @classmethod
-    def mixture_config_type(cls) -> type[ASRMixtureConfig]:
-        """Needs overridden."""
-        raise NotImplementedError
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
+class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig[ASRMixtureConfig]):
     """Config for ``SpeechTokenizerTrainer`` to configure the training and eval dataset sources."""
 
     tokenizer_model_path: str
 
     speed_augment_factors: list[float] = dataclasses.field(default_factory=lambda: [1.0])
 
-    speaker_leakage_steps: int | None = None
-    speaker_leakage_probes_callback_overrides: dict[str, Any] = dataclasses.field(default_factory=dict)
+    speaker_leakage_probes: SpeakerLeakageProbesConfig | None = None
 
     ctc_layer_loss_weights: dict[str, float] = dataclasses.field(default_factory=lambda: {
         "encoder2_norm": 1.0,
     })
 
-    @functools.cached_property
-    def speaker_leakage_probes_config(self) -> SpeakerLeakageProbesConfig | None:
-        """Builds the probes callback config, or None when ``speaker_leakage_steps`` is unset."""
-        if not self.speaker_leakage_steps:
-            return None
-        return SpeakerLeakageProbesConfig(
-            probe_every=self.speaker_leakage_steps,
-            **self.speaker_leakage_probes_callback_overrides
-        )
-
-    @classmethod
-    def mixture_config_type(cls) -> type[ASRMixtureConfig]:
-        """Speech trainers parse ``dataset_config`` into a ``ASRMixtureConfig``."""
-        return ASRMixtureConfig
-
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechDecoderTrainerConfig(SpeechEncoderDecoderTrainerConfig):
+class SpeechDecoderTrainerConfig(SpeechEncoderDecoderTrainerConfig[TTSMixtureConfig]):
     """Config for ``SpeechDecoderTrainer``."""
 
     upsample: float = 4.0
-    criterion_config_overrides: dict[str, Any] = dataclasses.field(default_factory=dict)
-
-    @classmethod
-    def mixture_config_type(cls) -> type[TTSMixtureConfig]:
-        """Speech trainers parse ``dataset_config`` into a ``TTSMixtureConfig``."""
-        return TTSMixtureConfig
+    criterion: SpeechDecoderCriterionConfig = dataclasses.field(default_factory=SpeechDecoderCriterionConfig)

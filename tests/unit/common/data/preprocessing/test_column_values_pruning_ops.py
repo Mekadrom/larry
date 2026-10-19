@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from datasets import Dataset
 
-from larry.common.config.data.preprocessing.pruner_configs import ColumnValuesPrunerConfig
+from larry.common.config.data.preprocessing.pruner_configs import ColumnValuesPrunerConfig, MatchOpConfig
 from larry.common.data.preprocessing.pruners import ColumnValuesPruner
 from tests.helpers.common import provenance
 
@@ -28,7 +28,7 @@ BLANK = {"values": [None, ""]}
     ]
 )
 def test_op_in_returns_true(op_config: dict[str, Any], example: str) -> None:
-    assert ColumnValuesPruner.op_matches(op_config, example)
+    assert ColumnValuesPruner.op_matches(MatchOpConfig(**op_config), example)
 
 
 @pytest.mark.parametrize(
@@ -45,12 +45,12 @@ def test_op_in_returns_true(op_config: dict[str, Any], example: str) -> None:
     ]
 )
 def test_op_in_returns_false(op_config: dict[str, Any], example: str) -> None:
-    assert not ColumnValuesPruner.op_matches(op_config, example)
+    assert not ColumnValuesPruner.op_matches(MatchOpConfig(**op_config), example)
 
 
 def _pruned(column: str, values: list[str], op: str, op_config: dict[str, Any]) -> Counter[str]:
     config = ColumnValuesPrunerConfig(
-        input_columns=[column], op=op, op_config=op_config, cache_results=False, num_proc=1
+        input_columns=[column], op=op, op_config=MatchOpConfig(**op_config), cache_results=False, num_proc=1
     )
     dataset = ColumnValuesPruner(provenance(), config).preprocess_dataset(Dataset.from_dict({column: values}))
     return Counter(dataset[column])

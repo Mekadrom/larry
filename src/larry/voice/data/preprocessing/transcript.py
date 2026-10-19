@@ -149,8 +149,8 @@ class NormalizedTokens:
         """For each input token, uses the previous token to collect possible reading variations."""
         self.tokens = tokens
         self.readings = [
-            normalizer.normalize_token(token, prev_token)
-            for token, prev_token in zip(tokens, [None, *tokens][:len(tokens)], strict=True)
+            normalizer.normalize_in_context(tokens, i)
+            for i in range(len(tokens))
         ]
 
         self.choice = [0] * len(self.readings)

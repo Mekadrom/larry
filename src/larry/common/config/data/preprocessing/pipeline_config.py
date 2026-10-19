@@ -4,76 +4,39 @@ import logging
 import math
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
+from larry.common.config.config import Config
 from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
+from larry.common.config.named import NamedEntries
 from larry.common.data.dataset_providers import DatasetProvider
 from larry.common.data.preprocessing.preprocessors import Preprocessor
-from larry.common.utils import git_utils, load_yaml_dict
-
-log = logging.getLogger(__name__)
+from larry.common.utils import git_utils
 
 
 @dataclasses.dataclass(kw_only=True)
-class ProvenanceAncestry:
+class ProvenanceAncestry(Config):
     """Helper dataclass for storing provenance ancestry - immediate source datasets and models.
 
     Shared by preprocessing and training pipelines.
     """
 
-    datasets: set[str]
-    models: set[str]
-
-    @classmethod
-    def new_ancestry(cls, dictionary: dict[str, Any]) -> Self:
-        """Instantiates a new instance of ``ProvenanceAncestry`` using the provided ``dict``."""
-        datasets = dictionary.get("datasets", set())
-        models = dictionary.get("models", set())
-        return cls(datasets=datasets, models=models)
-
-    @classmethod
-    def from_dict(cls, a_dict: dict[str, Any]) -> Self:
-        """Creates a new ``ProvenanceAncestry`` instance using the provided dictionary as field values."""
-        datasets = a_dict.get("datasets")
-        if datasets is None:
-            datasets = set()
-
-        datasets = set(datasets)
-
-        models = a_dict.get("models")
-        if models is None:
-            models = set()
-
-        models = set(models)
-        return cls(datasets=datasets, models=models)
+    datasets: set[str] = dataclasses.field(default_factory=set)
+    models: set[str] = dataclasses.field(default_factory=set)
 
 
 @dataclasses.dataclass(kw_only=True)
-class Provenance:
+class Provenance(Config):
     """Helper dataclass for tracking the provenance of outputs of either preprocessing or training pipelines."""
 
-    id_columns: list[str]
-    ancestry: ProvenanceAncestry
+    id_columns: list[str] = dataclasses.field(default_factory=list)
+    ancestry: ProvenanceAncestry = dataclasses.field(default_factory=ProvenanceAncestry)
     produced_on: str | None = None
     git_commit: str | None = None
     git_is_dirty: bool | None = None
-
-    @classmethod
-    def new_provenance(cls, dictionary: dict[str, Any], ancestry: ProvenanceAncestry | None = None) -> Self:
-        """Instantiates a new instance of ``Provenance`` using the provided ``dict``. Takes an ancestry override."""
-        copy_dict = copy.deepcopy(dictionary)
-        if not ancestry:
-            ancestry = ProvenanceAncestry.from_dict(copy_dict.pop("ancestry", {}))
-        else:
-            copy_dict.pop("ancestry", None)
-
-        id_columns = copy_dict.get("id_columns", [])
-
-        return cls(
-            id_columns=id_columns,
-            ancestry=ancestry
-        )
+    cli: str | None = None
+    config: dict[str, Any] | None = None
 
     def populate_mutables(self) -> None:
         """Populates instantaneous information onto ``self``."""
@@ -89,14 +52,34 @@ class Provenance:
 
 
 @dataclasses.dataclass(kw_only=True)
-class PipelineConfig:
+class PipelineConfig(Config):
     """Superclass for configuring the entire pipeline."""
 
     parquet_size_mb: int = 500
     default_batch_size: int = 1000
     seed: int = 42
 
-    provenance: dict[str, Any] = dataclasses.field(default_factory=dict)
+    provenance: Provenance = dataclasses.field(default_factory=Provenance)
+
+
+@dataclasses.dataclass(kw_only=True)
+class PipelineDefinition(Config):
+    preprocessor: PipelineConfig = dataclasses.field(default_factory=PipelineConfig)
+    dataset: DatasetConfig
+    splits: dict[str, float] | None = None
+    pipeline: list[PreprocessorConfig] = dataclasses.field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.splits and not math.isclose(sum(self.splits.values()), 1.0, abs_tol=1e-6):
+            raise ValueError(f"split fractions must sum to 1, got {self.splits}")
+
+    @classmethod
+    def __pre_deserialize__(cls, d: dict[Any, Any]) -> dict[Any, Any]:
+        return NamedEntries.to_lists(d, ("pipeline",))
+
+    def __post_serialize__(self, d: dict[Any, Any]) -> dict[Any, Any]:
+        d = {**d, "dataset": self.dataset.to_dict(), "pipeline": [step.to_dict() for step in self.pipeline]}
+        return NamedEntries.to_maps(d, ("pipeline",))
 
 
 class PipelineState:
@@ -107,99 +90,43 @@ class PipelineState:
     pipeline: list[Preprocessor]
     provenance: Provenance
 
-    def __init__(self, config_file: Path) -> None:
-        """Parses yaml config into dictionaries and dictionaries into config objects."""
+    def __init__(self, definition: PipelineDefinition) -> None:
         self.log = logging.getLogger(__name__)
 
-        self.log.info(f"Loading pipeline config from yaml config_file={config_file}")
-        definition = load_yaml_dict(config_file)
-        self.log.info("Pipeline config loaded.")
+        self.definition = definition
+        self.config = definition.preprocessor
+        self.fractions = definition.splits
 
-        preprocessor_config_dict: dict[str, Any] = definition.get("preprocessor", {})
-        preprocessor_inputs: dict[str, Any] = preprocessor_config_dict.get("inputs", [])
-        self.log.info(f"using preprocessor_inputs={preprocessor_inputs}")
-        self.config = PipelineConfig(**preprocessor_inputs)
-
-        dataset_config_dict: dict[str, Any] = definition.get("dataset", {})
-
-        dataset_config_type_name = dataset_config_dict.get("config")
-        dataset_config_split_fractions = dataset_config_dict.get("splits")
-        self.fractions: dict[str, float] | None = None
-        if dataset_config_split_fractions:
-            self.fractions = {i["name"]: i["part"] for i in dataset_config_split_fractions}
-            if not math.isclose(sum(self.fractions.values()), 1.0, abs_tol=1e-6):
-                raise ValueError(f"split fractions must sum to 1, got {self.fractions}")
-
-        dataset_config_type = DatasetConfig.REGISTRY.resolve(dataset_config_type_name)
-        self.log.info(f"Using dataset_config_type_name={dataset_config_type_name}")
-
-        dataset_config_overrides = dataset_config_dict.get("overrides", [])
-        self.log.info(f"Applying dataset_config_overrides={dataset_config_overrides}")
-
-        dataset_provider_config: DatasetConfig = dataset_config_type(**dataset_config_overrides)
-
-        dataset_provider_type_name = dataset_provider_config.provider_name
-        self.log.info(
-            f"Using dataset_provider_type_name={dataset_provider_type_name} "
-            f"for dataset_provider_config={dataset_provider_config}"
-        )
-        dataset_provider_type = DatasetProvider.REGISTRY.resolve(dataset_provider_type_name)
-        self.dataset_provider = dataset_provider_type(dataset_provider_config)
+        dataset_config = definition.dataset
+        dataset_provider_type = DatasetProvider.REGISTRY.for_config(dataset_config)
+        self.log.info(f"Using {dataset_provider_type.__name__} for dataset_config={dataset_config}")
+        self.dataset_provider = dataset_provider_type(dataset_config)
 
         self.provenance = self._build_provenance(copy.deepcopy(self.config.provenance))
 
-        pipeline_configs = definition.get("pipeline", None)
-        if pipeline_configs:
-            self.pipeline = self._build_mapper_pipeline(pipeline_configs)
-        else:
+        if not definition.pipeline:
             self.log.critical(
                 "No pipeline configured; parquets will be downloaded and cached locally according to the configuration."
             )
-            self.pipeline = []
+        self.pipeline = [self._build_step(step) for step in definition.pipeline]
         self.log.info("Preprocessor constructed")
 
-    def _build_mapper_pipeline(self, pipeline_configs: list[dict[str, Any]]) -> list[Preprocessor]:
-        """Builds preprocessor instances in order using defined configs and config overrides."""
-        pipeline: list[Preprocessor] = []
+    def _build_step(self, step: PreprocessorConfig) -> Preprocessor:
+        preprocessor_type = Preprocessor.REGISTRY.for_config(step)
+        self.log.info(f"step {step.name!r}: {preprocessor_type.__name__} using {step}")
+        return preprocessor_type(self.provenance, step)
 
-        for preprocessor_config in pipeline_configs:
-            preprocessor_type_name = preprocessor_config.get("name")
-            preprocessor_type = Preprocessor.REGISTRY.resolve(preprocessor_type_name)
-
-            preprocessor_config_type_name = preprocessor_config.get("config")
-            preprocessor_config_type = PreprocessorConfig.REGISTRY.resolve(preprocessor_config_type_name)
-
-            self.log.info(
-                f"Using preprocessor_config_type_name={preprocessor_config_type_name} "
-                f"for preprocessor_type_name={preprocessor_type_name}"
-            )
-
-            preprocessor_config_overrides = preprocessor_config.get("inputs", {})
-            self.log.info(f"Applying preprocessor_config_overrides={preprocessor_config_overrides}")
-            preprocessor_config = preprocessor_config_type(**preprocessor_config_overrides)
-
-            self.log.info(
-                f"preprocessor_type_name={preprocessor_type_name} "
-                f"using preprocessor_config={preprocessor_config}"
-            )
-
-            pipeline.append(preprocessor_type(self.provenance, preprocessor_config))
-
-        return pipeline
-
-    def _build_provenance(self, p_dict: dict[str, Any]) -> Provenance:
+    def _build_provenance(self, provenance: Provenance) -> Provenance:
         """Builds provenance using intuited defaults for dataset and model ancestry."""
-        ancestry = ProvenanceAncestry.from_dict(p_dict.pop("ancestry", {}))
-
         path = self.dataset_provider.config.path
         data_dir = self.dataset_provider.config.data_dir
         if path not in ("parquet", "csv", "json", "tsv"):
-            ancestry.datasets.add(path)
+            provenance.ancestry.datasets.add(path)
         elif data_dir is not None:
             local = Path(data_dir).expanduser().resolve()
             try:
-                ancestry.datasets.add(f"~/{local.relative_to(Path.home())}")
+                provenance.ancestry.datasets.add(f"~/{local.relative_to(Path.home())}")
             except ValueError:
-                ancestry.datasets.add(str(local))
+                provenance.ancestry.datasets.add(str(local))
 
-        return Provenance.new_provenance(p_dict, ancestry)
+        return provenance

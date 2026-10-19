@@ -12,7 +12,7 @@ from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
 
 
-class DatasetProvider[C: DatasetConfig = DatasetConfig](Registrable, ABC, root=True):
+class DatasetProvider[C: DatasetConfig = DatasetConfig](Registrable, ABC, root=True, config_root=DatasetConfig):
     """Superclass for all dataset providers for training or preprocessing pipelines."""
 
     REGISTRY: ClassVar[TypeRegistry[DatasetProvider]]

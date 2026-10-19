@@ -1,38 +1,30 @@
 preprocessor:
-  inputs:
-    provenance:
-      id_columns:
-        - id
-        - speaker_id
-        - chapter_id
-
+  provenance:
+    id_columns:
+    - id
+    - speaker_id
+    - chapter_id
 dataset:
-  config: DefaultDatasetConfig
-  overrides:
-    path: openslr/librispeech_asr
-    name: all
-    split: validation.clean+validation.other
-    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/openslr_librispeech-asr-normalized-validation/
-
+  type: DefaultDatasetConfig
+  path: openslr/librispeech_asr
+  name: all
+  split: validation.clean+validation.other
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/openslr_librispeech-asr-normalized-validation/
 pipeline:
-  - name: ColumnCastingPreprocessor
-    config: ColumnCastingPreprocessorConfig
-    inputs:
-      column_casts:
-        audio: "audio_no_decode"
-        file: ~
-  - name: AudioDurationMapper
-    config: AudioDurationMapperConfig
-    inputs:
-      batch_size: 8
-      writer_batch_size: 8
-  - name: ColumnRenamingPreprocessor
-    config: ColumnRenamingPreprocessorConfig
-    inputs:
-      column_name_mappings:
-        text: text_original
-  - name: CTCScoreMapper
-    config: CTCScoreMapperConfig
-    inputs:
-      num_proc: 4
-      text_column: text_original
+  skip_audio_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      audio: audio_no_decode
+      file: ~
+  measure_duration:
+    type: AudioDurationMapperConfig
+    batch_size: 8
+    writer_batch_size: 8
+  rename_columns:
+    type: ColumnRenamingPreprocessorConfig
+    column_name_mappings:
+      text: text_original
+  score_ctc_mismatch:
+    type: CTCScoreMapperConfig
+    num_proc: 4
+    text_column: text_original

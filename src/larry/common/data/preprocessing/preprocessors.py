@@ -25,7 +25,7 @@ from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
 
 
-class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True):
+class Preprocessor[C: PreprocessorConfig](Registrable, ABC, root=True, config_root=PreprocessorConfig):
     """Super class for all step implementations for dataset preprocessing."""
 
     REGISTRY: ClassVar[TypeRegistry[Preprocessor]]
@@ -94,8 +94,8 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
         """Initializes the preprocessor with parsed jsonpath queries for extracting the output columns' values."""
         super().__init__(provenance, config)
         self.parsed_queries = {
-            mapping["outputColumn"]: jsonpath_ng.parse(mapping["jsonPath"])
-            for mapping in self.config.json_path_to_output_column_mappings
+            mapping.output_column: jsonpath_ng.parse(mapping.json_path)
+            for mapping in self.config.json_path_mappings
         }
         self.output_columns = list(self.parsed_queries.keys())
         self.remove_columns = [*self.config.remove_columns, self.config.input_column]
@@ -105,8 +105,8 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
         if not self.config.input_column:
             raise ValueError(f"input_column must be specified for {self.__class__.__name__}")
 
-        if not self.config.json_path_to_output_column_mappings:
-            raise ValueError(f"json_path_to_output_column_mappings must be specified for {self.__class__.__name__}")
+        if not self.config.json_path_mappings:
+            raise ValueError(f"json_path_mappings must be specified for {self.__class__.__name__}")
 
     def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
         """Similar to a mapper but with the output columns unable to be effectively configured prior to runtime."""
@@ -127,16 +127,16 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
     def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
         """All outputs are effectively strings; use ``ColumnCastingMapper`` to cast to different types afterwards."""
         features = features_of(dataset).copy()
-        for mapping in self.config.json_path_to_output_column_mappings:
-            features[mapping["outputColumn"]] = Value("string")
+        for mapping in self.config.json_path_mappings:
+            features[mapping.output_column] = Value("string")
 
         return features
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         """For each example in a batch, extract the requested query results and produce a new set of columns."""
         collected = {
-            mapping["outputColumn"]: []
-            for mapping in self.config.json_path_to_output_column_mappings
+            mapping.output_column: []
+            for mapping in self.config.json_path_mappings
         }
 
         for example in batch[self.config.input_column]:

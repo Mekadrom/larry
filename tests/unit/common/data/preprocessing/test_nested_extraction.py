@@ -5,7 +5,10 @@ from typing import Any
 import pytest
 from datasets import Dataset, DatasetDict
 
-from larry.common.config.data.preprocessing.preprocessor_configs import NestedExtractionPreprocessorConfig
+from larry.common.config.data.preprocessing.preprocessor_configs import (
+    JsonPathMapping,
+    NestedExtractionPreprocessorConfig,
+)
 from larry.common.data.preprocessing.preprocessors import NestedExtractionPreprocessor
 from tests.helpers.common import provenance
 
@@ -16,9 +19,9 @@ def _exif_dataset(exif: dict[str, Any]) -> Dataset:
 
 _config = NestedExtractionPreprocessorConfig(
     input_column="exif",
-    json_path_to_output_column_mappings=[
-        {"jsonPath": "$.'Image Copyright'", "outputColumn": "exif_copyright"},
-        {"jsonPath": "$.'Image XPComment'", "outputColumn": "text_original"},
+    json_path_mappings=[
+        JsonPathMapping(json_path="$.'Image Copyright'", output_column="exif_copyright"),
+        JsonPathMapping(json_path="$.'Image XPComment'", output_column="text_original"),
     ],
 )
 

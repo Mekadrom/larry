@@ -1,38 +1,7 @@
-preprocessor:
-  inputs:
-    provenance:
-      id_columns:
-        - id
-        - speaker_id
-        - librivox_book_id
-
 dataset:
-  config: DefaultDatasetConfig
-  overrides:
-    path: mythicinfinity/libriheavy
-    name: test_clean_large
-    split: train
-    cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/tts/mythicinfinity_libriheavy-test_clean_large-normalized-tts/
-
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/tts/mythicinfinity_libriheavy-test_clean_large-normalized-tts/
 pipeline:
-  - name: ColumnCastingPreprocessor
-    config: ColumnCastingPreprocessorConfig
-    inputs:
-      column_casts:
-        audio: "audio_no_decode"
-        text_transcription: ~
-  - name: ColumnRenamingPreprocessor
-    config: ColumnRenamingPreprocessorConfig
-    inputs:
-      column_name_mappings:
-        audio_duration: duration_s
-  - name: AudioDurationColumnPruner
-    config: AudioDurationColumnPrunerConfig
-  - name: AudioQualityPruner
-    config: AudioQualityPrunerConfigForTTS
-  - name: CTCScoreMapper
-    config: CTCScoreMapperConfig
-    inputs:
-      text_column: text_original
-  - name: ColumnValuesPruner
-    config: TTSCTCMismatchColumnValuesPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForTTS
+  prune_ctc_mismatch:
+    type: TTSCTCMismatchColumnValuesPrunerConfig

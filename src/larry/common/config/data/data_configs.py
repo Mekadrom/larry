@@ -1,10 +1,12 @@
 import dataclasses
-from collections.abc import Mapping
-from typing import Any, Self, cast
+from typing import Any
+
+from larry.common.config.config import Config
+from larry.common.config.named import NamedEntries
 
 
 @dataclasses.dataclass(kw_only=True)
-class DatasetSourceConfig:
+class DatasetSourceConfig(Config):
     """A config dataclass for configuring a single dataset source."""
 
     name: str
@@ -19,7 +21,7 @@ class DatasetSourceConfig:
 
 
 @dataclasses.dataclass(kw_only=True)
-class DatasetMixtureConfig[T: DatasetSourceConfig = DatasetSourceConfig]:
+class DatasetMixtureConfig[T: DatasetSourceConfig = DatasetSourceConfig](Config):
     """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
 
     train_sources: list[T] = dataclasses.field(default_factory=list)
@@ -29,17 +31,8 @@ class DatasetMixtureConfig[T: DatasetSourceConfig = DatasetSourceConfig]:
     seed: int = 42
 
     @classmethod
-    def source_config_type(cls) -> type[T]:
-        """The concrete source config class this mixture builds its sources as."""
-        return cast("type[T]", DatasetSourceConfig)
+    def __pre_deserialize__(cls, d: dict[Any, Any]) -> dict[Any, Any]:
+        return NamedEntries.to_lists(d, ("train_sources", "eval_sources"))
 
-    @classmethod
-    def from_dict(cls, raw: Mapping[str, Any]) -> Self:
-        """Builds the mixture from a raw yaml dict, constructing its sources as ``source_config_type`` instances."""
-        raw = dict(raw)
-        source_type = cls.source_config_type()
-        return cls(
-            train_sources=[source_type(**source) for source in raw.pop("train_sources", [])],
-            eval_sources=[source_type(**source) for source in raw.pop("eval_sources", [])],
-            **raw,
-        )
+    def __post_serialize__(self, d: dict[Any, Any]) -> dict[Any, Any]:
+        return NamedEntries.to_maps(d, ("train_sources", "eval_sources"))

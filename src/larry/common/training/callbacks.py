@@ -1,9 +1,8 @@
-import dataclasses
-import json
 import logging
 from typing import Any
 
 import torch
+import yaml
 
 from larry.common.metrics.metrics import MetricDict
 from larry.common.training import trainers
@@ -27,28 +26,43 @@ class TrainingCallback:
 
 
 class ModelInitLoggingCallback(TrainingCallback):
-    """Implementation of ``TrainingCallback`` that logs metrics once at training start (step 0)."""
+    """Implementation of ``TrainingCallback`` that logs metrics once at the start of each run, including resumes."""
+
+    def __init__(self, trainer: trainers.TrainerBase[Any, Any, Any]) -> None:
+        super().__init__(trainer)
+        self.logged = False
 
     def on_step_begin(self, step: int) -> MetricDict | None:
         """Logs some model information and run information at the beginning of training."""
-        if step == 0:
-            self.log.info(f"model: {self.trainer.model}")
-            self.trainer.metrics.add_text(
-                "model/architecture",
-                self.trainer.accelerator.unwrap_model(self.trainer.model),
-                step
-            )
-            self.log.info(f"model_config: {self.trainer.model_config}")
-            self.trainer.metrics.add_text("model/model_config", self.trainer.model_config, step)
-            self.log.info(f"n_parameters: {self.trainer.n_parameters:,}")
-            self.trainer.metrics.add_text("model/parameter_count", f"{self.trainer.n_parameters:,}", step)
-            self.trainer.metrics.add_text("run/git_commit_hash", self.trainer.git_commit_hash, step)
-            self.log.info(f"trainer_config: {self.trainer.config}")
-            self.trainer.metrics.add_text(
-                "run/trainer_config",
-                json.dumps(dataclasses.asdict(self.trainer.config), default=str, indent="\t"),
-                step
-            )
+        if self.logged:
+            return None
+        self.logged = True
+
+        self.log.info(f"model: {self.trainer.model}")
+        self.trainer.metrics.add_text(
+            "model/architecture",
+            self.trainer.accelerator.unwrap_model(self.trainer.model),
+            step
+        )
+        self.log.info(f"model_config: {self.trainer.model_config}")
+        self.trainer.metrics.add_text("model/model_config", self._yaml_block(self.trainer.model_config.to_dict()), step)
+        self.log.info(f"n_parameters: {self.trainer.n_parameters:,}")
+        self.trainer.metrics.add_text("model/parameter_count", f"{self.trainer.n_parameters:,}", step)
+        self.trainer.metrics.add_text("run/git_commit_hash", self.trainer.git_commit_hash, step)
+        self.log.info(f"trainer_config: {self.trainer.config}")
+        self.trainer.metrics.add_text("run/trainer_config", self._yaml_block(self.trainer.config.to_dict()), step)
+
+        provenance = self.trainer.provenance
+        if provenance.config is not None:
+            self.trainer.metrics.add_text("run/config", self._yaml_block(provenance.config), step)
+        if provenance.cli is not None:
+            self.log.info(f"cli: {provenance.cli}")
+            self.trainer.metrics.add_text("run/cli", f"```\n{provenance.cli}\n```", step)
+        return None
+
+    @staticmethod
+    def _yaml_block(config: dict[str, Any]) -> str:
+        return f"```yaml\n{yaml.safe_dump(config, sort_keys=False)}```"
 
 
 class LoggingTrainingCallback(TrainingCallback):

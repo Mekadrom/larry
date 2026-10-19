@@ -5,9 +5,9 @@ import pyarrow as pa
 import pytest
 from datasets import Dataset, DatasetDict, Features, Value, load_from_disk
 
-from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, \
+from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, ValueOverride, \
     ValueOverrideMapperConfig
-from larry.common.config.data.preprocessing.pipeline_config import Provenance, ProvenanceAncestry
+from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import Mapper, SingleColumnMapper, ValueOverrideMapper
 from tests.helpers.common import provenance
 
@@ -208,11 +208,11 @@ def test_value_override_mapper_applies_rules_sharing_an_input_column() -> None:
         "date_argued": ["2014-11-05", "2020-01-01"],
         "term": ["2014", "2019"],
     })
-    config = ValueOverrideMapperConfig(**_base(mappings_config=[
-        {"input_column": "docket", "input_column_value": "13-7120rearg",
-         "output_column": "pdf_url", "output_column_value": "new"},
-        {"input_column": "docket", "input_column_value": "13-7120rearg",
-         "output_column": "date_argued", "output_column_value": "2015-04-20"},
+    config = ValueOverrideMapperConfig(**_base(mappings=[
+        ValueOverride(input_column="docket", input_column_value="13-7120rearg",
+                      output_column="pdf_url", output_column_value="new"),
+        ValueOverride(input_column="docket", input_column_value="13-7120rearg",
+                      output_column="date_argued", output_column_value="2015-04-20"),
     ]))
 
     out = ValueOverrideMapper(provenance(), config).preprocess_dataset(dataset)
@@ -256,6 +256,6 @@ def test_rerun_with_a_fresh_provenance_reuses_the_cached_result(saved_source: Pa
 
 
 def test_fresh_provenance_has_no_per_run_fields() -> None:
-    fresh = Provenance.new_provenance({}, ProvenanceAncestry.from_dict({}))
+    fresh = Provenance()
 
     assert (fresh.produced_on, fresh.git_commit, fresh.git_is_dirty) == (None, None, None)

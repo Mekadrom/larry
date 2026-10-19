@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from larry.common.config.training import training_config
+from larry.common.config.training.definition import TrainingDefinition, TrainingRunConfig
 from larry.common.training import trainers
 
 
@@ -10,14 +11,14 @@ class TrainingRun:
     """Wraps a trainer with the run config and state."""
 
     state: training_config.TrainingRunState
-    config: training_config.TrainingRunConfig
+    config: TrainingRunConfig
     trainer: trainers.TrainerBase
 
-    def __init__(self, config_file: Path, log_dir: Path, resume_dir: str | None = None) -> None:
+    def __init__(self, definition: TrainingDefinition, log_dir: Path, resume_dir: str | None = None) -> None:
         """Initializes a training run."""
         self.log = logging.getLogger(type(self).__name__)
 
-        self.state = training_config.TrainingRunState(config_file, log_dir, resume_dir)
+        self.state = training_config.TrainingRunState(definition, log_dir, resume_dir)
         self.config = self.state.config
         self.trainer = self.state.trainer
 

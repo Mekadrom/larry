@@ -28,17 +28,7 @@ class TTSSourceConfig(SpeechSourceConfig):
 class ASRMixtureConfig(DatasetMixtureConfig[ASRSourceConfig], SampleRateConfig):
     """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
 
-    @classmethod
-    def source_config_type(cls) -> type[ASRSourceConfig]:
-        """ASRMixtures build their sources as ``ASRSourceConfig`` instances."""
-        return ASRSourceConfig
-
 
 @dataclasses.dataclass(kw_only=True)
 class TTSMixtureConfig(DatasetMixtureConfig[TTSSourceConfig], SampleRateConfig):
     """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
-
-    @classmethod
-    def source_config_type(cls) -> type[TTSSourceConfig]:
-        """ASRMixtures build their sources as ``TTSSourceConfig`` instances."""
-        return TTSSourceConfig

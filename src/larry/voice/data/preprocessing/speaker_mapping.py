@@ -8,9 +8,9 @@ from typing import Any, Self
 import pyarrow.parquet as pq
 
 from larry.common.config.data.data_configs import DatasetMixtureConfig
-from larry.common.config.training import build_trainer_config
+from larry.common.config.training.definition import TrainingDefinition
+from larry.common.config.values import ConfigValues, WorkingTree
 from larry.common.data.dataloading.indexed_dataset import index_split_files
-from larry.common.utils import load_yaml_dict
 from larry.common.utils.init_helpers import import_submodules
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
@@ -130,12 +130,7 @@ def main() -> None:
         prog="speaker-mapping",
         description="Produces a global speaker mapping of (source, speaker_id_str): speaker_id_int.",
     )
-    argparser.add_argument(
-        "--config_file",
-        type=Path,
-        required=True,
-        help="The training config.yaml whose train_sources to build the mapping from.",
-    )
+    ConfigValues.add_arguments(argparser)
     argparser.add_argument(
         "--output_prefix",
         type=Path,
@@ -144,8 +139,9 @@ def main() -> None:
     )
     args = argparser.parse_args()
 
-    definition = load_yaml_dict(Path(args.config_file).expanduser().resolve())
-    trainer_config = build_trainer_config(definition.get("trainer", {}))
+    WorkingTree.ensure_clean(args.allow_dirty)
+    definition = ConfigValues.from_args(args).load(TrainingDefinition)
+    trainer_config = definition.trainer
 
     if not isinstance(trainer_config, SpeechEncoderTrainerConfig):
         raise TypeError(f"expected a SpeechTokenizerTrainerConfig, got {type(trainer_config).__name__}")

@@ -1,16 +1,12 @@
 import dataclasses
 from collections.abc import Sequence
-from typing import ClassVar
 
-from larry.common.utils.registrable import Registrable
-from larry.common.utils.types import TypeRegistry
+from larry.common.config.config import Config
 
 
 @dataclasses.dataclass(kw_only=True)
-class DownloaderConfig(Registrable, root=True):
+class DownloaderConfig(Config):
     """Superclass for configs for all ``Downloader`` implementations."""
-
-    REGISTRY: ClassVar[TypeRegistry[DownloaderConfig]]
 
     busy_wait: float = 0.0
     max_retries: int = 0

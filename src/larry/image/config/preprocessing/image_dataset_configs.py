@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Sequence
 
-from datasets import Audio, Image
+from datasets import Image
 
 from larry.common.config.data.downloader_configs import (
     DownloaderConfig,
@@ -12,7 +12,7 @@ from larry.common.config.data.extractor_configs import ExtractorConfig, SingleFi
 from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig, MediaCachedDatasetConfig
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class ImageDatasetConfig(DatasetConfig):
     """Superclass config for all image dataset configs."""
 
@@ -20,7 +20,7 @@ class ImageDatasetConfig(DatasetConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class GoogleDOCCIMediaCachedDatasetConfig(ImageDatasetConfig, MediaCachedDatasetConfig):
+class GoogleDOCCIMediaCachedDatasetConfig(MediaCachedDatasetConfig, ImageDatasetConfig):
     """Loads the google/docci dataset from its hosted location, not from huggingface.
 
     https://huggingface.co/datasets/google/docci - the documentation this references (including python script).
@@ -30,8 +30,6 @@ class GoogleDOCCIMediaCachedDatasetConfig(ImageDatasetConfig, MediaCachedDataset
     descriptions_file: str = "docci_descriptions.jsonlines"
     images_file: str = "docci_images.tar.gz"
     archive_root: str = "images"
-
-    provider_name: str = "GoogleDOCCIMediaCachedDatasetProvider"
 
     def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
         """Configures downloaders for both files from google/docci
@@ -67,7 +65,7 @@ class GoogleDOCCIMediaCachedDatasetConfig(ImageDatasetConfig, MediaCachedDataset
     split_column: str | None = "split"
 
     media_dir: str = ""
-    media_type: Audio | Image = dataclasses.field(default_factory=lambda: Image(decode=False))
+    media_type: Image = dataclasses.field(default_factory=lambda: Image(decode=False))
     media_column: str = "image"
     media_path_column: str = "image_file"
 

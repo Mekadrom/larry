@@ -1,0 +1,17 @@
+training:
+  metrics_backend: tensorboard
+model:
+  type: SpeechDecoderModelConfig
+  n_speakers: 53440
+trainer:
+  type: SpeechDecoderTrainerConfig
+  speaker_mapping_path: /home/zadar/.cache/larry/speaker_mappings/tts/global_speaker_mapping.csv
+  muon_last_layer_names: []
+  lr: 0.0005
+  min_lr: 5.0e-05
+  lr_scheduler_name: cosine
+  warmup_steps: 2000
+  weight_decay: 0.1
+  max_steps: 100000
+  eval_steps: 2000
+  viz_steps: 1000

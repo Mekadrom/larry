@@ -44,7 +44,7 @@ class SpeechEncoderEncoderBlock(nn.Module):
         return x + self.mlp(self.mlp_norm(x))
 
 
-class SpeechEncoderPreBottleneck(VoiceModel[SpeechEncoderModelConfig]):
+class SpeechEncoderPreBottleneck(VoiceModel[SpeechEncoderModelConfig], register=False):
     """Log-mels at 100 Hz -> two strided convs -> FSMN attention blocks -> [B, T, D] at 25 Hz.
 
     Consists of a convolutional subsampling frontend followed by a set of ``SpeechTokenizerEncoderBlock`` instances to

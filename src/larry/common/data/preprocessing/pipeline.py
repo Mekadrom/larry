@@ -1,4 +1,3 @@
-import dataclasses
 import glob
 import json
 import logging
@@ -14,6 +13,7 @@ import torch
 from datasets import Dataset, DatasetDict
 
 from larry.common.config.data.preprocessing import pipeline_config
+from larry.common.config.values import RunRecord
 from larry.common.data.utils import save_parquet_shards
 
 
@@ -24,11 +24,18 @@ class Pipeline:
     state: pipeline_config.PipelineState
     provenance_only: bool
 
-    def __init__(self, config_file: Path, output_dir: Path, clean: bool = False, provenance_only: bool = False) -> None:
+    def __init__(
+            self,
+            definition: pipeline_config.PipelineDefinition,
+            output_dir: Path,
+            clean: bool = False,
+            provenance_only: bool = False,
+    ) -> None:
         """Sets up the pipeline run."""
         self.log = logging.getLogger(type(self).__name__)
 
-        self.state = pipeline_config.PipelineState(config_file)
+        self.record = RunRecord.of(definition)
+        self.state = pipeline_config.PipelineState(definition)
 
         self.output_dir = output_dir
 
@@ -172,9 +179,9 @@ class Pipeline:
 
     def _compile_and_save_provenance(self) -> None:
         """Saves a separate json file that records the sources of this saved dataset."""
-        self.state.provenance.populate_mutables()
-        (self.output_dir / "provenance.json").write_text(json.dumps(
-            dataclasses.asdict(self.state.provenance),
-            default=list,
-            indent="\t"
-        ))
+        provenance = self.state.provenance
+        provenance.populate_mutables()
+        provenance.config = self.record.config
+        provenance.cli = self.record.cli
+        (self.output_dir / "provenance.json").write_text(json.dumps(provenance.to_dict(), indent="\t"))
+        self.record.write(self.output_dir)

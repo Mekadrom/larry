@@ -1,6 +1,5 @@
-from typing import Any
-
 import pytest
+from mashumaro.exceptions import ExtraKeysError, InvalidFieldValue
 
 from larry.common.config.data.data_configs import DatasetMixtureConfig, DatasetSourceConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
@@ -8,26 +7,27 @@ from larry.voice.config.data.voice_data_configs import ASRMixtureConfig, ASRSour
 from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
 
 RAW = {
-    "train_sources": [
-        {"name": "vctk", "index_path": "v", "weight": 0.2, "speaker_namespace": "vctk"},
-        {"name": "lj", "index_path": "l", "speaker_id_column": None},
-    ],
-    "eval_sources": [{"name": "vctk", "index_path": "v", "split": "validation"}],
+    "train_sources": {
+        "vctk": {"index_path": "v", "weight": 0.2, "speaker_namespace": "vctk"},
+        "lj": {"index_path": "l", "speaker_id_column": None},
+    },
+    "eval_sources": {"vctk": {"index_path": "v", "split": "validation"}},
     "max_batch_seconds": 900.0,
     "pool_size": 30000,
 }
 
 
-def _tokenizer_config(dataset_config: dict[str, Any]) -> SpeechEncoderTrainerConfig:
-    return SpeechEncoderTrainerConfig(
-        max_steps=1, tokenizer_model_path="t", speaker_mapping_path="s", dataset_config=dataset_config
-    )
+def _tokenizer_config(mixture_config: dict[str, object]) -> LarryTrainerConfig:
+    return LarryTrainerConfig.from_dict({
+        "type": "SpeechEncoderTrainerConfig", "max_steps": 1, "tokenizer_model_path": "t",
+        "speaker_mapping_path": "s", "mixture_config": mixture_config,
+    })
 
 
 def test_base_mixture_builds_plain_source_configs() -> None:
     mixture = DatasetMixtureConfig.from_dict({
-        "train_sources": [{"name": "a", "index_path": "a"}],
-        "eval_sources": [{"name": "b", "index_path": "b"}],
+        "train_sources": {"a": {"index_path": "a"}},
+        "eval_sources": {"b": {"index_path": "b"}},
     })
 
     assert type(mixture) is DatasetMixtureConfig
@@ -35,8 +35,8 @@ def test_base_mixture_builds_plain_source_configs() -> None:
 
 
 def test_base_mixture_rejects_speech_only_source_fields() -> None:
-    with pytest.raises(TypeError, match="audio_column"):
-        DatasetMixtureConfig.from_dict({"train_sources": [{"name": "a", "index_path": "a", "audio_column": "x"}]})
+    with pytest.raises((ExtraKeysError, InvalidFieldValue)):
+        DatasetMixtureConfig.from_dict({"train_sources": {"a": {"index_path": "a", "audio_column": "x"}}})
 
 
 def test_speech_mixture_builds_speech_source_configs_with_their_fields() -> None:
@@ -71,20 +71,22 @@ def test_from_dict_does_not_mutate_its_input() -> None:
 
 
 def test_speech_trainer_config_parses_a_speech_mixture() -> None:
-    mixture = _tokenizer_config(RAW).mixture_config
-
-    assert type(mixture) is ASRMixtureConfig
-    assert all(type(s) is ASRSourceConfig for s in mixture.train_sources)
-
-
-def test_mixture_config_is_cached() -> None:
     config = _tokenizer_config(RAW)
 
-    assert config.mixture_config is config.mixture_config
+    assert type(config) is SpeechEncoderTrainerConfig
+    assert type(config.mixture_config) is ASRMixtureConfig
+    assert all(type(s) is ASRSourceConfig for s in config.mixture_config.train_sources)
 
 
-def test_trainer_config_types_name_their_mixture() -> None:
-    assert LarryTrainerConfig.mixture_config_type() is DatasetMixtureConfig
-    assert SpeechEncoderTrainerConfig.mixture_config_type() is ASRMixtureConfig
-    assert ASRMixtureConfig.source_config_type() is ASRSourceConfig
-    assert DatasetMixtureConfig.source_config_type() is DatasetSourceConfig
+def test_source_entries_take_their_name_from_their_key_and_render_back_as_a_map() -> None:
+    mixture = ASRMixtureConfig.from_dict(RAW)
+
+    assert [s.name for s in mixture.train_sources] == ["vctk", "lj"]
+    assert list(mixture.to_dict()["train_sources"]) == ["vctk", "lj"]
+    assert "name" not in mixture.to_dict()["train_sources"]["vctk"]
+    assert ASRMixtureConfig.from_dict(mixture.to_dict()) == mixture
+
+
+def test_a_source_name_that_contradicts_its_key_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        ASRMixtureConfig.from_dict({"train_sources": {"vctk": {"name": "lj", "index_path": "v"}}})
