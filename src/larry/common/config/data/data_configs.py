@@ -11,6 +11,7 @@ class DatasetSourceConfig(Config):
 
     name: str
     index_path: str  # huggingface repo or local dir: rows with id, duration_s, text_original, speaker_id, etc.
+    provenance_name: str | None = None
     source_path: str | None = None
     source_name: str | None = None
     source_revision: str | None = None

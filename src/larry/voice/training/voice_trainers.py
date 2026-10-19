@@ -174,7 +174,7 @@ O: LarryModelOutput = LarryModelOutput,
     def update_provenance(self, provenance: Provenance) -> None:
         """Updates provenance for this model to add all datasets it was trained on in some recognizable form."""
         for source in self.config.mixture_config.train_sources:
-            provenance.ancestry.datasets.add(source.index_path)
+            provenance.ancestry.datasets.add(source.provenance_name or source.index_path)
 
     @abstractmethod
     def _forward_metrics(self, output: O) -> MetricDict:

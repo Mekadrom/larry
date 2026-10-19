@@ -5,28 +5,34 @@ trainer:
     pool_size: 30000
     train_sources:
       scotus:
+        provenance_name: thelarryproject/scotus-index-asr
         index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/thelarryproject_scotus-index-asr/
         source_path: thelarryproject/scotus
         split: train
         weight: 0.25
       vctk:
+        provenance_name: thelarryproject/vctk-normalized-asr
         index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
         split: train
         weight: 0.02
       cv27:
+        provenance_name: thelarryproject/common-voice-27.0-index-asr
         index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mozilla-foundation_cv27-index-asr/
         split: train
         source_path: /home/zadar/.cache/larry/datasets/normalized/voice/mozilla-foundation_cv27-normalized/
         weight: 0.25
       hifi-tts-all:
+        provenance_name: thelarryproject/hifi-tts-all-normalized-asr
         index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
         split: train.clean+train.other
         weight: 0.03
       lj-speech:
+        provenance_name: thelarryproject/lj-speech-normalized-asr
         index_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
         weight: 0.01
         speaker_id_column: ~
       libriheavy-large-index:
+        provenance_name: thelarryproject/libriheavy-large-index-asr
         index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
         source_path: mythicinfinity/libriheavy
         source_cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/

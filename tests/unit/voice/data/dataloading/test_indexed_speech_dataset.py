@@ -10,7 +10,7 @@ from larry.voice.data.dataloading.indexed_speech_dataset import IndexedASRDatase
 from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
 from larry.voice.training.voice_trainers import SpeechEncoderTrainer
 from tests.helpers.audio import wav
-from tests.helpers.common import uninitialized
+from tests.helpers.common import provenance, uninitialized
 from tests.helpers.voice import clip_dataset, toy_source
 
 
@@ -168,3 +168,15 @@ def test_a_minified_index_without_a_source_names_the_missing_column() -> None:
 
     with pytest.raises(KeyError, match="duration_s"):
         dataset.source_ids_and_durations()
+
+
+def test_provenance_names_replace_index_paths_where_given() -> None:
+    trainer = uninitialized(SpeechEncoderTrainer, _config=SimpleNamespace(mixture_config=SimpleNamespace(train_sources=[
+        ASRSourceConfig(name="a", index_path="/local/a", provenance_name="org/a"),
+        ASRSourceConfig(name="b", index_path="/local/b"),
+    ])))
+    record = provenance()
+
+    trainer.update_provenance(record)
+
+    assert record.ancestry.datasets == {"org/a", "/local/b"}
