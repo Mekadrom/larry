@@ -20,10 +20,10 @@ from torch.optim.lr_scheduler import LambdaLR, LRScheduler
 from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm import tqdm
 
+from larry.common.config.config import RunRecord
 from larry.common.config.data.data_configs import DatasetSourceConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
-from larry.common.config.values import RunRecord
 from larry.common.criteria import criterion
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset, load_index, load_source
 from larry.common.data.dataloading.samplers import ResumableBatchSampler

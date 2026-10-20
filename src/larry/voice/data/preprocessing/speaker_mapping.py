@@ -6,9 +6,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Self
 
+from larry.common.config.config import ConfigValues
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.definition import TrainingDefinition
-from larry.common.config.values import ConfigValues
 from larry.common.data.dataloading.indexed_dataset import indexed_column, load_index, load_source_for_columns
 from larry.common.utils.git_utils import WorkingTree
 from larry.common.utils.init_helpers import import_submodules

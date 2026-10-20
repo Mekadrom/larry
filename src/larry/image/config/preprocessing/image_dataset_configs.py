@@ -65,7 +65,7 @@ class GoogleDOCCIMediaCachedDatasetConfig(MediaCachedDatasetConfig, ImageDataset
     split_column: str | None = "split"
 
     media_dir: str = ""
-    media_type: Image = dataclasses.field(default_factory=lambda: Image(decode=False))
+    media_type: Image = dataclasses.field(default_factory=lambda: Image(decode=False))  # pyright: ignore[reportIncompatibleVariableOverride]
     media_column: str = "image"
     media_path_column: str = "image_file"
 

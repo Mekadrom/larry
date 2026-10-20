@@ -6,8 +6,8 @@ import pytest
 import torch
 import yaml
 
+from larry.common.config.config import RunRecord
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
-from larry.common.config.values import RunRecord
 from larry.common.training.trainers import StepOutput
 from tests.helpers.common import reset_accelerate_state
 from tests.helpers.metrics import NullMetrics, RecordingMetrics

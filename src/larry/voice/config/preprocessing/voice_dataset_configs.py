@@ -54,7 +54,7 @@ class CommonVoiceDatasetConfig(MediaCachedDatasetConfig, VoiceDatasetConfig):
     ))
 
     media_dir: str = ""
-    media_type: Audio = dataclasses.field(default_factory=lambda: Audio(decode=False))
+    media_type: Audio = dataclasses.field(default_factory=lambda: Audio(decode=False))  # pyright: ignore[reportIncompatibleVariableOverride]
     media_column: str = "audio"
 
     def __post_init__(self) -> None:
@@ -145,7 +145,7 @@ class VCTKCachedDatasetProviderConfig(MediaCachedDatasetConfig, VoiceDatasetConf
         ]
 
     media_dir: str = ""
-    media_type: Audio = dataclasses.field(default_factory=lambda: Audio(decode=False))
+    media_type: Audio = dataclasses.field(default_factory=lambda: Audio(decode=False))  # pyright: ignore[reportIncompatibleVariableOverride]
     media_column: str = "audio"
 
     def __post_init__(self) -> None:

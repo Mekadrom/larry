@@ -6,10 +6,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from larry.common.config.config import Config
+from larry.common.config.config import Config, NamedEntries
 from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
-from larry.common.config.named import NamedEntries
 from larry.common.data.dataset_providers import DatasetProvider
 from larry.common.data.preprocessing.preprocessors import Preprocessor
 from larry.common.utils import git_utils

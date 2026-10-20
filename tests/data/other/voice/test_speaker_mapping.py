@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from larry.common.config.config import ConfigValues
 from larry.common.config.training.definition import TrainingDefinition
-from larry.common.config.values import ConfigValues
 from larry.common.data.dataloading.indexed_dataset import indexed_column, load_index, load_source_for_columns
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig

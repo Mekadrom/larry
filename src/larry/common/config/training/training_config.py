@@ -5,8 +5,8 @@ from pathlib import Path
 
 from accelerate import PartialState
 
+from larry.common.config.config import RunRecord
 from larry.common.config.training.definition import TrainingDefinition, TrainingRunConfig
-from larry.common.config.values import RunRecord
 from larry.common.metrics.metrics import Metrics, NoneMetrics, TensorBoardMetrics, WandBMetrics
 from larry.common.training import trainers
 from larry.common.training.training_model import LarryModel

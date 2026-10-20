@@ -12,8 +12,8 @@ import numpy as np
 import torch
 from datasets import Dataset, DatasetDict
 
+from larry.common.config.config import RunRecord
 from larry.common.config.data.preprocessing import pipeline_config
-from larry.common.config.values import RunRecord
 from larry.common.data.utils import save_parquet_shards
 
 

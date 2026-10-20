@@ -2,12 +2,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pyarrow.parquet as pq
 import pytest
 import yaml
-import pyarrow.parquet as pq
 
+from larry.common.config.config import ConfigValues, RunRecord
 from larry.common.config.data.preprocessing.pipeline_config import PipelineDefinition
-from larry.common.config.values import ConfigValues, RunRecord
 from larry.common.data.preprocessing.pipeline import Pipeline
 from tests.helpers.common import import_larry_submodules, write_parquet_splits
 

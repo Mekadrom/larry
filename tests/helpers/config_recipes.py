@@ -1,8 +1,8 @@
 from pathlib import Path
 
+from larry.common.config.config import ConfigValues
 from larry.common.config.data.preprocessing.pipeline_config import PipelineDefinition
 from larry.common.config.training.definition import TrainingDefinition
-from larry.common.config.values import ConfigValues
 
 CONFIG_ROOT = Path(__file__).resolve().parents[2] / "configs"
 
@@ -13,8 +13,10 @@ TRAINING_RECIPES: dict[str, list[str]] = {
         f"larry-speech-encoder+{overlay.stem}": [*ENCODER, str(overlay.relative_to(CONFIG_ROOT))]
         for overlay in sorted((CONFIG_ROOT / "training/voice/ctc/overlays").glob("*.yaml"))
     },
-    "larry-speech-decoder": ["training/voice/mixtures/tts.yaml", "training/voice/tts/decoder/larry-speech-decoder.yaml"],
+    "larry-speech-decoder": ["training/voice/mixtures/tts.yaml",
+                             "training/voice/tts/decoder/larry-speech-decoder.yaml"],
 }
+
 
 def _preprocessing_recipes() -> dict[str, list[str]]:
     recipes = {}

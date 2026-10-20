@@ -1,8 +1,7 @@
 import dataclasses
 from typing import Any
 
-from larry.common.config.config import Config
-from larry.common.config.named import NamedEntries
+from larry.common.config.config import Config, NamedEntries
 
 
 @dataclasses.dataclass(kw_only=True)
