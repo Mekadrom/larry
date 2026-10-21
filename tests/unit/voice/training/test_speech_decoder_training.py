@@ -2,6 +2,7 @@ import contextlib
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 import torch
 from datasets import Dataset
 
@@ -101,7 +102,9 @@ def test_training_loss_includes_the_kl_term_after_warmup() -> None:
     loss = trainer._criterion_forward(output, batch)
 
     criterion = trainer.criterion
-    assert float(loss) == float(criterion.flow_loss(output) + criterion.config.kl_weight * output.kl.mean())
+    prior = criterion.config.prior_weight * criterion.prior_loss(output)
+    kl = criterion.config.kl_weight * output.kl.mean()
+    assert float(loss) == pytest.approx(float(criterion.flow_loss(output) + prior + kl))
 
 
 def test_tokens_are_counted_at_mel_rate() -> None:

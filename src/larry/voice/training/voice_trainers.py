@@ -465,6 +465,8 @@ class SpeechDecoderTrainer(
     def _forward_metrics(self, output: SpeechDecoderModelOutput) -> MetricDict:
         metrics = MetricDict(output.metrics or {})
         metrics.add_metric(ScalarMetricEntry(tag="train/kl", scalar=float(output.kl.mean())))
+        prior_loss = cast(SpeechDecoderCriterion, self.criterion).prior_loss(output)
+        metrics.add_metric(ScalarMetricEntry(tag="train/prior_loss", scalar=float(prior_loss)))
         return metrics
 
     def _model_forward(self, batch: Mapping[str, Any]) -> SpeechDecoderModelOutput:

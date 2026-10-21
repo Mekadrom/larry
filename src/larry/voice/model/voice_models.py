@@ -28,6 +28,10 @@ class SpeechDecoderModelOutput(LarryFlowMatchingOutput, LarryModelOutput):
     kl: torch.Tensor
     speaker_embeddings: torch.Tensor
 
+    prior: torch.Tensor
+    prior_targets: torch.Tensor
+    frame_mask: torch.Tensor
+
 
 class VoiceModel[C: VoiceModelConfig = VoiceModelConfig](LarryModel[C], ABC):
     """Superclass for voice models."""

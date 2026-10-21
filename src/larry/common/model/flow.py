@@ -6,6 +6,7 @@ from collections.abc import Callable
 import torch
 from torch import nn
 
+from larry.common.config.model.model_configs import FlowMatchingConfig
 from larry.common.model.model import LarryModelOutput
 
 
@@ -33,15 +34,28 @@ class TimestepEmbedding(nn.Module):
 
 
 class ConditionalFlowMatching:
-    def __init__(self, sigma_min: float) -> None:
-        self.sigma_min = sigma_min
+    def __init__(self, config: FlowMatchingConfig) -> None:
+        self.sigma_min = config.sigma_min
+        self.t_sampling = config.t_sampling
+        self.t_mean = config.t_mean
+        self.t_std = config.t_std
+
+    def sample_t(self, n: int, device: torch.device) -> torch.Tensor:
+        if self.t_sampling == "logit_normal":
+            return torch.sigmoid(torch.randn(n, device=device) * self.t_std + self.t_mean)
+
+        return torch.rand(n, device=device)
 
     def path(self, x1: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        t = torch.rand(x1.shape[0], device=x1.device)
+        t = self.sample_t(x1.shape[0], x1.device)
         x0 = torch.randn_like(x1)
         tb = t.view(-1, *([1] * (x1.dim() - 1)))
         xt = (1 - (1 - self.sigma_min) * tb) * x0 + tb * x1
         return xt, t, x1 - (1 - self.sigma_min) * x0
+
+    @staticmethod
+    def sway(ts: torch.Tensor, coefficient: float) -> torch.Tensor:
+        return ts + coefficient * (torch.cos(math.pi / 2 * ts) - 1 + ts)
 
     @torch.inference_mode()
     def sample(
@@ -51,9 +65,13 @@ class ConditionalFlowMatching:
             steps: int,
             device: torch.device,
             generator: torch.Generator | None = None,
+            sway_coefficient: float | None = None,
     ) -> torch.Tensor:
         x = torch.randn(shape, device=device, generator=generator)
         ts = torch.linspace(0, 1, steps + 1, device=device)
+        if sway_coefficient is not None:
+            ts = self.sway(ts, sway_coefficient)
+
         for t0, t1 in itertools.pairwise(ts):
             x = x + (t1 - t0) * velocity_fn(x, t0.expand(shape[0]))
 

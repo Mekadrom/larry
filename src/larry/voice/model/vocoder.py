@@ -81,7 +81,7 @@ class VocoderVelocityNetwork(nn.Module):
 class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, ConditionalFlowMatching):
     def __init__(self, config: LarryVocoderConfig) -> None:
         VoiceModel.__init__(self, config)
-        ConditionalFlowMatching.__init__(self, config.sigma_min)
+        ConditionalFlowMatching.__init__(self, config)
 
         self.n_bins = self.config.n_fft // 2 + 1
         self.frontend = TTSLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
@@ -111,10 +111,13 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
             mel_lengths: torch.Tensor,
             steps: int,
             generator: torch.Generator | None = None,
+            sway_coefficient: float | None = None,
     ) -> LarryVocoderGeneration:
         mask = make_non_pad_mask(mel_lengths, mels.shape[-1]).to(mels.dtype)
         shape = (mels.shape[0], self.config.n_fft + 2, mels.shape[-1])
-        spec = self.sample(lambda x, t: self.backbone(x, t, mels, mask), shape, steps, self.device, generator)
+        spec = self.sample(
+            lambda x, t: self.backbone(x, t, mels, mask), shape, steps, self.device, generator, sway_coefficient
+        )
         waveforms = self.codec.decode(spec, (mels.shape[-1] - 1) * self.config.hop_length)
         lengths = (mel_lengths * self.config.hop_length - self.config.n_fft // 2).clamp(min=0)
         return LarryVocoderGeneration(waveforms=waveforms, waveform_lengths=lengths)

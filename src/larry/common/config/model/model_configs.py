@@ -74,3 +74,11 @@ class FSMNAttentionConfig(AttentionModuleConfig):
 class LarryConditionalEncoderBlockModuleConfig(LLMBlockModuleConfig):
     d_cond: int | None = None
     is_causal: bool = False
+
+
+@dataclasses.dataclass(kw_only=True)
+class FlowMatchingConfig(ModelConfig):
+    sigma_min: float = 1e-4
+    t_sampling: Literal["uniform", "logit_normal"] = "logit_normal"
+    t_mean: float = 0.0
+    t_std: float = 1.0

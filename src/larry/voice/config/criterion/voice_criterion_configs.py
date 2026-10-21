@@ -19,3 +19,4 @@ class CTCCriterionConfig(CriterionConfig):
 class SpeechDecoderCriterionConfig(CriterionConfig):
     kl_weight: float = 1e-4
     kl_warmup_steps: int = 10_000
+    prior_weight: float = 1.0

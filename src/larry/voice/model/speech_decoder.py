@@ -68,7 +68,8 @@ class SpeechCodesUnitEmbedding(nn.Module):
 class SpeechDecoderVelocityNetwork(nn.Module):
     def __init__(self, config: SpeechDecoderModelConfig) -> None:
         super().__init__()
-        self.embed = nn.Conv1d(2 * config.n_mels, config.d_model, kernel_size=7, padding=3)
+        in_channels = (3 if config.infill_enabled else 2) * config.n_mels
+        self.embed = nn.Conv1d(in_channels, config.d_model, kernel_size=7, padding=3)
         self.time = TimestepEmbedding(config.d_model)
         self.blocks = nn.ModuleList([
             LarryConditionalEncoderBlock(LarryConditionalEncoderBlockModuleConfig.from_child(config))
@@ -86,9 +87,11 @@ class SpeechDecoderVelocityNetwork(nn.Module):
             speaker_cond: torch.Tensor,
             unit_cond: torch.Tensor,
             mask: torch.Tensor,
+            context: torch.Tensor | None = None,
     ) -> torch.Tensor:
         cond = self.time(t) + speaker_cond
-        x = self.embed(torch.cat([xt, unit_cond], dim=1) * mask.unsqueeze(1)).transpose(1, 2)
+        inputs = [xt, unit_cond] if context is None else [xt, unit_cond, context]
+        x = self.embed(torch.cat(inputs, dim=1) * mask.unsqueeze(1)).transpose(1, 2)
         for block in self.blocks:
             x = block(x, cond, mask)
 
@@ -98,7 +101,7 @@ class SpeechDecoderVelocityNetwork(nn.Module):
 class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMixin, ConditionalFlowMatching):
     def __init__(self, config: SpeechDecoderModelConfig) -> None:
         VoiceModel.__init__(self, config)
-        ConditionalFlowMatching.__init__(self, config.sigma_min)
+        ConditionalFlowMatching.__init__(self, config)
 
         self.frontend = TTSLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
         self.speaker_embedding = SpeakerLatentEmbeddings(config.n_speakers, config.speaker_dim)
@@ -113,6 +116,15 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
     def denormalize(self, mels: torch.Tensor) -> torch.Tensor:
         return mels * self.config.mel_std + self.config.mel_mean
 
+    def infill_mask(self, lengths: torch.Tensor, frames: int) -> torch.Tensor:
+        fraction = torch.empty(len(lengths), device=lengths.device).uniform_(
+            self.config.infill_min_fraction, self.config.infill_max_fraction
+        )
+        span = (lengths.float() * fraction).long().clamp(min=1)
+        start = (torch.rand(len(lengths), device=lengths.device) * (lengths - span + 1).clamp(min=1).float()).long()
+        positions = torch.arange(frames, device=lengths.device)[None]
+        return (positions >= start[:, None]) & (positions < (start + span)[:, None])
+
     def forward(
             self,
             unit_ids: torch.Tensor,
@@ -122,6 +134,7 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
             waveform_lengths: torch.Tensor,
     ) -> SpeechDecoderModelOutput:
         speaker_embs, mu, logvar = self.speaker_embedding(speaker_ids)
+        drop = torch.zeros(speaker_embs.shape[0], 1, dtype=torch.bool, device=speaker_embs.device)
         if self.training and self.config.cfg_dropout_rate > 0.0:
             drop = torch.rand(speaker_embs.shape[0], 1, device=speaker_embs.device) < self.config.cfg_dropout_rate
             speaker_embs = torch.where(drop, self.cfg_null_speaker_embedding, speaker_embs)
@@ -131,52 +144,88 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
 
         frames = min(mels.shape[-1], unit_cond.shape[-1])
         mels, unit_cond = self.normalize(mels[..., :frames]), unit_cond[..., :frames]
-        lengths = torch.minimum(mel_lengths, self.config.unit_upsample * unit_id_lengths)
-        mask = make_non_pad_mask(lengths, frames).to(mels.dtype)
+        lengths = torch.minimum(mel_lengths, self.config.unit_upsample * unit_id_lengths).clamp(max=frames)
+        frame_mask = make_non_pad_mask(lengths, frames).to(mels.dtype)
+
+        context = None
+        loss_mask = frame_mask
+        if self.config.infill_enabled:
+            hidden = self.infill_mask(lengths, frames)
+            context = mels * (~hidden & ~drop).unsqueeze(1) * frame_mask.unsqueeze(1)
+            loss_mask = frame_mask * hidden.to(frame_mask.dtype)
 
         xt, t, target = self.path(mels)
-        pred = self.backbone(xt, t, self.speaker_projection(speaker_embs), unit_cond, mask)
+        pred = self.backbone(xt, t, self.speaker_projection(speaker_embs), unit_cond, frame_mask, context)
 
         kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum(dim=1)
         return SpeechDecoderModelOutput(
             logits=pred,
             targets=target,
-            mask=mask,
+            mask=loss_mask,
             speaker_mus=mu,
             speaker_logvars=logvar,
             kl=kl,
             speaker_embeddings=speaker_embs,
+            prior=unit_cond,
+            prior_targets=mels,
+            frame_mask=frame_mask,
         )
 
     def generate(
             self,
             unit_ids: torch.Tensor,
             unit_id_lengths: torch.Tensor,
-            speaker_ids: torch.Tensor,
+            speaker_ids: torch.Tensor | None,
             steps: int,
             cfg_scale: float = 1.0,
             generator: torch.Generator | None = None,
+            sway_coefficient: float | None = None,
+            prompt_mels: torch.Tensor | None = None,
+            prompt_mel_lengths: torch.Tensor | None = None,
     ) -> SpeechDecoderGeneration:
+        if prompt_mels is not None and not self.config.infill_enabled:
+            raise ValueError("prompt_mels requires a model trained with infill_enabled")
+
         unit_cond = self.unit_encoder(unit_ids, unit_id_lengths)
-        lengths = self.config.unit_upsample * unit_id_lengths
-        mask = make_non_pad_mask(lengths, unit_cond.shape[-1]).to(unit_cond.dtype)
-        speaker_cond = self.speaker_projection(self.speaker_embedding.mean_embedding(speaker_ids))
+        frames = unit_cond.shape[-1]
+        lengths = (self.config.unit_upsample * unit_id_lengths).clamp(max=frames)
+        mask = make_non_pad_mask(lengths, frames).to(unit_cond.dtype)
+
+        null_cond = self.speaker_projection(self.cfg_null_speaker_embedding).expand(unit_ids.shape[0], -1)
+        if speaker_ids is None:
+            speaker_cond = null_cond
+        else:
+            speaker_cond = self.speaker_projection(self.speaker_embedding.mean_embedding(speaker_ids))
+
+        context = None
+        prompt_mask = None
+        if self.config.infill_enabled:
+            context = torch.zeros(unit_ids.shape[0], self.config.n_mels, frames, device=unit_ids.device)
+            if prompt_mels is not None:
+                assert prompt_mel_lengths is not None
+                width = min(prompt_mels.shape[-1], frames)
+                prompt_mask = make_non_pad_mask(prompt_mel_lengths.clamp(max=width), frames).unsqueeze(1)
+                context[..., :width] = self.normalize(prompt_mels[..., :width])
+                context = context * prompt_mask
 
         if cfg_scale == 1.0:
             def velocity(x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-                return self.backbone(x, t, speaker_cond, unit_cond, mask)
+                return self.backbone(x, t, speaker_cond, unit_cond, mask, context)
         else:
-            null_cond = self.speaker_projection(self.cfg_null_speaker_embedding).expand_as(speaker_cond)
             both_speakers = torch.cat([speaker_cond, null_cond])
             both_units = torch.cat([unit_cond, unit_cond])
             both_masks = torch.cat([mask, mask])
+            both_contexts = None if context is None else torch.cat([context, torch.zeros_like(context)])
 
             def velocity(x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
                 conditional, unconditional = self.backbone(
-                    torch.cat([x, x]), torch.cat([t, t]), both_speakers, both_units, both_masks
+                    torch.cat([x, x]), torch.cat([t, t]), both_speakers, both_units, both_masks, both_contexts
                 ).chunk(2)
                 return unconditional + cfg_scale * (conditional - unconditional)
 
-        shape = (unit_ids.shape[0], self.config.n_mels, unit_cond.shape[-1])
-        mels = self.sample(velocity, shape, steps, unit_ids.device, generator)
+        shape = (unit_ids.shape[0], self.config.n_mels, frames)
+        mels = self.sample(velocity, shape, steps, unit_ids.device, generator, sway_coefficient)
+        if prompt_mask is not None and context is not None:
+            mels = torch.where(prompt_mask, context, mels)
+
         return SpeechDecoderGeneration(mels=self.denormalize(mels) * mask.unsqueeze(1), mel_lengths=lengths)

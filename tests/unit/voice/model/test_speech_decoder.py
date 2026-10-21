@@ -164,4 +164,105 @@ def test_criterion_adds_the_scaled_kl_to_the_flow_loss() -> None:
 
     total = criterion(output, step=3)
 
-    assert float(total) == pytest.approx(float(criterion.flow_loss(output) + 0.5 * output.kl.mean()), rel=1e-5)
+    expected = criterion.flow_loss(output) + criterion.prior_loss(output) + 0.5 * output.kl.mean()
+    assert float(total) == pytest.approx(float(expected), rel=1e-5)
+
+
+def test_prior_loss_only_counts_valid_frames() -> None:
+    model = _model().train()
+    criterion = SpeechDecoderCriterion(SpeechDecoderCriterionConfig())
+    output = model(**_batch())
+    before = criterion.prior_loss(output)
+
+    output.prior[1, :, int(output.frame_mask[1].sum()):] += 100.0
+
+    assert torch.equal(criterion.prior_loss(output), before)
+
+
+def test_infill_is_off_by_default_and_keeps_the_two_input_architecture() -> None:
+    model = _model()
+
+    assert not model.config.infill_enabled
+    assert model.backbone.embed.in_channels == 2 * 80
+
+
+def test_infill_hides_one_span_and_only_trains_on_it() -> None:
+    model = _model(infill_enabled=True, cfg_dropout_rate=0.0).train()
+    assert model.backbone.embed.in_channels == 3 * 80
+
+    output = model(**_batch())
+
+    hidden = output.mask.bool()
+    valid = output.frame_mask.bool()
+    assert (hidden <= valid).all()
+    for row in range(2):
+        fraction = float(hidden[row].sum() / valid[row].sum())
+        assert 0.69 <= fraction <= 1.0
+        span = hidden[row].nonzero().flatten()
+        assert (span.diff() == 1).all()
+
+
+def test_infill_context_never_reveals_the_hidden_span() -> None:
+    model = _model(infill_enabled=True, cfg_dropout_rate=0.0).train()
+    seen: dict[str, torch.Tensor] = {}
+    forward = model.backbone.forward
+
+    def capture(*args: torch.Tensor) -> torch.Tensor:
+        seen["context"] = args[5]
+        return forward(*args)
+
+    model.backbone.forward = capture
+    output = model(**_batch())
+
+    assert not (seen["context"] * output.mask.unsqueeze(1)).any()
+    assert (seen["context"] * (output.frame_mask - output.mask).unsqueeze(1)).abs().sum() > 0
+
+
+def test_cfg_dropout_also_drops_the_infill_context() -> None:
+    model = _model(infill_enabled=True, cfg_dropout_rate=1.0).train()
+    seen: dict[str, torch.Tensor] = {}
+    forward = model.backbone.forward
+
+    def capture(*args: torch.Tensor) -> torch.Tensor:
+        seen["context"] = args[5]
+        return forward(*args)
+
+    model.backbone.forward = capture
+    model(**_batch())
+
+    assert not seen["context"].any()
+
+
+def test_generation_keeps_the_prompt_frames_and_fills_the_rest() -> None:
+    model = _model(infill_enabled=True).eval()
+    batch = _batch()
+    prompt = torch.randn(2, 80, 30) - 2
+    prompt_lengths = torch.tensor([30, 20])
+
+    out = model.generate(
+        batch["unit_ids"], batch["unit_id_lengths"], None, steps=2, cfg_scale=2.0,
+        generator=torch.Generator().manual_seed(0), prompt_mels=prompt, prompt_mel_lengths=prompt_lengths,
+    )
+
+    assert torch.allclose(out.mels[0, :, :30], prompt[0], atol=1e-5)
+    assert torch.allclose(out.mels[1, :, :20], prompt[1, :, :20], atol=1e-5)
+    assert torch.isfinite(out.mels).all()
+
+
+def test_a_prompt_requires_an_infill_model() -> None:
+    batch = _batch()
+
+    with pytest.raises(ValueError, match="infill_enabled"):
+        _model().generate(
+            batch["unit_ids"], batch["unit_id_lengths"], batch["speaker_ids"], steps=1,
+            prompt_mels=torch.zeros(2, 80, 4), prompt_mel_lengths=torch.tensor([4, 4]),
+        )
+
+
+def test_generation_without_speaker_ids_uses_the_null_speaker() -> None:
+    model = _model().eval()
+    batch = _batch()
+
+    out = model.generate(batch["unit_ids"], batch["unit_id_lengths"], None, steps=2, sway_coefficient=-1.0)
+
+    assert torch.isfinite(out.mels).all()

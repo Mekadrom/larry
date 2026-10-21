@@ -1,6 +1,7 @@
 import dataclasses
 
 from larry.common.config.model.model_configs import (
+    FlowMatchingConfig,
     LarryConditionalEncoderBlockModuleConfig,
     LLMBlockModuleConfig,
     ModelConfig,
@@ -56,7 +57,9 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechDecoderModelConfig(SpeechEncoderDecoderModelConfig, LarryConditionalEncoderBlockModuleConfig):
+class SpeechDecoderModelConfig(
+    SpeechEncoderDecoderModelConfig, LarryConditionalEncoderBlockModuleConfig, FlowMatchingConfig
+):
     """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechDecoderModel``."""
 
     n_speakers: int
@@ -75,13 +78,15 @@ class SpeechDecoderModelConfig(SpeechEncoderDecoderModelConfig, LarryConditional
     mel_mean: float = 0.0
     mel_std: float = 1.0
 
-    sigma_min: float = 1e-4
-
     cfg_dropout_rate: float = 0.1
+
+    infill_enabled: bool = False
+    infill_min_fraction: float = 0.7
+    infill_max_fraction: float = 1.0
 
 
 @dataclasses.dataclass(kw_only=True)
-class LarryVocoderConfig(VoiceModelConfig):
+class LarryVocoderConfig(VoiceModelConfig, FlowMatchingConfig):
     """Configures ``LarryVocoder`` models."""
     d_model: int = 512
     d_inner: int = 1536
@@ -89,5 +94,3 @@ class LarryVocoderConfig(VoiceModelConfig):
 
     stft_alpha: float = 0.5
     stft_scale: float = 1.0
-
-    sigma_min: float = 1e-4

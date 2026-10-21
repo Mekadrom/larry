@@ -290,11 +290,13 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
             viz_steps: int,
             generation_steps: int = 32,
             cfg_scale: float = 2.0,
+            sway_coefficient: float | None = -1.0,
             seed: int = 0,
     ) -> None:
         super().__init__(trainer, viz_steps)
         self.generation_steps = generation_steps
         self.cfg_scale = cfg_scale
+        self.sway_coefficient = sway_coefficient
         self.seed = seed
 
     def _viz(
@@ -321,6 +323,7 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
                     steps=self.generation_steps,
                     cfg_scale=self.cfg_scale,
                     generator=torch.Generator(device=device).manual_seed(self.seed),
+                    sway_coefficient=self.sway_coefficient,
                 )
         finally:
             decoder.train(was_training)
@@ -351,11 +354,13 @@ class VocoderVizCallback(VoiceVizCallback):
             examples_per_source: int = 2,
             generation_steps: int = 32,
             step_sweep: tuple[int, ...] = (4, 8, 16, 32),
+            sway_coefficient: float | None = -1.0,
             seed: int = 0,
     ) -> None:
         super().__init__(trainer, viz_steps)
         self.generation_steps = generation_steps
         self.step_sweep = step_sweep
+        self.sway_coefficient = sway_coefficient
         self.seed = seed
         self.dataset = trainer.eval_loader.dataset
         self.rows = pick_rows(self.dataset.offsets, examples_per_source)
@@ -427,7 +432,9 @@ class VocoderVizCallback(VoiceVizCallback):
     ) -> LarryVocoderGeneration:
         generator = torch.Generator(device=device).manual_seed(self.seed)
         with self.trainer.accelerator.autocast():
-            return model.generate(mels, mel_lengths, steps=steps, generator=generator)
+            return model.generate(
+                mels, mel_lengths, steps=steps, generator=generator, sway_coefficient=self.sway_coefficient
+            )
 
     @staticmethod
     def _mel_l1(
