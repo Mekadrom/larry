@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,7 @@ import yaml
 
 from larry.common.config.config import RunRecord
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
-from larry.common.training.trainers import StepOutput
+from larry.common.training.trainers import MODEL_CONFIG_FILE, StepOutput
 from tests.helpers.common import reset_accelerate_state
 from tests.helpers.metrics import NullMetrics, RecordingMetrics
 from tests.unit.common.training.toy_training import ToyModel, ToyTrainer, toy_config, toy_trainer, train_toy
@@ -205,3 +206,25 @@ def test_a_run_records_its_rendered_config_and_cli_in_the_run_dir_and_metrics(tm
     assert "type: ToyTrainerConfig" in logged["run/config"]
     assert "training -f toy.yaml" in logged["run/cli"]
     assert "type: ToyTrainerConfig" in logged["run/trainer_config"]
+
+
+def test_a_run_writes_its_model_config_once_and_keeps_an_existing_one(tmp_path: Path) -> None:
+    def start() -> ToyTrainer:
+        return ToyTrainer(
+            Provenance(config={"trainer": {"type": "ToyTrainerConfig"}}, cli="training -f toy.yaml"),
+            ToyModel(),
+            toy_config(max_steps=1),
+            RecordingMetrics(str(tmp_path)),
+        )
+
+    trainer = start()
+
+    written = json.loads((tmp_path / MODEL_CONFIG_FILE).read_text())
+    assert written == trainer.accelerator.unwrap_model(trainer.model).config.to_dict()
+    assert written["type"] == "ModelConfig"
+    assert not any((tmp_path / name / MODEL_CONFIG_FILE).exists() for name in ("checkpoint-0", "checkpoint-1"))
+
+    (tmp_path / MODEL_CONFIG_FILE).write_text('{"kept": true}')
+    start()
+
+    assert json.loads((tmp_path / MODEL_CONFIG_FILE).read_text()) == {"kept": True}

@@ -43,6 +43,9 @@ def _reduce_sum(accelerator: Accelerator, tensor: torch.Tensor) -> torch.Tensor:
     return cast(torch.Tensor, accelerator.reduce(tensor, reduction="sum"))
 
 
+MODEL_CONFIG_FILE = "config.json"
+
+
 @dataclasses.dataclass(kw_only=True)
 class StepOutput:
     """Wrapper dataclass for the output of a forward pass."""
@@ -167,6 +170,7 @@ D: Dataset = Dataset,
         self._step_open = False
 
         self._compile_and_save_provenance()
+        self._save_model_config()
 
     @property
     def model(self) -> M:
@@ -583,6 +587,17 @@ D: Dataset = Dataset,
     def eval_batch_size(self, batch: Mapping[str, Any]) -> int:
         """Allows for overriding to determine the real batch size for a given eval batch."""
         return self.config.eval_batch_size
+
+    def _save_model_config(self) -> None:
+        if not self.accelerator.is_main_process:
+            return
+
+        path = Path(self.metrics.log_dir).expanduser().resolve() / MODEL_CONFIG_FILE
+        if path.exists():
+            return
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.accelerator.unwrap_model(self.model).config.to_dict(), indent=2))
 
     def _compile_and_save_provenance(self) -> None:
         """Saves a separate json file that records the sources of this saved dataset."""

@@ -26,7 +26,7 @@ class CompressedSTFT(nn.Module):
         self.hop_length = hop_length
         self.alpha = alpha
         self.scale = scale
-        self.register_buffer("window", torch.hann_window(n_fft))
+        self.register_buffer("window", torch.hann_window(n_fft).clone())
 
     def encode(self, waveforms: torch.Tensor) -> torch.Tensor:
         spec = torch.stft(waveforms, self.n_fft, self.hop_length, window=self.window, center=True, return_complex=True)
