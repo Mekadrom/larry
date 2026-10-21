@@ -565,7 +565,9 @@ class VocoderTrainer(VoiceTrainer[LarryVocoder, VocoderTrainerConfig, SpeechSour
         spec = model.codec.encode(waveforms)
         output = self.model(spec, mels, mel_lengths)
         sample_losses = cast(ConditionalFlowMatchingCriterion, self.criterion).sample_losses(output, output.targets)
-        return StepOutput(loss=self.criterion(output), sample_losses=sample_losses, model_output=output)
+        return StepOutput(
+            loss=self.criterion(output), metrics=MetricDict(), sample_losses=sample_losses, model_output=output
+        )
 
     def update_provenance(self, provenance: Provenance) -> None:
         for source in self.config.mixture_config.train_sources:
@@ -573,3 +575,17 @@ class VocoderTrainer(VoiceTrainer[LarryVocoder, VocoderTrainerConfig, SpeechSour
 
     def make_viz_callback(self, viz_steps: int) -> VizCallback:
         return voice_viz_callbacks.VocoderVizCallback(self, viz_steps)
+
+    def eval_group_names(self) -> list[str]:
+        return [source.name for source in self.config.mixture_config.eval_sources]
+
+    def eval_group_totals(
+            self,
+            batch: Mapping[str, Any],
+            output: StepOutput
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
+        if output.sample_losses is None or output.model_output is None:
+            return None
+
+        elements = cast(ConditionalFlowMatchingCriterion, self.criterion).sample_elements(output.model_output)
+        return batch["source_ids"], output.sample_losses, elements
