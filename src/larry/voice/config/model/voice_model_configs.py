@@ -8,8 +8,8 @@ from larry.voice.config.preprocessing.voice_configs import SampleRateConfig
 class VoiceModelConfig(ModelConfig, SampleRateConfig):
     """Superclass for voice model configs, setting global defaults."""
 
-    n_fft: int = 1024
-    n_mels: int = 100
+    n_fft: int = 640
+    n_mels: int = 80
     hop_length: int = 160
 
 
@@ -28,9 +28,9 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
     """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechTokenizerEncoderModel``."""
 
     n_fft: int = 400
+    n_mels: int = 100
 
     subsampler_stride: int = 2
-    n_query_groups: int = 16
 
     d_model: int = 1024
 
@@ -55,8 +55,19 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
 class SpeechDecoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig):
     """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechDecoderModel``."""
 
-    n_mels: int = 80
-    n_fft: int = 640
-
     n_speakers: int
 
+    d_model: int = 1024
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarryVocoderConfig(VoiceModelConfig):
+    """Configures ``LarryVocoder`` models."""
+    d_model: int = 512
+    d_inner: int = 1536
+    n_layers: int = 6
+
+    stft_alpha: float = 0.5
+    stft_scale: float = 1.0
+
+    sigma_min: float = 1e-4

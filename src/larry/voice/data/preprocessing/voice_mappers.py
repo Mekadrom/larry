@@ -385,3 +385,6 @@ class LarrySpeechEncoderUnitIdExtractingMapper(Mapper[LarrySpeechEncoderUnitIdEx
             self.config.unit_ids_output_column: List(Value("int16")),
             self.config.frame_lengths_output_column: Value("int32"),
         })
+
+    def mutate_provenance(self) -> None:
+        self.provenance.ancestry.models.add(self.config.speech_encoder_checkpoint_path)

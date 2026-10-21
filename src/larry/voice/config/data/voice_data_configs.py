@@ -25,6 +25,11 @@ class TTSSourceConfig(SpeechSourceConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
+class VocoderMixtureConfig(DatasetMixtureConfig[SpeechSourceConfig], SampleRateConfig):
+    ...
+
+
+@dataclasses.dataclass(kw_only=True)
 class ASRMixtureConfig(DatasetMixtureConfig[ASRSourceConfig], SampleRateConfig):
     """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
 

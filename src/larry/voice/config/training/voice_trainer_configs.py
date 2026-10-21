@@ -5,7 +5,7 @@ from larry.common.config.config import Config
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig
-from larry.voice.config.data.voice_data_configs import ASRMixtureConfig, TTSMixtureConfig
+from larry.voice.config.data.voice_data_configs import ASRMixtureConfig, TTSMixtureConfig, VocoderMixtureConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -36,6 +36,15 @@ class VoiceTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](La
     """Superclass for voice trainer configs."""
 
     ...
+
+
+@dataclasses.dataclass(kw_only=True)
+class VocoderTrainerConfig(VoiceTrainerConfig[VocoderMixtureConfig]):
+    """Config for ``VocoderTrainer``."""
+
+    crop_seconds: float = 2.0
+    crops_per_clip: int = 4
+    clips_per_batch: int = 32
 
 
 @dataclasses.dataclass(kw_only=True)

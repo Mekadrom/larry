@@ -10,10 +10,12 @@ from matplotlib.figure import Figure
 import larry.common.training.trainers as trainers
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.model.voice_model_configs import SpeechEncoderDecoderModelConfig
+from larry.voice.data.dataloading.voice_dataloading import WaveformCollator
 from larry.voice.model.speech_decoder import SpeechDecoderModel
 from larry.voice.model.speech_encoder import SpeechEncoderModel, SpeechEncoderPreBottleneck
+from larry.voice.model.vocoder import LarryVocoder, LarryVocoderGeneration
 from larry.voice.training import voice_trainers
-from larry.voice.utils import collapse_ctc_emissions
+from larry.voice.utils import collapse_ctc_emissions, make_non_pad_mask
 
 
 def pick_rows(offsets: list[int], per_source: int) -> list[int]:
@@ -263,3 +265,148 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
             step: int,
     ) -> None:
         ...
+
+
+class VocoderVizCallback(VoiceVizCallback):
+    def __init__(
+            self,
+            trainer: trainers.TrainerBase[Any, Any, Any],
+            viz_steps: int,
+            examples_per_source: int = 2,
+            generation_steps: int = 32,
+            step_sweep: tuple[int, ...] = (4, 8, 16, 32),
+            seed: int = 0,
+    ) -> None:
+        super().__init__(trainer, viz_steps)
+        self.generation_steps = generation_steps
+        self.step_sweep = step_sweep
+        self.seed = seed
+        self.dataset = trainer.eval_loader.dataset
+        self.rows = pick_rows(self.dataset.offsets, examples_per_source)
+        self.reference_logged = False
+
+    def viz(self, step: int) -> None:
+        if not self.trainer.accelerator.is_main_process:
+            return
+
+        if not isinstance(self.trainer, voice_trainers.VocoderTrainer):
+            raise ValueError(f"{type(self).__name__} requires a VocoderTrainer trainer type")
+
+        self.log.info(f"Performing visualization at step {step}")
+
+        items = [self.dataset[k] for k in self.rows]
+        batch = WaveformCollator()(items)
+        model = cast(LarryVocoder, self.trainer.accelerator.unwrap_model(self.trainer.model))
+        device = self.trainer.accelerator.device
+        waveforms = batch["waveforms"].to(device)
+        waveform_lengths = batch["waveform_lengths"].to(device)
+
+        was_training = model.training
+        model.eval()
+        try:
+            with torch.no_grad():
+                mels, mel_lengths = model.frontend(waveforms, waveform_lengths)
+                generated = self._generate(model, mels, mel_lengths, self.generation_steps, device)
+                fake_mels, fake_lengths = model.frontend(generated.waveforms, generated.waveform_lengths)
+                sweep = {
+                    n: self._mel_l1(model, mels, mel_lengths, self._generate(model, mels, mel_lengths, n, device))
+                    for n in self.step_sweep
+                }
+        finally:
+            model.train(was_training)
+
+        sample_rate = model.config.sample_rate
+        for i, item in enumerate(items):
+            tag = f"viz/{i}/{self.trainer.config.mixture_config.eval_sources[item['source']].name}"
+            n = int(generated.waveform_lengths[i])
+            frames = int(torch.minimum(fake_lengths[i], mel_lengths[i]))
+            real = waveforms[i, :n].float().cpu()
+            fake = generated.waveforms[i, :n].float().cpu()
+            real_mel = mels[i, :, :frames].float().cpu()
+            fake_mel = fake_mels[i, :, :frames].float().cpu()
+
+            if not self.reference_logged:
+                self.trainer.metrics.add_audio(f"{tag}/real", real, step, sample_rate=sample_rate)
+
+            self.trainer.metrics.add_audio(f"{tag}/generated", fake, step, sample_rate=sample_rate)
+            self.trainer.metrics.add_figure(f"{tag}/comparison", self._figure(real_mel, fake_mel, model), step)
+            for name, value in self._scalars(real, fake, real_mel, fake_mel).items():
+                self.trainer.metrics.add_scalar(f"{tag}/{name}", value, step)
+
+        for n, value in sweep.items():
+            self.trainer.metrics.add_scalar(f"viz/mel_l1_by_steps/{n}", value, step)
+
+        self.reference_logged = True
+
+    def _generate(
+            self,
+            model: LarryVocoder,
+            mels: torch.Tensor,
+            mel_lengths: torch.Tensor,
+            steps: int,
+            device: torch.device,
+    ) -> LarryVocoderGeneration:
+        generator = torch.Generator(device=device).manual_seed(self.seed)
+        with self.trainer.accelerator.autocast():
+            return model.generate(mels, mel_lengths, steps=steps, generator=generator)
+
+    @staticmethod
+    def _mel_l1(
+            model: LarryVocoder,
+            mels: torch.Tensor,
+            mel_lengths: torch.Tensor,
+            generated: LarryVocoderGeneration,
+    ) -> float:
+        fake, fake_lengths = model.frontend(generated.waveforms, generated.waveform_lengths)
+        frames = min(fake.shape[-1], mels.shape[-1])
+        mask = make_non_pad_mask(torch.minimum(fake_lengths, mel_lengths), frames).unsqueeze(1)
+        diff = (fake[..., :frames] - mels[..., :frames]).abs() * mask
+        return float(diff.sum() / (mask.sum() * mels.shape[1]).clamp(min=1))
+
+    @staticmethod
+    def _scalars(
+            real: torch.Tensor,
+            fake: torch.Tensor,
+            real_mel: torch.Tensor,
+            fake_mel: torch.Tensor,
+    ) -> dict[str, float]:
+        third = real_mel.shape[0] // 3
+        l1 = (fake_mel - real_mel).abs()
+        real_rms = real.square().mean().sqrt().clamp(min=1e-8)
+        fake_rms = fake.square().mean().sqrt().clamp(min=1e-8)
+        return {
+            "mel_l1": float(l1.mean()),
+            "mel_l1_high_band": float(l1[2 * third:].mean()),
+            "loudness_db_delta": float(20 * torch.log10(fake_rms / real_rms)),
+        }
+
+    @staticmethod
+    def _figure(real_mel: torch.Tensor, fake_mel: torch.Tensor, model: LarryVocoder) -> Figure:
+        seconds = real_mel.shape[-1] * model.config.hop_length / model.config.sample_rate
+        extent = (0.0, seconds, 0.0, float(real_mel.shape[0]))
+        lo, hi = float(real_mel.min()), float(real_mel.max())
+        diff = fake_mel - real_mel
+        limit = max(float(diff.abs().quantile(0.99)), 1e-6)
+
+        fig = Figure(figsize=(14, 10))
+        axes = fig.subplots(4, 1, gridspec_kw={"height_ratios": [3, 3, 3, 2]})
+        for ax, data, title in ((axes[0], real_mel, "real"), (axes[1], fake_mel, "generated")):
+            ax.imshow(data.numpy(), origin="lower", aspect="auto", extent=extent, vmin=lo, vmax=hi)
+            ax.set_title(title, loc="left")
+            ax.set_ylabel("mel bin")
+
+        image = axes[2].imshow(
+            diff.numpy(), origin="lower", aspect="auto", extent=extent, cmap="RdBu_r", vmin=-limit, vmax=limit
+        )
+        axes[2].set_title("generated - real", loc="left")
+        axes[2].set_ylabel("mel bin")
+        axes[2].set_xlabel("seconds")
+        fig.colorbar(image, ax=axes[2], fraction=0.02)
+
+        axes[3].plot(real_mel.mean(dim=-1).numpy(), label="real")
+        axes[3].plot(fake_mel.mean(dim=-1).numpy(), label="generated")
+        axes[3].set_title("average log-mel spectrum", loc="left")
+        axes[3].set_xlabel("mel bin")
+        axes[3].legend()
+        fig.tight_layout()
+        return fig

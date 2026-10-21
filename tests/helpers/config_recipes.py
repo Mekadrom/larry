@@ -15,6 +15,7 @@ TRAINING_RECIPES: dict[str, list[str]] = {
     },
     "larry-speech-decoder": ["training/voice/mixtures/tts.yaml",
                              "training/voice/tts/decoder/larry-speech-decoder.yaml"],
+    "larry-vocoder": ["training/voice/mixtures/vocoder.yaml", "training/voice/vocoder/larry-vocoder.yaml"],
 }
 
 

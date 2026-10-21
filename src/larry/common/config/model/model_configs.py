@@ -21,7 +21,7 @@ class ModelConfig(TaggedConfig):
 class AttentionModuleConfig(ModelConfig):
     """Config class for all ``LarryModel`` implementations which require configuring ``LarryAttention`` submodules."""
 
-    n_query_groups: int = 1
+    n_query_groups: int = 16
     n_heads: int = 16
     use_qkv_bias: bool = False
 

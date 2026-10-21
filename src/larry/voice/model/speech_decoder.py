@@ -3,7 +3,7 @@ from torch import nn
 
 from larry.voice.config.model.voice_model_configs import SpeechDecoderModelConfig
 from larry.voice.model.voice_models import SpeechDecoderModelOutput, VoiceModel
-from larry.voice.model.voice_modules import ASRLogMelFrontend
+from larry.voice.model.voice_modules import TTSLogMelFrontend
 
 
 class SpeakerLatentEmbeddings(nn.Module):
@@ -49,7 +49,7 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig]):
         super().__init__(config)
 
         self.speaker_latent_embeddings = SpeakerLatentEmbeddings(config.n_speakers, config.d_model)
-        self.frontend = ASRLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
+        self.frontend = TTSLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
         self.unit_encoder = SpeakerCodesUnitEmbedding(config.n_units, config.d_model, config.n_mels)
 
         self.timestep_embedding = nn.Embedding(10, config.d_model)

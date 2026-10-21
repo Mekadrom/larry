@@ -63,7 +63,7 @@ class WeightedBatchSampler(ResumableBatchSampler, ABC):
             for s in range(len(self.rows_by_source))
         ])
 
-        pool = self.sort_pool(pool)
+        pool = self.sort_pool(pool, generator)
         batches = self.make_batches(pool)
 
         order = torch.randperm(len(batches), generator=generator).tolist()
@@ -130,7 +130,7 @@ class WeightedBatchSampler(ResumableBatchSampler, ABC):
         ...
 
     @abstractmethod
-    def sort_pool(self, pool: torch.Tensor) -> torch.Tensor:
+    def sort_pool(self, pool: torch.Tensor, generator: torch.Generator) -> torch.Tensor:
         ...
 
     @abstractmethod

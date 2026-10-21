@@ -1,5 +1,4 @@
 import random
-from abc import ABC, abstractmethod
 from typing import Any
 
 import numpy as np
@@ -14,7 +13,7 @@ from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
 from larry.voice.utils import bytes_to_waveforms
 
 
-class IndexedSpeechDataset[C: SpeechSourceConfig = SpeechSourceConfig](IndexedDataset[C], ABC):
+class IndexedSpeechDataset[C: SpeechSourceConfig = SpeechSourceConfig](IndexedDataset[C]):
     """Specific dataset type for datasets that are represented by a large materialized form (source) and an index."""
 
     def __init__(
@@ -58,9 +57,11 @@ class IndexedSpeechDataset[C: SpeechSourceConfig = SpeechSourceConfig](IndexedDa
 
         return keys
 
-    @abstractmethod
     def format_example_dict(self, source_idx: int, entry: dict[Any, Any], data: Any) -> dict[str, Any]:
-        ...
+        return {
+            "waveform": bytes_to_waveforms(data["bytes"], self.sample_rate)[0],
+            "source": source_idx,
+        }
 
 
 class IndexedASRDataset(IndexedSpeechDataset[ASRSourceConfig]):

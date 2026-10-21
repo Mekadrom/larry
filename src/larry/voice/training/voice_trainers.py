@@ -15,10 +15,12 @@ from rapidfuzz.distance import Levenshtein
 from torch.utils.data import Sampler
 from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
 
+from larry.common.config.criteria.criterion_configs import CriterionConfig
 from larry.common.config.data.data_configs import DatasetSourceConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.criteria import criterion
 from larry.common.criteria.criterion import Criterion, SamplableCriterion
+from larry.common.criteria.flow_matching import ConditionalFlowMatchingCriterion
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset
 from larry.common.data.dataloading.weighted_batch_sampler import WeightedBatchSampler
 from larry.common.metrics.metrics import MetricDict, ScalarMetricEntry
@@ -36,6 +38,7 @@ from larry.voice.config.training.voice_trainer_configs import (
     SpeechDecoderTrainerConfig,
     SpeechEncoderDecoderTrainerConfig,
     SpeechEncoderTrainerConfig,
+    VocoderTrainerConfig,
     VoiceTrainerConfig,
 )
 from larry.voice.criteria.ctc import CTCCriterion
@@ -43,13 +46,17 @@ from larry.voice.criteria.flow_matching import SpeechDecoderCriterion
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedASRDataset, IndexedSpeechDataset, IndexedTTSDataset
 from larry.voice.data.dataloading.voice_dataloading import (
     AudioDurationBucketingWeightedBatchSampler,
+    ClipCropWeightedBatchSampler,
+    RandomCropCollator,
     SpeechCTCCollator,
     SpeechDecoderCollator,
+    WaveformCollator,
 )
 from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
 from larry.voice.model.fsq import code_counts, codebook_statistics
 from larry.voice.model.speech_decoder import SpeechDecoderModel
 from larry.voice.model.speech_encoder import SpeechEncoderModel
+from larry.voice.model.vocoder import LarryVocoder
 from larry.voice.model.voice_models import SpeechDecoderModelOutput, SpeechEncoderModelOutput, VoiceModel
 from larry.voice.training import voice_callbacks, voice_viz_callbacks
 from larry.voice.utils import collapse_ctc_emissions
@@ -88,7 +95,21 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
 ](LarryTrainer[M, C, S, D], ABC):
     """Superclass for voice trainers."""
 
-    ...
+    def duration_batches(self, durations: torch.Tensor) -> list[list[int]]:
+        batches: list[list[int]] = []
+        batch: list[int] = []
+        for row in torch.argsort(durations).tolist():
+            padded_seconds = (len(batch) + 1) * float(durations[row])
+            if len(batch) > 0 and padded_seconds > self.config.mixture_config.max_batch_seconds:
+                batches.append(batch)
+                batch = []
+
+            batch.append(row)
+
+        if len(batch) > 0:
+            batches.append(batch)
+
+        return batches
 
 
 def _normalize_for_scoring(whisper_normalizer: EnglishTextNormalizer, text: str) -> str:
@@ -126,7 +147,7 @@ O: LarryModelOutput = LarryModelOutput,
     def transform_as_source(self, config: S, dataset: HFDataset) -> HFDataset:
         return dataset.cast_column(config.audio_column, Audio(decode=False))
 
-    def make_train_sampler(self, dataset: D, weights) -> WeightedBatchSampler:
+    def make_train_sampler(self, dataset: D, weights: list[float]) -> WeightedBatchSampler:
         source_ids, durations = dataset.source_ids_and_durations()
         return AudioDurationBucketingWeightedBatchSampler(
             source_ids,
@@ -141,22 +162,6 @@ O: LarryModelOutput = LarryModelOutput,
         """Groups row positions, shortest first, into batches whose padded length fits ``max_batch_seconds``."""
         _, durations = dataset.source_ids_and_durations()
         return self.duration_batches(durations)
-
-    def duration_batches(self, durations: torch.Tensor) -> list[list[int]]:
-        batches: list[list[int]] = []
-        batch: list[int] = []
-        for row in torch.argsort(durations).tolist():
-            padded_seconds = (len(batch) + 1) * float(durations[row])
-            if len(batch) > 0 and padded_seconds > self.config.mixture_config.max_batch_seconds:
-                batches.append(batch)
-                batch = []
-
-            batch.append(row)
-
-        if len(batch) > 0:
-            batches.append(batch)
-
-        return batches
 
     def _forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
         output = self._model_forward(batch)
@@ -496,3 +501,68 @@ class SpeechDecoderTrainer(
     def count_tokens(self, batch: Mapping[str, Any]) -> None:
         n_tokens = int(batch["unit_id_lengths"].sum()) * self.config.upsample
         self._pending_tokens += n_tokens
+
+
+class VocoderTrainer(VoiceTrainer[LarryVocoder, VocoderTrainerConfig, SpeechSourceConfig, IndexedSpeechDataset]):
+    def load_indexed(
+            self,
+            configs: list[SpeechSourceConfig],
+            indexes: list[HFDataset],
+            sources: list[HFDataset | None],
+            is_eval: bool = False
+    ) -> IndexedSpeechDataset:
+        return IndexedSpeechDataset(
+            configs,
+            indexes,
+            sources,
+            self.config.mixture_config.sample_rate,
+        )
+
+    def make_train_sampler(self, dataset: IndexedSpeechDataset, weights: list[float]) -> WeightedBatchSampler:
+        source_ids, durations = dataset.source_ids_and_durations()
+        return ClipCropWeightedBatchSampler(
+            source_ids,
+            durations,
+            weights,
+            clips_per_batch=self.config.clips_per_batch,
+            crop_seconds=self.config.crop_seconds,
+            crops_per_clip=self.config.crops_per_clip,
+            pool_size=self.config.mixture_config.pool_size,
+            seed=self.config.mixture_config.seed,
+        )
+
+    def make_eval_sampler(self, dataset: IndexedSpeechDataset) -> Sampler | Iterable:
+        _, durations = dataset.source_ids_and_durations()
+        return self.duration_batches(durations)
+
+    def make_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
+        return RandomCropCollator(
+            crop_samples=round(self.config.crop_seconds * self.config.mixture_config.sample_rate),
+            crops_per_clip=self.config.crops_per_clip,
+            seed=self.config.seed,
+            process_index=PartialState().process_index,
+        )
+
+    def make_eval_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
+        return WaveformCollator()
+
+    def make_criterion(self) -> criterion.Criterion:
+        return ConditionalFlowMatchingCriterion(CriterionConfig())
+
+    def _forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
+        waveforms = batch["waveforms"].to(self.accelerator.device)
+        waveform_lengths = batch["waveform_lengths"].to(self.accelerator.device)
+
+        model = self.accelerator.unwrap_model(self.model)
+        mels, mel_lengths = model.frontend(waveforms, waveform_lengths)
+        spec = model.codec.encode(waveforms)
+        output = self.model(spec, mels, mel_lengths)
+        sample_losses = cast(ConditionalFlowMatchingCriterion, self.criterion).sample_losses(output, output.targets)
+        return StepOutput(loss=self.criterion(output), sample_losses=sample_losses, model_output=output)
+
+    def update_provenance(self, provenance: Provenance) -> None:
+        for source in self.config.mixture_config.train_sources:
+            provenance.ancestry.datasets.add(source.provenance_name or source.index_path)
+
+    def make_viz_callback(self, viz_steps: int) -> VizCallback:
+        return voice_viz_callbacks.VocoderVizCallback(self, viz_steps)

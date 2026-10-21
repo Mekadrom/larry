@@ -668,7 +668,7 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
         return DataLoader(
             validation,
             batch_sampler=self.make_eval_sampler(validation),
-            collate_fn=self.make_collate_fn(),
+            collate_fn=self.make_eval_collate_fn(),
             num_workers=self.config.num_dataloader_workers,
             persistent_workers=self.config.num_dataloader_workers > 0,
         )
@@ -676,6 +676,9 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
     def make_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
         """For simple dataloaders, allows overriding to create the collation function for train and eval."""
         return None
+
+    def make_eval_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
+        return self.make_collate_fn()
 
     def train_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
         """Wraps _forward_pass to first keep a running count of total tokens seen by the model in training."""
@@ -711,7 +714,7 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
         return StepOutput(loss=loss, metrics=model_output.metrics)
 
     @abstractmethod
-    def make_train_sampler(self, dataset: D, weights) -> Sampler:
+    def make_train_sampler(self, dataset: D, weights: list[float]) -> Sampler:
         ...
 
     @abstractmethod
