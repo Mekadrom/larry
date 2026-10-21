@@ -33,6 +33,12 @@ class Mapper[C: MapperConfig = MapperConfig](Preprocessor[C], ABC):
         self.output_columns = [c for c in self.config.output_columns if c is not None]
         self.device_index = 0
 
+    @property
+    def device(self) -> torch.device:
+        if torch.cuda.is_available():
+            return torch.device("cuda", self.device_index)
+        return torch.device("cpu")
+
     def validate(self) -> None:
         """Simple override validating the input config; called by the super class, ``Preprocessor`` in init."""
         if not self.config.input_columns:

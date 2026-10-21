@@ -8,7 +8,7 @@ import av
 import numpy as np
 import torch
 from datasets import Audio, Dataset, DatasetDict
-from datasets.features.features import Features, FeatureType, Value, List
+from datasets.features.features import Features, FeatureType, List, Value
 from torch.nn.utils.rnn import pad_sequence
 from torchcodec.decoders import AudioDecoder
 from torchcodec.encoders import AudioEncoder
@@ -23,8 +23,9 @@ from larry.voice.config.preprocessing.voice_configs import AlignerConfig
 from larry.voice.config.preprocessing.voice_mapper_configs import (
     AudioDurationMapperConfig,
     CTCScoreMapperConfig,
+    LarrySpeechEncoderUnitIdExtractingMapperConfig,
     SpeechSegmentationAligningMapperConfig,
-    UrlAudioMapperConfig, LarrySpeechEncoderUnitIdExtractingMapperConfig,
+    UrlAudioMapperConfig,
 )
 from larry.voice.data.preprocessing.alignment import Aligner, LongAlignment, TokenTimeline
 from larry.voice.data.preprocessing.normalization import TextNormalizer
@@ -38,11 +39,11 @@ _NORMALIZERS: dict[str, TextNormalizer] = {}
 _ENCODERS: dict[str, SpeechEncoderModel] = {}
 
 
-def _lazy_get_aligner(aligner_config: AlignerConfig, device_index: int) -> Aligner:
+def _lazy_get_aligner(aligner_config: AlignerConfig, device: torch.device) -> Aligner:
     """For caching/obtaining ``Aligner`` instances; avoids class fields that would impact fingerprinting."""
     key = repr(aligner_config)
     if key not in _ALIGNERS:
-        _ALIGNERS[key] = Aligner(aligner_config, device=f"cuda:{device_index}")
+        _ALIGNERS[key] = Aligner(aligner_config, device=device)
     return _ALIGNERS[key]
 
 
@@ -54,10 +55,10 @@ def _lazy_get_normalizer(config: MapperConfig, make_normalizer: Callable[[], Tex
     return _NORMALIZERS[key]
 
 
-def _lazy_get_encoder(key: str, device_index: int) -> SpeechEncoderModel:
+def _lazy_get_encoder(key: str, device: torch.device) -> SpeechEncoderModel:
     """For caching/obtaining ``SpeechEncoderModel`` instances; avoids class fields that would impact fingerprinting."""
     if key not in _ENCODERS:
-        _ENCODERS[key] = SpeechEncoderModel.from_pretrained(key).to(device_index)
+        _ENCODERS[key] = SpeechEncoderModel.from_pretrained(key).to(device)
     return _ENCODERS[key]
 
 
@@ -145,7 +146,7 @@ C: SpeechSegmentationAligningMapperConfig = SpeechSegmentationAligningMapperConf
         audios = batch[self.config.audio_column]
         texts = batch[self.config.text_column]
 
-        aligner = _lazy_get_aligner(self.config.aligner_config, self.device_index)
+        aligner = _lazy_get_aligner(self.config.aligner_config, self.device)
         normalizer = _lazy_get_normalizer(self.config, self.make_normalizer)
 
         for i, (audio, text) in enumerate(zip(audios, texts, strict=True)):
@@ -255,7 +256,7 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
         """Uses an aligner model to score a batch of utterances against their ground-truth label transcripts."""
-        aligner = _lazy_get_aligner(self.config.aligner_config, self.device_index)
+        aligner = _lazy_get_aligner(self.config.aligner_config, self.device)
         normalizer = _lazy_get_normalizer(self.config, self.make_normalizer)
 
         audios = batch[self.config.audio_column]
@@ -353,7 +354,7 @@ class LarrySpeechEncoderUnitIdExtractingMapper(Mapper[LarrySpeechEncoderUnitIdEx
         super().__init__(provenance, config)
 
     def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
-        model = _lazy_get_encoder(self.config.speech_encoder_checkpoint_path, self.device_index)
+        model = _lazy_get_encoder(self.config.speech_encoder_checkpoint_path, self.device)
 
         audios: list[EncodedAudio] = batch[self.config.audio_column]
         waveforms = []
@@ -374,7 +375,7 @@ class LarrySpeechEncoderUnitIdExtractingMapper(Mapper[LarrySpeechEncoderUnitIdEx
         return {
             self.config.unit_ids_output_column: [
                 u[:n].astype(np.int16)
-                for u, n in zip(unit_ids.cpu().numpy(), frame_lengths.tolist())
+                for u, n in zip(unit_ids.cpu().numpy(), frame_lengths.tolist(), strict=True)
             ],
             self.config.frame_lengths_output_column: frame_lengths.cpu().numpy(),
         }

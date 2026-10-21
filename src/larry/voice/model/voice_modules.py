@@ -4,6 +4,8 @@ import torch
 import torchaudio
 from torch import nn
 
+from larry.voice.utils import make_non_pad_mask
+
 
 class ASRLogMelFrontend(nn.Module):
     """Just a module wrapping the ``MelSpectrogram`` transform with the correct configuration."""
@@ -24,13 +26,15 @@ class ASRLogMelFrontend(nn.Module):
 
     def forward(self, waveforms: torch.Tensor, waveform_lengths: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Extracts the mels without casting to lower precision."""
+        mel_lengths = ((waveform_lengths - self.mel.n_fft // 2) // self.hop_length + 1).clamp(min=0)
         with torch.autocast(device_type=waveforms.device.type, enabled=False):
             mels = self.mel(waveforms.float()).clamp(min=1e-10).log10()  # [B, n_mels, T]
             # whisper-style norm
-            mels = torch.maximum(mels, mels.amax(dim=(1, 2), keepdim=True) - 8.0)
+            valid = make_non_pad_mask(mel_lengths, mels.shape[-1]).unsqueeze(1)
+            peak = mels.masked_fill(~valid, float("-inf")).amax(dim=(1, 2), keepdim=True)
+            mels = torch.maximum(mels, peak - 8.0)
             mels = (mels + 4.0) / 4.0
 
-        mel_lengths = waveform_lengths // self.hop_length
         return mels, mel_lengths
 
 
@@ -56,5 +60,5 @@ class TTSLogMelFrontend(nn.Module):
         with torch.autocast(device_type=waveforms.device.type, enabled=False):
             mels = self.mel(waveforms.float()).clamp(min=1e-5).log10()  # [B, n_mels, T]
 
-        mel_lengths = waveform_lengths // self.hop_length
+        mel_lengths = ((waveform_lengths - self.mel.n_fft // 2) // self.hop_length + 1).clamp(min=0)
         return mels, mel_lengths
