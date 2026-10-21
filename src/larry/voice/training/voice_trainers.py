@@ -453,39 +453,45 @@ class SpeechDecoderTrainer(
         return voice_viz_callbacks.SpeechDecoderVizCallback(self, viz_steps)
 
     def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
-        """Performs the eval forward while collecting additional accuracy metrics."""
         output = self._model_forward(batch)
-        sample_losses = cast(SamplableCriterion, self.criterion).sample_losses(
-            output,
-            output.target_mels,
-            output.target_mel_lengths
-        )
-        loss = (sample_losses / output.target_mel_lengths.clamp(min=1)).mean()
+        decoder_criterion = cast(SpeechDecoderCriterion, self.criterion)
         return StepOutput(
-            loss=loss,
+            loss=decoder_criterion.flow_loss(output),
             metrics=output.metrics or MetricDict({}),
-            sample_losses=sample_losses,
-            model_output=output
+            sample_losses=decoder_criterion.sample_losses(output, output.targets),
+            model_output=output,
         )
 
     def _forward_metrics(self, output: SpeechDecoderModelOutput) -> MetricDict:
-        return MetricDict(output.metrics or {})
+        metrics = MetricDict(output.metrics or {})
+        metrics.add_metric(ScalarMetricEntry(tag="train/kl", scalar=float(output.kl.mean())))
+        return metrics
 
     def _model_forward(self, batch: Mapping[str, Any]) -> SpeechDecoderModelOutput:
-        return self.model(batch["unit_ids"], batch["speaker_ids"], batch["waveforms"], batch["waveform_lengths"])
+        return self.model(
+            batch["unit_ids"],
+            batch["unit_id_lengths"],
+            batch["speaker_ids"],
+            batch["waveforms"],
+            batch["waveform_lengths"],
+        )
 
     def _criterion_forward(self, output: SpeechDecoderModelOutput, batch: Mapping[str, Any]) -> torch.Tensor:
-        return self.criterion(output, targets=output.target_mels, target_lengths=output.target_mel_lengths)
+        return self.criterion(output, step=self.train_state.global_step)
 
     def eval_group_totals(
             self,
             batch: Mapping[str, Any],
             output: StepOutput
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
-        ...
+        if output.sample_losses is None or output.model_output is None:
+            return None
+
+        elements = cast(SpeechDecoderCriterion, self.criterion).sample_elements(output.model_output)
+        return batch["source_ids"], output.sample_losses, elements
 
     def eval_statistics(self) -> dict[str, torch.Tensor]:
-        ...
+        return {}
 
     def update_eval_statistics(
             self,
@@ -493,14 +499,13 @@ class SpeechDecoderTrainer(
             batch: Mapping[str, Any],
             output: StepOutput
     ) -> None:
-        ...
+        pass
 
     def eval_statistics_metrics(self, statistics: dict[str, torch.Tensor]) -> MetricDict:
-        ...
+        return MetricDict()
 
     def count_tokens(self, batch: Mapping[str, Any]) -> None:
-        n_tokens = int(batch["unit_id_lengths"].sum()) * self.config.upsample
-        self._pending_tokens += n_tokens
+        self._pending_tokens += int(batch["unit_id_lengths"].sum()) * self.model_config.unit_upsample
 
 
 class VocoderTrainer(VoiceTrainer[LarryVocoder, VocoderTrainerConfig, SpeechSourceConfig, IndexedSpeechDataset]):

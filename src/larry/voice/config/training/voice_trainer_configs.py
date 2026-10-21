@@ -71,5 +71,4 @@ class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig[ASRMixtureCon
 class SpeechDecoderTrainerConfig(SpeechEncoderDecoderTrainerConfig[TTSMixtureConfig]):
     """Config for ``SpeechDecoderTrainer``."""
 
-    upsample: float = 4.0
     criterion: SpeechDecoderCriterionConfig = dataclasses.field(default_factory=SpeechDecoderCriterionConfig)

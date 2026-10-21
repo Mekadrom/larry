@@ -55,6 +55,8 @@ def ctc_output(log_probs: torch.Tensor, frame_lengths: torch.Tensor) -> SpeechEn
         ctc_log_probs={"encoder2_norm": log_probs},
         frame_lengths=frame_lengths,
         unit_ids=torch.zeros(frame_lengths.shape[0], log_probs.shape[1], dtype=torch.long),
+        mels=torch.zeros(frame_lengths.shape[0], 100, 4 * log_probs.shape[1]),
+        mel_lengths=4 * frame_lengths,
     )
 
 

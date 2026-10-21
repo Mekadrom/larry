@@ -1,6 +1,10 @@
 import dataclasses
 
-from larry.common.config.model.model_configs import LLMBlockModuleConfig, ModelConfig
+from larry.common.config.model.model_configs import (
+    LarryConditionalEncoderBlockModuleConfig,
+    LLMBlockModuleConfig,
+    ModelConfig,
+)
 from larry.voice.config.preprocessing.voice_configs import SampleRateConfig
 
 
@@ -11,10 +15,6 @@ class VoiceModelConfig(ModelConfig, SampleRateConfig):
     n_fft: int = 640
     n_mels: int = 80
     hop_length: int = 160
-
-    @property
-    def n_bins(self) -> int:
-        return self.n_fft // 2 + 1
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -56,18 +56,28 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechDecoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig):
+class SpeechDecoderModelConfig(SpeechEncoderDecoderModelConfig, LarryConditionalEncoderBlockModuleConfig):
     """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechDecoderModel``."""
 
     n_speakers: int
 
     d_model: int = 1024
-    d_inner: int = 2048
+    speaker_dim: int = 192
     n_encoder_layers: int = 4
     n_backbone_layers: int = 4
+    unit_upsample: int = 4
 
-    encoder_dropout_p: float = 0.0
-    upsample_dropout_p: float = 0.0
+    is_causal: bool = False
+    attention_dropout_p: float = 0.0
+    proj_dropout_p: float = 0.0
+    mlp_dropout_p: float = 0.0
+
+    mel_mean: float = 0.0
+    mel_std: float = 1.0
+
+    sigma_min: float = 1e-4
+
+    cfg_dropout_rate: float = 0.1
 
 
 @dataclasses.dataclass(kw_only=True)

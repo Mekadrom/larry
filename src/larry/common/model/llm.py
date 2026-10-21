@@ -1,8 +1,13 @@
 import torch
 from torch import nn
 
-from larry.common.config.model.model_configs import AttentionModuleConfig, LLMBlockModuleConfig
+from larry.common.config.model.model_configs import (
+    AttentionModuleConfig,
+    LarryConditionalEncoderBlockModuleConfig,
+    LLMBlockModuleConfig,
+)
 from larry.common.model.attention import LarryAttention
+from larry.common.model.norms import AdaLayerNorm, AdaLayerNormZero, get_norm_type
 
 
 class LarrySimpleEncoderBlock(nn.Module):
@@ -13,7 +18,12 @@ class LarrySimpleEncoderBlock(nn.Module):
         super().__init__()
 
         self.self_attn = LarryAttention(AttentionModuleConfig.from_child(config))
-        self.norm1 = nn.RMSNorm(config.d_model)
+        norm1_type = get_norm_type(config.pre_attn_norm_type)
+        if norm1_type == AdaLayerNorm:
+            raise ValueError(f"{type(self).__name__} doesn't support {norm1_type.__name__}")
+        else:
+            self.norm1 = norm1_type(config.d_model)
+
         d_inner = config.d_model * 4
         self.mlp = nn.Sequential(
             nn.Linear(config.d_model, d_inner),
@@ -21,7 +31,12 @@ class LarrySimpleEncoderBlock(nn.Module):
             nn.Dropout(p=config.mlp_dropout_p),
             nn.Linear(d_inner, config.d_model),
         )
-        self.norm2 = nn.RMSNorm(config.d_model)
+
+        norm2_type = get_norm_type(config.pre_mlp_norm_type)
+        if norm2_type == AdaLayerNorm:
+            raise ValueError(f"{type(self).__name__} doesn't support {norm2_type.__name__}")
+        else:
+            self.norm2 = norm2_type(config.d_model)
 
     def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
         """Simple forward pass through all modules with residuals."""
@@ -75,3 +90,36 @@ class LarrySimpleDecoderBlock(nn.Module):
         hidden_states = hidden_states + crossed
 
         return hidden_states + self.mlp(self.mlp_norm(hidden_states))
+
+
+class LarryConditionalEncoderBlock(nn.Module):
+    """Transformer block that uses AdaLN-Zero to condition simple attention/MLP modules."""
+
+    def __init__(self, config: LarryConditionalEncoderBlockModuleConfig) -> None:
+        """Sets up the modules for this encoder block: self attention and an MLP, each behind a gated AdaLN."""
+        super().__init__()
+
+        d_cond = config.d_cond or config.d_model
+        self.self_attn = LarryAttention(AttentionModuleConfig.from_child(config))
+        self.attn_norm = AdaLayerNormZero(config.d_model, d_cond)
+
+        d_inner = config.d_model * 4
+        self.mlp = nn.Sequential(
+            nn.Linear(config.d_model, d_inner),
+            nn.GELU(),
+            nn.Dropout(p=config.mlp_dropout_p),
+            nn.Linear(d_inner, config.d_model),
+        )
+        self.mlp_norm = AdaLayerNormZero(config.d_model, d_cond)
+
+    def forward(
+            self,
+            hidden_states: torch.Tensor,
+            cond: torch.Tensor,
+            attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """Pre-norm residual forward with conditioned norms and gates on each residual branch."""
+        normed, gate = self.attn_norm(hidden_states, cond)
+        hidden_states = hidden_states + gate * self.self_attn(normed, attention_mask=attention_mask)[0]
+        normed, gate = self.mlp_norm(hidden_states, cond)
+        return hidden_states + gate * self.mlp(normed)

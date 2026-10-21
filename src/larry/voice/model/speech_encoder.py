@@ -209,6 +209,8 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
             ctc_log_probs=ctc_log_probs,
             frame_lengths=frame_lengths,
             unit_ids=unit_ids,
+            mels=mels,
+            mel_lengths=mel_lengths,
         )
 
     @torch.inference_mode()

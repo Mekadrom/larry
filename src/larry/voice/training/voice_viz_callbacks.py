@@ -31,7 +31,36 @@ def pick_rows(offsets: list[int], per_source: int) -> list[int]:
 class VoiceVizCallback(trainers.VizCallback, ABC):
     """Superclass for voice viz callbacks."""
 
-    ...
+    @staticmethod
+    def comparison_figure(real_mel: torch.Tensor, fake_mel: torch.Tensor, frame_seconds: float) -> Figure:
+        seconds = real_mel.shape[-1] * frame_seconds
+        extent = (0.0, seconds, 0.0, float(real_mel.shape[0]))
+        lo, hi = float(real_mel.min()), float(real_mel.max())
+        diff = fake_mel - real_mel
+        limit = max(float(diff.abs().quantile(0.99)), 1e-6)
+
+        fig = Figure(figsize=(14, 10))
+        axes = fig.subplots(4, 1, gridspec_kw={"height_ratios": [3, 3, 3, 2]})
+        for ax, data, title in ((axes[0], real_mel, "real"), (axes[1], fake_mel, "generated")):
+            ax.imshow(data.numpy(), origin="lower", aspect="auto", extent=extent, vmin=lo, vmax=hi)
+            ax.set_title(title, loc="left")
+            ax.set_ylabel("mel bin")
+
+        image = axes[2].imshow(
+            diff.numpy(), origin="lower", aspect="auto", extent=extent, cmap="RdBu_r", vmin=-limit, vmax=limit
+        )
+        axes[2].set_title("generated - real", loc="left")
+        axes[2].set_ylabel("mel bin")
+        axes[2].set_xlabel("seconds")
+        fig.colorbar(image, ax=axes[2], fraction=0.02)
+
+        axes[3].plot(real_mel.mean(dim=-1).numpy(), label="real")
+        axes[3].plot(fake_mel.mean(dim=-1).numpy(), label="generated")
+        axes[3].set_title("average log-mel spectrum", loc="left")
+        axes[3].set_xlabel("mel bin")
+        axes[3].legend()
+        fig.tight_layout()
+        return fig
 
 
 class SpeechEncoderDecoderVizCallback(VoiceVizCallback, ABC):
@@ -255,6 +284,19 @@ class SpeechEncoderVizCallback(SpeechEncoderDecoderVizCallback):
 
 
 class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
+    def __init__(
+            self,
+            trainer: trainers.TrainerBase[Any, Any, Any],
+            viz_steps: int,
+            generation_steps: int = 32,
+            cfg_scale: float = 2.0,
+            seed: int = 0,
+    ) -> None:
+        super().__init__(trainer, viz_steps)
+        self.generation_steps = generation_steps
+        self.cfg_scale = cfg_scale
+        self.seed = seed
+
     def _viz(
             self,
             items: list[Any],
@@ -264,7 +306,41 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
             device: torch.device,
             step: int,
     ) -> None:
-        ...
+        decoder = cast(SpeechDecoderModel, model)
+        was_training = decoder.training
+        decoder.eval()
+        try:
+            with torch.no_grad(), self.trainer.accelerator.autocast():
+                real, real_lengths = decoder.frontend(
+                    batch["waveforms"].to(device), batch["waveform_lengths"].to(device)
+                )
+                generated = decoder.generate(
+                    batch["unit_ids"].to(device),
+                    batch["unit_id_lengths"].to(device),
+                    batch["speaker_ids"].to(device),
+                    steps=self.generation_steps,
+                    cfg_scale=self.cfg_scale,
+                    generator=torch.Generator(device=device).manual_seed(self.seed),
+                )
+        finally:
+            decoder.train(was_training)
+
+        frame_seconds = model_config.hop_length / model_config.sample_rate
+        l1s = []
+        for i, item in enumerate(items):
+            tag = f"viz/{i}/{self.trainer.config.mixture_config.eval_sources[item['source']].name}"
+            frames = int(torch.minimum(real_lengths[i], generated.mel_lengths[i]))
+            real_mel = real[i, :, :frames].float().cpu()
+            fake_mel = generated.mels[i, :, :frames].float().cpu()
+            l1 = float((fake_mel - real_mel).abs().mean())
+            l1s.append(l1)
+
+            self.trainer.metrics.add_figure(
+                f"{tag}/comparison", self.comparison_figure(real_mel, fake_mel, frame_seconds), step
+            )
+            self.trainer.metrics.add_scalar(f"{tag}/mel_l1", l1, step)
+
+        self.trainer.metrics.add_scalar("viz/mel_l1", sum(l1s) / max(len(l1s), 1), step)
 
 
 class VocoderVizCallback(VoiceVizCallback):
@@ -329,7 +405,10 @@ class VocoderVizCallback(VoiceVizCallback):
                 self.trainer.metrics.add_audio(f"{tag}/real", real, step, sample_rate=sample_rate)
 
             self.trainer.metrics.add_audio(f"{tag}/generated", fake, step, sample_rate=sample_rate)
-            self.trainer.metrics.add_figure(f"{tag}/comparison", self._figure(real_mel, fake_mel, model), step)
+            frame_seconds = model.config.hop_length / sample_rate
+            self.trainer.metrics.add_figure(
+                f"{tag}/comparison", self.comparison_figure(real_mel, fake_mel, frame_seconds), step
+            )
             for name, value in self._scalars(real, fake, real_mel, fake_mel).items():
                 self.trainer.metrics.add_scalar(f"{tag}/{name}", value, step)
 
@@ -379,34 +458,3 @@ class VocoderVizCallback(VoiceVizCallback):
             "mel_l1_high_band": float(l1[2 * third:].mean()),
             "loudness_db_delta": float(20 * torch.log10(fake_rms / real_rms)),
         }
-
-    @staticmethod
-    def _figure(real_mel: torch.Tensor, fake_mel: torch.Tensor, model: LarryVocoder) -> Figure:
-        seconds = real_mel.shape[-1] * model.config.hop_length / model.config.sample_rate
-        extent = (0.0, seconds, 0.0, float(real_mel.shape[0]))
-        lo, hi = float(real_mel.min()), float(real_mel.max())
-        diff = fake_mel - real_mel
-        limit = max(float(diff.abs().quantile(0.99)), 1e-6)
-
-        fig = Figure(figsize=(14, 10))
-        axes = fig.subplots(4, 1, gridspec_kw={"height_ratios": [3, 3, 3, 2]})
-        for ax, data, title in ((axes[0], real_mel, "real"), (axes[1], fake_mel, "generated")):
-            ax.imshow(data.numpy(), origin="lower", aspect="auto", extent=extent, vmin=lo, vmax=hi)
-            ax.set_title(title, loc="left")
-            ax.set_ylabel("mel bin")
-
-        image = axes[2].imshow(
-            diff.numpy(), origin="lower", aspect="auto", extent=extent, cmap="RdBu_r", vmin=-limit, vmax=limit
-        )
-        axes[2].set_title("generated - real", loc="left")
-        axes[2].set_ylabel("mel bin")
-        axes[2].set_xlabel("seconds")
-        fig.colorbar(image, ax=axes[2], fraction=0.02)
-
-        axes[3].plot(real_mel.mean(dim=-1).numpy(), label="real")
-        axes[3].plot(fake_mel.mean(dim=-1).numpy(), label="generated")
-        axes[3].set_title("average log-mel spectrum", loc="left")
-        axes[3].set_xlabel("mel bin")
-        axes[3].legend()
-        fig.tight_layout()
-        return fig

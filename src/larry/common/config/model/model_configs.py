@@ -52,6 +52,9 @@ class LLMBlockModuleConfig(AttentionModuleConfig):
     For use in configuring block modules containing both instance(s) of an ``LarryAttention`` and an FFN.
     """
 
+    pre_attn_norm_type: Literal["layer", "rms", "ada"] = "rms"
+    pre_mlp_norm_type: Literal["layer", "rms", "ada"] = "rms"
+
     mlp_dropout_p: float = 0.1
 
 
@@ -64,4 +67,10 @@ class FSMNAttentionConfig(AttentionModuleConfig):
     """
 
     fsmn_kernel_size: int = 31
+    is_causal: bool = False
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarryConditionalEncoderBlockModuleConfig(LLMBlockModuleConfig):
+    d_cond: int | None = None
     is_causal: bool = False

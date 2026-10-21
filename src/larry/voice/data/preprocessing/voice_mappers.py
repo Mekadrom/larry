@@ -19,24 +19,26 @@ from larry.common.data.preprocessing.mappers import Mapper, SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
 from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedAudio
+from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.preprocessing.voice_configs import AlignerConfig
 from larry.voice.config.preprocessing.voice_mapper_configs import (
     AudioDurationMapperConfig,
     CTCScoreMapperConfig,
     LarrySpeechEncoderUnitIdExtractingMapperConfig,
     SpeechSegmentationAligningMapperConfig,
-    UrlAudioMapperConfig, LarrySpeechEncoderASRMapperConfig,
+    UrlAudioMapperConfig, LarrySpeechEncoderASRMapperConfig, LarrySpeechEncoderUsingMapperConfig,
 )
 from larry.voice.data.preprocessing.alignment import Aligner, LongAlignment, TokenTimeline
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 from larry.voice.data.preprocessing.segmentation import Segmenter
 from larry.voice.data.preprocessing.transcript import NormalizedTokens, TokenStream, Transcript, Turn
 from larry.voice.model.speech_encoder import SpeechEncoderModel
-from larry.voice.utils import bytes_to_waveforms
+from larry.voice.utils import bytes_to_waveforms, collapse_ctc_emissions
 
 _ALIGNERS: dict[str, Aligner] = {}
 _NORMALIZERS: dict[str, TextNormalizer] = {}
 _ENCODERS: dict[str, SpeechEncoderModel] = {}
+_TOKENIZERS: dict[str, TextTokenizer] = {}
 
 
 def _lazy_get_aligner(aligner_config: AlignerConfig, device: torch.device) -> Aligner:
@@ -60,6 +62,12 @@ def _lazy_get_encoder(key: str, device: torch.device) -> SpeechEncoderModel:
     if key not in _ENCODERS:
         _ENCODERS[key] = SpeechEncoderModel.from_pretrained(key).to(device)
     return _ENCODERS[key]
+
+
+def _lazy_get_tokenizer(key: str) -> TextTokenizer:
+    if key not in _TOKENIZERS:
+        _TOKENIZERS[key] = TextTokenizer.REGISTRY.get(key)(model_file=key)
+    return _TOKENIZERS[key]
 
 
 class UrlAudioMapper(UrlMapper[EncodedAudio, UrlAudioMapperConfig]):
@@ -349,13 +357,14 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
         return Features({self.config.ctc_mismatch_output_column: Value("float64")})
 
 
-class LarrySpeechEncoderUnitIdExtractingMapper(Mapper[LarrySpeechEncoderUnitIdExtractingMapperConfig]):
-    def __init__(self, provenance: Provenance, config: LarrySpeechEncoderUnitIdExtractingMapperConfig) -> None:
-        super().__init__(provenance, config)
-
-    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
-        model = _lazy_get_encoder(self.config.speech_encoder_checkpoint_path, self.device)
-
+class LarrySpeechEncoderUsingMapper[C: LarrySpeechEncoderUsingMapperConfig = LarrySpeechEncoderUsingMapperConfig](
+    Mapper[C], ABC
+):
+    def _extract_waveforms(
+            self,
+            batch: dict[str, list[Any]],
+            device: torch.device
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         audios: list[EncodedAudio] = batch[self.config.audio_column]
         waveforms = []
         waveform_lengths = []
@@ -364,10 +373,24 @@ class LarrySpeechEncoderUnitIdExtractingMapper(Mapper[LarrySpeechEncoderUnitIdEx
             waveforms.append(waveform)
             waveform_lengths.append(len(waveform))
 
-        device = next(model.parameters()).device
-
         waveforms = pad_sequence(waveforms, batch_first=True).to(device)
         waveform_lengths = torch.tensor(waveform_lengths, dtype=torch.long, device=device)
+        return waveforms, waveform_lengths
+
+
+class LarrySpeechEncoderUnitIdExtractingMapper(
+    LarrySpeechEncoderUsingMapper[LarrySpeechEncoderUnitIdExtractingMapperConfig]
+):
+    def __init__(self, provenance: Provenance, config: LarrySpeechEncoderUnitIdExtractingMapperConfig) -> None:
+        super().__init__(provenance, config)
+
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        model = _lazy_get_encoder(self.config.speech_encoder_checkpoint_path, self.device)
+
+        device = next(model.parameters()).device
+        waveforms, waveform_lengths = self._extract_waveforms(batch, device)
+        waveforms = waveforms.to(device)
+        waveform_lengths = waveform_lengths.to(device)
 
         with torch.inference_mode():
             unit_ids, frame_lengths = model.tokenize(waveforms, waveform_lengths)
@@ -390,5 +413,33 @@ class LarrySpeechEncoderUnitIdExtractingMapper(Mapper[LarrySpeechEncoderUnitIdEx
         self.provenance.ancestry.models.add(self.config.speech_encoder_checkpoint_path)
 
 
-class LarrySpeechEncoderASRMapper(SingleColumnMapper[EncodedAudio, str, LarrySpeechEncoderASRMapperConfig]):
-    ...
+class LarrySpeechEncoderASRMapper(
+    LarrySpeechEncoderUsingMapper[LarrySpeechEncoderASRMapperConfig]
+):
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        model = _lazy_get_encoder(self.config.speech_encoder_checkpoint_path, self.device)
+        tokenizer = _lazy_get_tokenizer(self.config.text_tokenizer_path)
+
+        device = next(model.parameters()).device
+        waveforms, waveform_lengths = self._extract_waveforms(batch, device)
+
+        with torch.inference_mode():
+            model_output = model(waveforms, waveform_lengths)
+
+        greedy = model_output.logits.argmax(dim=-1).cpu()
+
+        texts = []
+        for i in range(greedy.shape[0]):
+            texts.append(tokenizer.decode(collapse_ctc_emissions(
+                greedy[i, :model_output.mel_],
+                blank=model.config.text_vocab_size
+            )))
+
+        return {
+            self.config.output_column: texts
+        }
+
+    def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        return Features({
+            self.config.output_column: Value("string"),
+        })

@@ -3,10 +3,22 @@ training:
 model:
   type: SpeechDecoderModelConfig
   n_speakers: 53440
+  d_model: 1024
+  speaker_dim: 192
+  n_encoder_layers: 4
+  n_backbone_layers: 8
+  mel_mean: -1.97
+  mel_std: 1.74
+  cfg_dropout_rate: 0.1
 trainer:
   type: SpeechDecoderTrainerConfig
   speaker_mapping_path: /home/zadar/.cache/larry/speaker_mappings/tts/global_speaker_mapping.csv
-  muon_last_layer_names: []
+  muon_first_layer_names:
+    - unit_encoder.unit_embedding.weight
+    - speaker_embedding.mean_embedding.weight
+    - speaker_embedding.logvar_embedding.weight
+  muon_last_layer_names:
+    - backbone.out.weight
   lr: 0.0005
   min_lr: 5.0e-05
   lr_scheduler_name: cosine
@@ -15,3 +27,6 @@ trainer:
   max_steps: 100000
   eval_steps: 2000
   viz_steps: 1000
+  criterion:
+    kl_weight: 1.0e-04
+    kl_warmup_steps: 10000

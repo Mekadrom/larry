@@ -4,8 +4,8 @@ import torch
 from huggingface_hub import PyTorchModelHubMixin
 from torch import nn
 
-from larry.common.model.flow import TimestepEmbedding, LarryFlowMatchingOutput, ConditionalFlowMatching
-from larry.common.model.norms import AdaLayerNorm
+from larry.common.model.flow import ConditionalFlowMatching, LarryFlowMatchingOutput, TimestepEmbedding
+from larry.common.model.norms import AdaLayerNorm, AdaLayerNormZero
 from larry.common.training.training_model import GenerationOutput
 from larry.voice.config.model.voice_model_configs import LarryVocoderConfig
 from larry.voice.model.voice_models import VoiceModel
@@ -41,19 +41,19 @@ class CompressedSTFT(nn.Module):
 
 
 class ConditionalConvNeXtBlock(nn.Module):
-    def __init__(self, dim: int, intermediate_dim: int, cond_dim: int, layer_scale: float) -> None:
+    def __init__(self, dim: int, intermediate_dim: int, cond_dim: int) -> None:
         super().__init__()
         self.depthwise = nn.Conv1d(dim, dim, kernel_size=7, padding=3, groups=dim)
-        self.norm = AdaLayerNorm(dim, cond_dim)
+        self.norm = AdaLayerNormZero(dim, cond_dim)
         self.pointwise1 = nn.Linear(dim, intermediate_dim)
         self.act = nn.GELU()
         self.pointwise2 = nn.Linear(intermediate_dim, dim)
-        self.gamma = nn.Parameter(layer_scale * torch.ones(dim))
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         h = self.depthwise(x * mask.unsqueeze(1)).transpose(1, 2)
-        h = self.pointwise2(self.act(self.pointwise1(self.norm(h, cond))))
-        return x + (self.gamma * h).transpose(1, 2)
+        h, gate = self.norm(h, cond)
+        h = self.pointwise2(self.act(self.pointwise1(h)))
+        return x + (gate * h).transpose(1, 2)
 
 
 class VocoderVelocityNetwork(nn.Module):
@@ -62,7 +62,7 @@ class VocoderVelocityNetwork(nn.Module):
         self.embed = nn.Conv1d(n_mels + 2 * n_bins, d_model, kernel_size=7, padding=3)
         self.time = TimestepEmbedding(d_model)
         self.blocks = nn.ModuleList([
-            ConditionalConvNeXtBlock(d_model, d_inner, d_model, 1 / n_layers) for _ in range(n_layers)
+            ConditionalConvNeXtBlock(d_model, d_inner, d_model) for _ in range(n_layers)
         ])
         self.final_norm = AdaLayerNorm(d_model, d_model)
         self.out = nn.Linear(d_model, 2 * n_bins)
@@ -75,7 +75,7 @@ class VocoderVelocityNetwork(nn.Module):
         for block in self.blocks:
             x = block(x, cond, mask)
 
-        return self.out(self.final_norm(x.transpose(1, 2), cond)).transpose(1, 2) * mask.unsqueeze(1)
+        return self.out(self.final_norm(x.transpose(-2, -1), cond)).transpose(-2, -1) * mask.unsqueeze(1)
 
 
 class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, ConditionalFlowMatching):
@@ -83,6 +83,7 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
         VoiceModel.__init__(self, config)
         ConditionalFlowMatching.__init__(self, config.sigma_min)
 
+        self.n_bins = self.config.n_fft // 2 + 1
         self.frontend = TTSLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
         self.codec = CompressedSTFT(
             n_fft=config.n_fft,
@@ -92,7 +93,7 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
         )
         self.backbone = VocoderVelocityNetwork(
             n_mels=config.n_mels,
-            n_bins=config.n_bins,
+            n_bins=self.n_bins,
             d_model=config.d_model,
             d_inner=config.d_inner,
             n_layers=config.n_layers
@@ -101,7 +102,8 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
     def forward(self, spec: torch.Tensor, mels: torch.Tensor, mel_lengths: torch.Tensor) -> LarryFlowMatchingOutput:
         mask = make_non_pad_mask(mel_lengths, spec.shape[-1]).to(spec.dtype)
         xt, t, target = self.path(spec)
-        return LarryFlowMatchingOutput(logits=self.backbone(xt, t, mels, mask), targets=target, mask=mask)
+        pred = self.backbone(xt, t, mels, mask)
+        return LarryFlowMatchingOutput(logits=pred, targets=target, mask=mask)
 
     def generate(
             self,
