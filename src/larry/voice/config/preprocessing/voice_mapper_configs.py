@@ -110,7 +110,12 @@ class CTCScoreMapperConfig(SampleRateConfig, MapperConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class LarrySpeechEncoderUnitIdExtractingMapperConfig(SampleRateConfig, MapperConfig):
+class LarrySpeechEncoderUsingMapperConfig(SampleRateConfig):
+    speech_encoder_checkpoint_path: str
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarrySpeechEncoderUnitIdExtractingMapperConfig(LarrySpeechEncoderUsingMapperConfig, MapperConfig):
     audio_column: str = "audio"
     unit_ids_output_column: str = "unit_ids"
     frame_lengths_output_column: str = "frame_lengths"
@@ -121,8 +126,12 @@ class LarrySpeechEncoderUnitIdExtractingMapperConfig(SampleRateConfig, MapperCon
     def required_output_columns(self) -> list[str]:
         return [self.unit_ids_output_column, self.frame_lengths_output_column]
 
-    speech_encoder_checkpoint_path: str
-
     batch_size: int = 64
     writer_batch_size: int = 64
     num_proc: int = 4
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarrySpeechEncoderASRMapperConfig(LarrySpeechEncoderUsingMapperConfig, SingleColumnMapperConfig):
+    input_column: str = "audio"
+    output_column: str = "text_normalized"

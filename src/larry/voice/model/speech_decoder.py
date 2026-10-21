@@ -1,9 +1,16 @@
 import torch
+from huggingface_hub import PyTorchModelHubMixin
 from torch import nn
 
+from larry.common.config.model.model_configs import LLMBlockModuleConfig
+from larry.common.model.flow import TimestepEmbedding, ConditionalFlowMatching
+from larry.common.model.llm import LarrySimpleEncoderBlock
+from larry.common.model.norms import AdaLayerNorm
 from larry.voice.config.model.voice_model_configs import SpeechDecoderModelConfig
+from larry.voice.model.vocoder import ConditionalConvNeXtBlock
 from larry.voice.model.voice_models import SpeechDecoderModelOutput, VoiceModel
 from larry.voice.model.voice_modules import TTSLogMelFrontend
+from larry.voice.utils import make_non_pad_mask
 
 
 class SpeakerLatentEmbeddings(nn.Module):
@@ -27,32 +34,120 @@ class SpeakerLatentEmbeddings(nn.Module):
         return mu + eps * std
 
 
-class SpeakerCodesUnitEmbedding(nn.Module):
-    def __init__(self, n_units: int, d_model: int, n_mels: int) -> None:
+class UpsampleConv1dStack(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, scale: int, p_dropout: float) -> None:
+        super().__init__()
+        if scale % 2 != 0:
+            raise ValueError(f"scale must be divisible by 2, got scale={scale}")
+
+        d_inner = (out_channels + in_channels) // 2
+        self.block = nn.Sequential(
+            nn.Upsample(scale_factor=(1, 2), mode="linear"),
+            nn.Conv1d(in_channels, d_inner, kernel_size=scale * 2, stride=scale, padding=scale // 2, groups=d_inner),
+            nn.GroupNorm(d_inner),
+            nn.GELU(),
+            nn.Dropout(p=p_dropout),
+            nn.Conv1d(d_inner, out_channels, kernel_size=1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.block(x)
+
+
+class SpeechCodesUnitEmbedding(nn.Module):
+    def __init__(
+            self,
+            n_units: int,
+            d_model: int,
+            n_layers: int,
+            encoder_dropout_p: float,
+            upsample_dropout_p: float,
+    ) -> None:
         super().__init__()
 
         self.unit_embedding = nn.Embedding(n_units, d_model)
 
-        ...
+        self.blocks = nn.ModuleList([
+            LarrySimpleEncoderBlock(LLMBlockModuleConfig(d_model=d_model, mlp_dropout_p=encoder_dropout_p))
+            for _ in range(n_layers)
+        ])
+        self.post_blocks_norm = nn.RMSNorm(d_model)
 
-    def forward(self, unit_ids: torch.Tensor) -> torch.Tensor:
-        ...
+        self.upsample1 = UpsampleConv1dStack(
+            in_channels=d_model,
+            out_channels=d_model,
+            scale=2,
+            p_dropout=upsample_dropout_p
+        )
+        self.upsample2 = UpsampleConv1dStack(
+            in_channels=d_model,
+            out_channels=d_model,
+            scale=2,
+            p_dropout=upsample_dropout_p
+        )
+
+    def forward(self, unit_ids: torch.Tensor, unit_id_lengths: torch.Tensor) -> torch.Tensor:
+        mask = make_non_pad_mask(unit_id_lengths).to(unit_ids.device)
+        x = self.unit_embedding(unit_ids)
+        for block in self.blocks:
+            x = block(x, attention_mask=mask)
+
+        x = self.post_blocks_norm(x)
+
+        x = x + self.upsample1(x)
+        return x + self.upsample2(x), mask
 
 
-class SpeakerGuidedConditionalFlowMatching(nn.Module):
-    def __init__(self) -> None:
+class SpeechDecoderVelocityNetwork(nn.Module):
+    def __init__(self, n_mels: int, n_bins: int, n_speakers: int, d_model: int, d_inner: int, n_layers: int) -> None:
         super().__init__()
+        self.embed = nn.Conv1d(n_mels + 2 * n_bins, d_model, kernel_size=7, padding=3)
+        self.time = TimestepEmbedding(d_model)
+        self.blocks = nn.ModuleList([
+            ConditionalConvNeXtBlock(d_model, d_inner, d_model, 1 / n_layers) for _ in range(n_layers)
+        ])
+        self.final_norm = AdaLayerNorm(d_model, d_model)
+        self.out = nn.Linear(d_model, 2 * n_bins)
+        nn.init.zeros_(self.out.weight)
+        nn.init.zeros_(self.out.bias)
+
+    def forward(
+            self,
+            xt: torch.Tensor,
+            t: torch.Tensor,
+            cond: torch.Tensor,
+            mels: torch.Tensor,
+            mask: torch.Tensor
+    ) -> torch.Tensor:
+        cond = self.time(t) + cond
+        x = self.embed(torch.cat([xt, mels], dim=1) * mask.unsqueeze(1))
+        for block in self.blocks:
+            x = block(x, cond, mask)
+
+        return self.out(self.final_norm(x.transpose(1, 2), cond)).transpose(1, 2) * mask.unsqueeze(1)
 
 
-class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig]):
+class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMixin, ConditionalFlowMatching):
     def __init__(self, config: SpeechDecoderModelConfig) -> None:
         super().__init__(config)
 
-        self.speaker_latent_embeddings = SpeakerLatentEmbeddings(config.n_speakers, config.d_model)
         self.frontend = TTSLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
-        self.unit_encoder = SpeakerCodesUnitEmbedding(config.n_units, config.d_model, config.n_mels)
-
-        self.timestep_embedding = nn.Embedding(10, config.d_model)
+        self.speaker_embedding = SpeakerLatentEmbeddings(config.n_speakers, config.d_model)
+        self.unit_encoder = SpeechCodesUnitEmbedding(
+            n_units=config.n_units,
+            d_model=config.d_model,
+            n_layers=config.n_encoder_layers,
+            encoder_dropout_p=config.encoder_dropout_p,
+            upsample_dropout_p=config.upsample_dropout_p,
+        )
+        self.backbone = SpeechDecoderVelocityNetwork(
+            n_mels=config.n_mels,
+            n_bins=config.n_bins,
+            n_speakers=config.n_speakers,
+            d_model=config.d_model,
+            d_inner=config.d_inner,
+            n_layers=config.n_backbone_layers,
+        )
 
     def forward(
             self,
@@ -63,7 +158,7 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig]):
     ) -> SpeechDecoderModelOutput:
         speaker_embeddings, mu, logvar = self.speaker_latent_embeddings(speaker_ids)
         mels, mel_lengths = self.frontend(waveforms, waveform_lengths)
-        unit_embeddings = self.unit_encoder(unit_ids)
+        unit_embeddings, mask = self.unit_encoder(unit_ids)
 
         # timestep addition/flow matching bullshit
         ...

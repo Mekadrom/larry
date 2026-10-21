@@ -25,7 +25,7 @@ from larry.voice.config.preprocessing.voice_mapper_configs import (
     CTCScoreMapperConfig,
     LarrySpeechEncoderUnitIdExtractingMapperConfig,
     SpeechSegmentationAligningMapperConfig,
-    UrlAudioMapperConfig,
+    UrlAudioMapperConfig, LarrySpeechEncoderASRMapperConfig,
 )
 from larry.voice.data.preprocessing.alignment import Aligner, LongAlignment, TokenTimeline
 from larry.voice.data.preprocessing.normalization import TextNormalizer
@@ -388,3 +388,7 @@ class LarrySpeechEncoderUnitIdExtractingMapper(Mapper[LarrySpeechEncoderUnitIdEx
 
     def mutate_provenance(self) -> None:
         self.provenance.ancestry.models.add(self.config.speech_encoder_checkpoint_path)
+
+
+class LarrySpeechEncoderASRMapper(SingleColumnMapper[EncodedAudio, str, LarrySpeechEncoderASRMapperConfig]):
+    ...

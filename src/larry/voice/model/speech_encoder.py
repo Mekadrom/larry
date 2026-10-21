@@ -26,7 +26,7 @@ class SpeechEncoderEncoderBlock(nn.Module):
         """Initializes modules."""
         super().__init__()
         self.attn = FSMNAttention(FSMNAttentionConfig.from_child(config))
-        self.attn_norm = nn.LayerNorm(config.d_model)
+        self.attn_norm = nn.RMSNorm(config.d_model)
 
         d_inner = config.d_model * 4
         self.mlp = nn.Sequential(
@@ -35,7 +35,7 @@ class SpeechEncoderEncoderBlock(nn.Module):
             nn.Dropout(p=config.mlp_dropout_p),
             nn.Linear(d_inner, config.d_model),
         )
-        self.mlp_norm = nn.LayerNorm(config.d_model)
+        self.mlp_norm = nn.RMSNorm(config.d_model)
 
     def forward(self, x: torch.Tensor, pad_mask: torch.Tensor) -> torch.Tensor:
         """Simple encoder block forward with norms and a residual."""
@@ -79,7 +79,7 @@ class SpeechEncoderPreBottleneck(VoiceModel[SpeechEncoderModelConfig], register=
             SpeechEncoderEncoderBlock(config)
             for _ in range(config.n_encoder1_layers)
         ])
-        self.final_norm = nn.LayerNorm(config.d_model)
+        self.final_norm = nn.RMSNorm(config.d_model)
 
     @property
     def frame_seconds(self) -> float:

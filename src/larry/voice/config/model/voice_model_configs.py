@@ -12,6 +12,10 @@ class VoiceModelConfig(ModelConfig, SampleRateConfig):
     n_mels: int = 80
     hop_length: int = 160
 
+    @property
+    def n_bins(self) -> int:
+        return self.n_fft // 2 + 1
+
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechEncoderDecoderModelConfig(VoiceModelConfig, LLMBlockModuleConfig):
@@ -58,6 +62,12 @@ class SpeechDecoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
     n_speakers: int
 
     d_model: int = 1024
+    d_inner: int = 2048
+    n_encoder_layers: int = 4
+    n_backbone_layers: int = 4
+
+    encoder_dropout_p: float = 0.0
+    upsample_dropout_p: float = 0.0
 
 
 @dataclasses.dataclass(kw_only=True)

@@ -22,7 +22,10 @@ class LarryVocoderGeneration(GenerationOutput):
 class CompressedSTFT(nn.Module):
     def __init__(self, n_fft: int, hop_length: int, alpha: float, scale: float) -> None:
         super().__init__()
-        self.n_fft, self.hop_length, self.alpha, self.scale = n_fft, hop_length, alpha, scale
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.alpha = alpha
+        self.scale = scale
         self.register_buffer("window", torch.hann_window(n_fft))
 
     def encode(self, waveforms: torch.Tensor) -> torch.Tensor:
@@ -40,16 +43,16 @@ class CompressedSTFT(nn.Module):
 class ConditionalConvNeXtBlock(nn.Module):
     def __init__(self, dim: int, intermediate_dim: int, cond_dim: int, layer_scale: float) -> None:
         super().__init__()
-        self.dwconv = nn.Conv1d(dim, dim, kernel_size=7, padding=3, groups=dim)
+        self.depthwise = nn.Conv1d(dim, dim, kernel_size=7, padding=3, groups=dim)
         self.norm = AdaLayerNorm(dim, cond_dim)
-        self.pwconv1 = nn.Linear(dim, intermediate_dim)
+        self.pointwise1 = nn.Linear(dim, intermediate_dim)
         self.act = nn.GELU()
-        self.pwconv2 = nn.Linear(intermediate_dim, dim)
+        self.pointwise2 = nn.Linear(intermediate_dim, dim)
         self.gamma = nn.Parameter(layer_scale * torch.ones(dim))
 
     def forward(self, x: torch.Tensor, cond: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        h = self.dwconv(x * mask.unsqueeze(1)).transpose(1, 2)
-        h = self.pwconv2(self.act(self.pwconv1(self.norm(h, cond))))
+        h = self.depthwise(x * mask.unsqueeze(1)).transpose(1, 2)
+        h = self.pointwise2(self.act(self.pointwise1(self.norm(h, cond))))
         return x + (self.gamma * h).transpose(1, 2)
 
 
@@ -80,8 +83,6 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
         VoiceModel.__init__(self, config)
         ConditionalFlowMatching.__init__(self, config.sigma_min)
 
-        self.n_bins = config.n_fft // 2 + 1
-
         self.frontend = TTSLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
         self.codec = CompressedSTFT(
             n_fft=config.n_fft,
@@ -91,7 +92,7 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
         )
         self.backbone = VocoderVelocityNetwork(
             n_mels=config.n_mels,
-            n_bins=self.n_bins,
+            n_bins=config.n_bins,
             d_model=config.d_model,
             d_inner=config.d_inner,
             n_layers=config.n_layers
