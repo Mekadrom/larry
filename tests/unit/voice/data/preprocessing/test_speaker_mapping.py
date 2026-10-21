@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
+from larry.voice.data.preprocessing import speaker_mapping
 from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping, SpeakerMappingCreator
 from tests.helpers.common import write_parquet_split
 
@@ -162,3 +164,22 @@ def test_read_source_takes_speakers_from_the_source_by_row(tmp_path: Path) -> No
     source = SpeechSourceConfig(name="m", index_path=str(tmp_path / "index"), source_path=str(tmp_path / "materialized"))
 
     assert SpeakerMappingCreator.read_source(source) == ["s1", "s3"]
+
+
+def test_main_accepts_a_decoder_training_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    index = _index(tmp_path / "v", "train", ["p1", "p2"])
+    config = tmp_path / "decoder.yaml"
+    config.write_text(yaml.safe_dump({
+        "model": {"type": "SpeechDecoderModelConfig", "n_speakers": 2},
+        "trainer": {
+            "type": "SpeechDecoderTrainerConfig",
+            "max_steps": 1,
+            "speaker_mapping_path": str(tmp_path / "out" / "speakers.csv"),
+            "mixture_config": {"train_sources": {"v": {"index_path": index}}},
+        },
+    }))
+    monkeypatch.setattr(sys, "argv", ["speaker-mapping", "-f", str(config), "--allow_dirty"])
+
+    speaker_mapping.main()
+
+    assert SpeakerMapping.from_csv(tmp_path / "out" / "speakers.csv").ids == {"v:p1": 0, "v:p2": 1}

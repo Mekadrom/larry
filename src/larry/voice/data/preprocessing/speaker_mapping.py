@@ -13,7 +13,7 @@ from larry.common.data.dataloading.indexed_dataset import indexed_column, load_i
 from larry.common.utils.git_utils import WorkingTree
 from larry.common.utils.init_helpers import import_submodules
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
-from larry.voice.config.training.voice_trainer_configs import SpeechEncoderTrainerConfig
+from larry.voice.config.training.voice_trainer_configs import SpeechEncoderDecoderTrainerConfig
 
 log = logging.getLogger(__name__)
 
@@ -140,8 +140,8 @@ def main() -> None:
     definition = ConfigValues.from_args(args).load(TrainingDefinition)
     trainer_config = definition.trainer
 
-    if not isinstance(trainer_config, SpeechEncoderTrainerConfig):
-        raise TypeError(f"expected a SpeechTokenizerTrainerConfig, got {type(trainer_config).__name__}")
+    if not isinstance(trainer_config, SpeechEncoderDecoderTrainerConfig):
+        raise TypeError(f"expected a SpeechEncoderDecoderTrainerConfig, got {type(trainer_config).__name__}")
 
     mixture_config: DatasetMixtureConfig[Any] = trainer_config.mixture_config
 

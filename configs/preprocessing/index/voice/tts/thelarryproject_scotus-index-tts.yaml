@@ -5,3 +5,13 @@ pipeline:
     type: TTSCTCMismatchColumnValuesPrunerConfig
   prune_quality:
     type: AudioQualityPrunerConfigForTTS
+  encode:
+    $before: drop_audio
+    type: LarrySpeechEncoderUnitIdExtractingMapperConfig
+    speech_encoder_checkpoint_path: /home/zadar/.cache/larry/models/voice/larry-speech-encoder/
+  minify_index:
+    keep_columns:
+      - row
+      - id
+      - unit_ids
+      - frame_lengths

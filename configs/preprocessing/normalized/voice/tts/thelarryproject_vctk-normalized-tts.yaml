@@ -1,7 +1,0 @@
-dataset:
-  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/tts/thelarryproject_vctk-normalized-tts/
-pipeline:
-  prune_ctc_mismatch:
-    type: TTSCTCMismatchColumnValuesPrunerConfig
-  prune_quality:
-    type: AudioQualityPrunerConfigForTTS

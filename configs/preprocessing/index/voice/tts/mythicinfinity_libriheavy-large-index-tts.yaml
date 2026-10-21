@@ -1,7 +1,21 @@
 dataset:
   cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/mythicinfinity_libriheavy-large-index-tts/
 pipeline:
-  prune_quality:
-    type: AudioQualityPrunerConfigForTTS
+  score_ctc_mismatch:
+    remove_columns: []
   prune_ctc_mismatch:
     type: TTSCTCMismatchColumnValuesPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForTTS
+  encode:
+    $before: minify_index
+    type: LarrySpeechEncoderUnitIdExtractingMapperConfig
+    speech_encoder_checkpoint_path: /home/zadar/.cache/larry/models/voice/larry-speech-encoder/
+  minify_index:
+    keep_columns:
+      - row
+      - id
+      - duration_s
+      - text_normalized
+      - unit_ids
+      - frame_lengths

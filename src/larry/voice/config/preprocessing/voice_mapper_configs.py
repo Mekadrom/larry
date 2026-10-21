@@ -1,6 +1,7 @@
 import dataclasses
 
-from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, UrlMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, \
+    UrlMapperConfig
 from larry.voice.config.preprocessing.voice_configs import AlignerConfig, SampleRateConfig
 
 
@@ -106,3 +107,22 @@ class CTCScoreMapperConfig(SampleRateConfig, MapperConfig):
     max_batch_seconds: float = 200.0
 
     aligner_config: AlignerConfig = dataclasses.field(default_factory=AlignerConfig)
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarrySpeechEncoderUnitIdExtractingMapperConfig(SampleRateConfig, MapperConfig):
+    audio_column: str = "audio"
+    unit_ids_output_column: str = "unit_ids"
+    frame_lengths_output_column: str = "frame_lengths"
+
+    def required_input_columns(self) -> list[str]:
+        return [self.audio_column]
+
+    def required_output_columns(self) -> list[str]:
+        return [self.unit_ids_output_column, self.frame_lengths_output_column]
+
+    speech_encoder_checkpoint_path: str
+
+    batch_size: int = 64
+    writer_batch_size: int = 64
+    num_proc: int = 4

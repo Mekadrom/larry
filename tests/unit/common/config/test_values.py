@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from larry.common.config.values import ConfigValues, RunRecord
+from larry.common.config.config import ConfigValues, RunRecord
 from larry.common.utils import git_utils
 from larry.common.utils.git_utils import RepoState, WorkingTree
 

@@ -1,7 +1,0 @@
-dataset:
-  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/voice/tts/mikhailt_lj-speech-normalized-tts/
-pipeline:
-  prune_quality:
-    type: AudioQualityPrunerConfigForTTS
-  prune_ctc_mismatch:
-    type: TTSCTCMismatchColumnValuesPrunerConfig
