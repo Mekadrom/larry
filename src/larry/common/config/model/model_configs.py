@@ -2,6 +2,7 @@ import dataclasses
 from typing import Literal, Self
 
 from larry.common.config.config import TaggedConfig
+from larry.common.utils.types import NormTypeEnum
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -15,6 +16,8 @@ class ModelConfig(TaggedConfig):
     d_model: int = 16
 
     max_position_embeddings: int = 1024
+
+    gradient_checkpointing: bool = False
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -52,8 +55,8 @@ class LLMBlockModuleConfig(AttentionModuleConfig):
     For use in configuring block modules containing both instance(s) of an ``LarryAttention`` and an FFN.
     """
 
-    pre_attn_norm_type: Literal["layer", "rms", "ada"] = "rms"
-    pre_mlp_norm_type: Literal["layer", "rms", "ada"] = "rms"
+    pre_attn_norm_type: NormTypeEnum = "rms"
+    pre_mlp_norm_type: NormTypeEnum = "rms"
 
     mlp_dropout_p: float = 0.1
 
@@ -82,3 +85,27 @@ class FlowMatchingConfig(ModelConfig):
     t_sampling: Literal["uniform", "logit_normal"] = "logit_normal"
     t_mean: float = 0.0
     t_std: float = 1.0
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarryRecurrentTrunkConfig(LLMBlockModuleConfig):
+    n_layers: int = 4
+
+    thought_init_std: float = 0.02  # Huginn uses sqrt(2/5) ≈ 0.6325
+    thought_state_injection_type: Literal["sum", "concat"] = "sum"
+    thought_state_init: Literal["none", "normal", "embed", "like-init", "zero", "unit"] = "like-init"
+    exit_criteria: Literal["latent-diff", "logit-kl", "none"] = "latent-diff"
+    logits_kl_exit_criteria_threshold: float = 5e-4
+    latent_diff_exit_criteria_threshold: float = 0.03
+    mean_thinking_steps: int = 32
+    backprop_depth: int = 8
+
+    iteration_projection_norm_type: NormTypeEnum = "rms"
+    iteration_projection_norm_placement: Literal["pre", "post"] | None = None
+
+    lockstep_n: bool = True
+    lockstep_k: bool = True
+
+    kv_cache_strategy: Literal["huginn", "per_iteration", "shared"] = "huginn"
+    kv_cache_budget: int = 16
+    kv_cache_max_iterations: int = 64

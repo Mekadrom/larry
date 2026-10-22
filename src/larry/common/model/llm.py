@@ -1,13 +1,25 @@
+import dataclasses
+
 import torch
 from torch import nn
 
 from larry.common.config.model.model_configs import (
     AttentionModuleConfig,
     LarryConditionalEncoderBlockModuleConfig,
-    LLMBlockModuleConfig,
-)
-from larry.common.model.attention import LarryAttention
+    LLMBlockModuleConfig, )
+from larry.common.model.attention import LarryAttention, LarryAttentionOutput
+from larry.common.model.kv_cache import KVCache
 from larry.common.model.norms import AdaLayerNorm, AdaLayerNormZero, get_norm_type
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarryEncoderBlockOutput(LarryAttentionOutput[KVCache]):
+    kv_cache: KVCache | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarryDecoderBlockOutput(LarryAttentionOutput[tuple[KVCache | None, KVCache | None]]):
+    kv_cache: tuple[KVCache | None, KVCache | None] | None = None
 
 
 class LarrySimpleEncoderBlock(nn.Module):
@@ -38,10 +50,28 @@ class LarrySimpleEncoderBlock(nn.Module):
         else:
             self.norm2 = norm2_type(config.d_model)
 
-    def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+            self,
+            hidden_states: torch.Tensor,
+            attention_mask: torch.Tensor | None = None,
+            kv_cache: KVCache | None = None,
+            position_ids: torch.Tensor | None = None,
+            position_offset: int = 0,
+            use_cache: bool = False,
+    ) -> LarryEncoderBlockOutput:
         """Simple forward pass through all modules with residuals."""
-        hidden_states = hidden_states + self.self_attn(self.norm1(hidden_states), attention_mask=attention_mask)[0]
-        return hidden_states + self.mlp(self.norm2(hidden_states))
+        attention_output = self.self_attn(
+            self.norm1(hidden_states),
+            attention_mask=attention_mask,
+            kv_cache=kv_cache,
+            position_ids=position_ids,
+            position_offset=position_offset,
+            use_cache=use_cache,
+        )
+        hidden_states = hidden_states + attention_output.logits
+        hidden_states = hidden_states + self.mlp(self.norm2(hidden_states))
+        attention_output.logits = hidden_states
+        return attention_output
 
 
 class LarrySimpleDecoderBlock(nn.Module):
@@ -74,22 +104,46 @@ class LarrySimpleDecoderBlock(nn.Module):
             encoder_hidden_states: torch.Tensor,
             self_attention_mask: torch.Tensor | None = None,
             encoder_attention_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+            position_ids: torch.Tensor | None = None,
+            position_offset: int = 0,
+            kv_caches: tuple[KVCache | None, KVCache | None] | None = None,
+            use_cache: bool = False,
+    ) -> LarryDecoderBlockOutput:
         """Simple decoder forward through all modules with residuals."""
-        attended, _ = self.self_attn(
+        self_attn_output = self.self_attn(
             self.self_attn_norm(hidden_states),
             attention_mask=self_attention_mask,
+            kv_cache=kv_caches[0] if kv_caches else None,
+            position_ids=position_ids,
+            position_offset=position_offset,
+            use_cache=use_cache,
         )
-        hidden_states = hidden_states + attended
+        hidden_states = hidden_states + self_attn_output.logits
 
-        crossed, _ = self.cross_attn(
+        cross_attn_output = self.cross_attn(
             self.cross_attn_norm(hidden_states),
+            kv_cache=kv_caches[1] if kv_caches else None,
+            position_ids=position_ids,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
+            position_offset=position_offset,
+            use_cache=use_cache,
         )
-        hidden_states = hidden_states + crossed
+        hidden_states = hidden_states + cross_attn_output.logits
+        hidden_states = hidden_states + self.mlp(self.mlp_norm(hidden_states))
 
-        return hidden_states + self.mlp(self.mlp_norm(hidden_states))
+        kv_caches = (self_attn_output.kv_cache, cross_attn_output.kv_cache)
+
+        if self_attn_output.metrics and cross_attn_output.metrics:
+            combined_metrics = self_attn_output.metrics + cross_attn_output.metrics
+        else:
+            combined_metrics = cross_attn_output.metrics or self_attn_output.metrics
+
+        return LarryDecoderBlockOutput(
+            logits=hidden_states,
+            metrics=combined_metrics,
+            kv_cache=kv_caches,
+        )
 
 
 class LarryConditionalEncoderBlock(nn.Module):
@@ -116,10 +170,27 @@ class LarryConditionalEncoderBlock(nn.Module):
             self,
             hidden_states: torch.Tensor,
             cond: torch.Tensor,
-            attention_mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
+            attention_mask: torch.Tensor | None = None,
+            kv_cache: KVCache | None = None,
+            position_ids: torch.Tensor | None = None,
+            position_offset: int = 0,
+            use_cache: bool = False,
+    ) -> LarryEncoderBlockOutput:
         """Pre-norm residual forward with conditioned norms and gates on each residual branch."""
         normed, gate = self.attn_norm(hidden_states, cond)
-        hidden_states = hidden_states + gate * self.self_attn(normed, attention_mask=attention_mask)[0]
+        attention_output = self.self_attn(
+            normed,
+            attention_mask=attention_mask,
+            kv_cache=kv_cache,
+            position_ids=position_ids,
+            position_offset=position_offset,
+            use_cache=use_cache,
+        )
+        hidden_states = hidden_states + gate * attention_output.logits
         normed, gate = self.mlp_norm(hidden_states, cond)
-        return hidden_states + gate * self.mlp(normed)
+        hidden_states = hidden_states + gate * self.mlp(normed)
+        return LarryEncoderBlockOutput(
+            logits=hidden_states,
+            metrics=attention_output.metrics,
+            kv_cache=attention_output.kv_cache
+        )

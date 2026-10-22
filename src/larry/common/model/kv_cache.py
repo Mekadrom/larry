@@ -1,56 +1,22 @@
-"""KV Cache implementations for efficient autoregressive generation.
-
-Two strategies:
-1. HuginnKVCache: Shared cache across iterations with circular buffer (default, efficient)
-2. PerIterationKVCache: Separate cache per iteration (for research, more memory)
-
-The Huginn approach (Remark 6.1, Section 6.2 of the paper) exploits the fact that
-all recurrent iterations use the same K,V projection matrices. This means KV entries
-from different iterations "match" well enough that the model can zero-shot adapt
-to attending to mixed-depth KVs.
-"""
 import dataclasses
+from typing import Literal
 
 import torch
 
 
 @dataclasses.dataclass
 class KVCache:
-    """Standard KV cache for a single attention layer.
-
-    Stores key and value tensors that can be incrementally updated
-    during autoregressive generation.
-
-    Shape conventions:
-    - key_cache: (batch_size, n_kv_heads, seq_len, d_queries)
-    - value_cache: (batch_size, n_kv_heads, seq_len, d_values)
-    """
-
     key_cache: torch.Tensor | None = None
     value_cache: torch.Tensor | None = None
 
     @property
     def seq_len(self) -> int:
-        """Current cached sequence length."""
         if self.key_cache is None:
             return 0
+
         return self.key_cache.shape[2]
 
-    def update(
-            self,
-            new_keys: torch.Tensor,
-            new_values: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Append new keys and values to the cache.
-
-        Args:
-            new_keys: New keys, shape (batch, n_kv_heads, new_seq, d_queries)
-            new_values: New values, shape (batch, n_kv_heads, new_seq, d_values)
-
-        Returns:
-            Full key and value tensors including the new tokens.
-
-        """
+    def update(self, new_keys: torch.Tensor, new_values: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self.key_cache is None or self.value_cache is None:
             self.key_cache = new_keys
             self.value_cache = new_values
@@ -61,181 +27,92 @@ class KVCache:
         return self.key_cache, self.value_cache
 
     def clear(self) -> None:
-        """Clear the cache."""
         self.key_cache = None
         self.value_cache = None
+
+    def prefix(self, length: int) -> KVCache:
+        if self.key_cache is None or self.value_cache is None:
+            return KVCache()
+
+        return KVCache(key_cache=self.key_cache[:, :, :length], value_cache=self.value_cache[:, :, :length])
 
 
 @dataclasses.dataclass
 class LayerKVCache:
-    """KV cache for all layers in a transformer stack."""
-
     layer_caches: dict[int, KVCache] = dataclasses.field(default_factory=dict)
 
     def get_layer(self, layer_idx: int) -> KVCache:
-        """Get cache for a specific layer, creating if needed."""
         if layer_idx not in self.layer_caches:
             self.layer_caches[layer_idx] = KVCache()
+
         return self.layer_caches[layer_idx]
 
     @property
     def seq_len(self) -> int:
-        """Current cached sequence length."""
         if not self.layer_caches:
             return 0
+
         return next(iter(self.layer_caches.values())).seq_len
 
     def clear(self) -> None:
-        """Clear all layer caches."""
         for cache in self.layer_caches.values():
             cache.clear()
+
         self.layer_caches.clear()
 
 
 @dataclasses.dataclass
-class HuginnKVCache:
-    """Huginn-style shared KV cache with circular buffer for recurrent blocks.
-
-    From the Huginn paper (Section 6.2):
-    - Uses a fixed KV-cache budget (e.g., 16 slots)
-    - At iteration i, reads/writes to slot (i % budget)
-    - Tokens at different positions may have KVs from different iteration depths
-    - The model zero-shot adapts to this mixed-depth attention
-
-    This dramatically reduces memory while maintaining performance.
-    With budget=4, MTBench score remains at 5.86.
-
-    Structure:
-    - slot_caches[slot_idx] = LayerKVCache
-    - At iteration i, use slot_caches[i % cache_budget]
-    """
-
-    cache_budget: int = 16  # Number of circular buffer slots
-    slot_caches: dict[int, LayerKVCache] = dataclasses.field(default_factory=dict)
-
-    def get_slot(self, iteration: int) -> LayerKVCache:
-        """Get the cache slot for a given iteration (circular buffer)."""
-        slot_idx = iteration % self.cache_budget
-        if slot_idx not in self.slot_caches:
-            self.slot_caches[slot_idx] = LayerKVCache()
-        return self.slot_caches[slot_idx]
-
-    def get_layer_at_iteration(self, iteration: int, layer_idx: int) -> KVCache:
-        """Get cache for a specific layer at a specific iteration."""
-        return self.get_slot(iteration).get_layer(layer_idx)
-
-    @property
-    def seq_len(self) -> int:
-        """Current cached sequence length (from any slot, all should match)."""
-        if not self.slot_caches:
-            return 0
-        return next(iter(self.slot_caches.values())).seq_len
-
-    def clear(self) -> None:
-        """Clear all slot caches."""
-        for cache in self.slot_caches.values():
-            cache.clear()
-        self.slot_caches.clear()
-
-
-@dataclasses.dataclass
-class PerIterationKVCache:
-    """Per-iteration KV cache for recurrent transformer blocks.
-
-    More accurate than Huginn-style but uses more memory.
-    Each iteration has its own complete KV cache.
-
-    Structure:
-    - iteration_caches[iteration_idx] = LayerKVCache
-    """
-
-    max_iterations: int = 64
-    iteration_caches: dict[int, LayerKVCache] = dataclasses.field(default_factory=dict)
-
-    def get_iteration(self, iteration_idx: int) -> LayerKVCache:
-        """Get cache for a specific iteration, creating if needed."""
-        if iteration_idx not in self.iteration_caches:
-            self.iteration_caches[iteration_idx] = LayerKVCache()
-        return self.iteration_caches[iteration_idx]
-
-    def get_layer_at_iteration(self, iteration_idx: int, layer_idx: int) -> KVCache:
-        """Get cache for a specific layer at a specific iteration."""
-        return self.get_iteration(iteration_idx).get_layer(layer_idx)
-
-    @property
-    def seq_len(self) -> int:
-        """Current cached sequence length."""
-        if not self.iteration_caches:
-            return 0
-        return next(iter(self.iteration_caches.values())).seq_len
-
-    def clear(self) -> None:
-        """Clear all iteration caches."""
-        for cache in self.iteration_caches.values():
-            cache.clear()
-        self.iteration_caches.clear()
-
-
-@dataclasses.dataclass
 class RecurrentKVCache:
-    """Unified KV cache for recurrent blocks supporting both strategies.
-
-    Args:
-        strategy: "huginn" (default, shared cache) or "per_iteration" (separate caches)
-        cache_budget: For huginn strategy, number of circular buffer slots (default 16)
-        max_iterations: For per_iteration strategy, maximum iterations to cache
-
-    """
-
-    strategy: str = "huginn"
+    strategy: Literal["huginn", "per_iteration", "shared"] = "huginn"
     cache_budget: int = 16
     max_iterations: int = 64
 
-    _huginn_cache: HuginnKVCache | None = dataclasses.field(default=None, init=False)
-    _per_iter_cache: PerIterationKVCache | None = dataclasses.field(default=None, init=False)
+    slots: dict[tuple[int, int], KVCache] = dataclasses.field(default_factory=dict, init=False)
+    latest: dict[int, KVCache] = dataclasses.field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
-        """Required to have the underlying cache implementation initialized from config."""
-        if self.strategy == "huginn":
-            self._huginn_cache = HuginnKVCache(cache_budget=self.cache_budget)
-        elif self.strategy == "per_iteration":
-            self._per_iter_cache = PerIterationKVCache(max_iterations=self.max_iterations)
-        else:
-            raise ValueError(f"Unknown strategy: {self.strategy}. Use 'huginn' or 'per_iteration'.")
+        if self.strategy not in ("huginn", "per_iteration", "shared"):
+            raise ValueError(f"Unknown strategy: {self.strategy}. Use 'huginn', 'per_iteration' or 'shared'.")
 
-    def get_layer_at_iteration(self, iteration: int, layer_idx: int) -> KVCache:
-        """Get cache for a specific layer at a specific iteration."""
-        if self.strategy == "huginn" and self._huginn_cache:
-            return self._huginn_cache.get_layer_at_iteration(iteration, layer_idx)
-        elif self._per_iter_cache:
-            return self._per_iter_cache.get_layer_at_iteration(iteration, layer_idx)
-        else:
-            raise self._throw_state()
+    def slot(self, iteration: int) -> int:
+        if self.strategy == "huginn":
+            return iteration % self.cache_budget
+
+        if self.strategy == "per_iteration":
+            return min(iteration, self.max_iterations - 1)
+
+        return 0
+
+    def read(self, iteration: int, layer_idx: int, length: int) -> KVCache:
+        cached = self.slots.get((self.slot(iteration), layer_idx), KVCache()).prefix(length)
+        if cached.seq_len == length:
+            return cached
+
+        fallback = self.latest.get(layer_idx, KVCache())
+        if fallback.seq_len < length:
+            raise ValueError(
+                f"layer {layer_idx} holds {fallback.seq_len} cached positions but {length} were requested; "
+                f"position_offset must equal the number of positions already processed"
+            )
+
+        missing = fallback.prefix(length)
+        if cached.key_cache is None or cached.value_cache is None:
+            return missing
+
+        assert missing.key_cache is not None and missing.value_cache is not None
+        return KVCache(
+            key_cache=torch.cat([cached.key_cache, missing.key_cache[:, :, cached.seq_len:]], dim=2),
+            value_cache=torch.cat([cached.value_cache, missing.value_cache[:, :, cached.seq_len:]], dim=2),
+        )
+
+    def write(self, iteration: int, layer_idx: int, cache: KVCache) -> None:
+        self.slots[(self.slot(iteration), layer_idx)] = cache
+        self.latest[layer_idx] = cache
 
     @property
     def seq_len(self) -> int:
-        """Current cached sequence length."""
-        if self.strategy == "huginn" and self._huginn_cache:
-            return self._huginn_cache.seq_len
-        elif self._per_iter_cache:
-            return self._per_iter_cache.seq_len
-        else:
-            raise self._throw_state()
+        return max((cache.seq_len for cache in self.latest.values()), default=0)
 
     def clear(self) -> None:
-        """Clear the cache."""
-        if self.strategy == "huginn" and self._huginn_cache:
-            self._huginn_cache.clear()
-        elif self._per_iter_cache:
-            self._per_iter_cache.clear()
-        else:
-            raise self._throw_state()
-
-    def _throw_state(self) -> ValueError:
-        """Raises with useful self information."""
-        return ValueError(
-            f"Improper state: "
-            f"huginn_cache={self._huginn_cache} "
-            f"per_iter_cache={self._per_iter_cache} "
-            f"selected strategy={self.strategy}"
-        )
+        self.slots.clear()
+        self.latest.clear()

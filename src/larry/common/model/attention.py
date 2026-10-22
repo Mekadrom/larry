@@ -1,3 +1,4 @@
+import dataclasses
 import math
 
 import torch
@@ -7,7 +8,13 @@ from torch import nn
 
 from larry.common.config.model.model_configs import AttentionModuleConfig, FSMNAttentionConfig
 from larry.common.model.kv_cache import KVCache
+from larry.common.model.model import LarryModelOutput
 from larry.common.training.qk_clip import QKModule
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarryAttentionOutput[KV](LarryModelOutput):
+    kv_cache: KV | None = None
 
 
 class LarryAttention(nn.Module, QKModule):
@@ -48,10 +55,9 @@ class LarryAttention(nn.Module, QKModule):
         self.attn_dropout = nn.Dropout(config.attention_dropout_p)
         self.proj_dropout = nn.Dropout(config.proj_dropout_p)
 
-        self.is_causal = config.is_causal
         max_positions = config.max_position_embeddings
 
-        if self.is_causal:
+        if config.is_causal:
             self.register_buffer(
                 "causal_mask",
                 torch.tril(torch.ones(max_positions, max_positions)).view(1, 1, max_positions, max_positions),
@@ -168,7 +174,7 @@ class LarryAttention(nn.Module, QKModule):
             encoder_hidden_states: torch.Tensor | None = None,
             encoder_attention_mask: torch.Tensor | None = None,
             position_ids: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, KVCache | None]:
+    ) -> LarryAttentionOutput[KVCache]:
         """Main forward pass to multi-head attention.
 
         Supports GQA and causal or bidirectional attention. Defaults to using SDPA, only uses manual/materialized
@@ -176,29 +182,44 @@ class LarryAttention(nn.Module, QKModule):
         output logits/projected scores and the updated KVCache object.
         """
         is_cross_attention = encoder_hidden_states is not None
-        kv_input = encoder_hidden_states if is_cross_attention else hidden_states
+        if is_cross_attention:
+            kv_input = encoder_hidden_states
+        else:
+            kv_input = hidden_states
 
         batch_size, _ = hidden_states.shape[:2]
 
         queries: torch.Tensor = self.q_proj(hidden_states)
-        keys: torch.Tensor = self.k_proj(kv_input)
-        values: torch.Tensor = self.v_proj(kv_input)
 
         # reshape to head format before applying rope
         # Q: (N, seq, n_heads * d_queries) -> (N, n_heads, seq, d_queries)
         # K: (N, seq, n_query_groups * d_queries) -> (N, n_query_groups, seq, d_queries)
         # V: (N, seq, n_query_groups * d_values) -> (N, n_query_groups, seq, d_values)
         queries = queries.view(batch_size, -1, self.n_heads, self.d_queries).permute(0, 2, 1, 3).contiguous()
-        keys = keys.view(batch_size, -1, self.n_query_groups, self.d_queries).permute(0, 2, 1, 3).contiguous()
-        values = values.view(batch_size, -1, self.n_query_groups, self.d_values).permute(0, 2, 1, 3).contiguous()
+
+        cached_cross = (
+            is_cross_attention
+            and kv_cache is not None
+            and kv_cache.key_cache is not None
+            and kv_cache.value_cache is not None
+        )
+        if cached_cross:
+            assert kv_cache is not None and kv_cache.key_cache is not None and kv_cache.value_cache is not None
+            keys, values = kv_cache.key_cache, kv_cache.value_cache
+        else:
+            keys = self.k_proj(kv_input)
+            values = self.v_proj(kv_input)
+            keys = keys.view(batch_size, -1, self.n_query_groups, self.d_queries).permute(0, 2, 1, 3).contiguous()
+            values = values.view(batch_size, -1, self.n_query_groups, self.d_values).permute(0, 2, 1, 3).contiguous()
 
         # apply rope with position offset for correct positions during generation
         # apply prior to KV cache prefixing using the position_offset to avoid recalculating rotary embedding for cached
         # values that already have this embedding applied
-        if self.rotary_embedding is not None:
+        if self.rotary_embedding is not None and not is_cross_attention:
             queries, keys = self._apply_rotary_embedding(queries, keys, position_ids, position_offset)
 
-        keys, values = self._kv_cache(kv_cache, keys, values)
+        if not is_cross_attention:
+            keys, values = self._kv_cache(kv_cache, keys, values)
 
         new_kv_cache = None
         if use_cache:
@@ -210,10 +231,13 @@ class LarryAttention(nn.Module, QKModule):
         k_seq_len = keys.shape[2]
 
         causal_mask = None
-        if self.is_causal and not is_cross_attention:
+        if self.config.is_causal and not is_cross_attention:
             causal_mask = self._sliced_causal_mask(q_seq_len, k_seq_len)
 
-        active_mask = encoder_attention_mask if is_cross_attention else attention_mask
+        if is_cross_attention:
+            active_mask = encoder_attention_mask
+        else:
+            active_mask = attention_mask
 
         attn_mask = None
         if causal_mask is not None and not (active_mask is None and q_seq_len == k_seq_len):
@@ -221,7 +245,10 @@ class LarryAttention(nn.Module, QKModule):
 
         if active_mask is not None:
             pad_bool = active_mask.unsqueeze(1).unsqueeze(2) != 0
-            attn_mask = pad_bool if attn_mask is None else (attn_mask & pad_bool)
+            if attn_mask is None:
+                attn_mask = pad_bool
+            else:
+                attn_mask = (attn_mask & pad_bool)
 
         # explicitly let each token attend to itself to avoid infs/NaNs
         if attn_mask is not None and not is_cross_attention:
@@ -251,7 +278,7 @@ class LarryAttention(nn.Module, QKModule):
         output = self.o_proj(values)
         output = self.proj_dropout(output)
 
-        return output, new_kv_cache
+        return LarryAttentionOutput(logits=output, kv_cache=new_kv_cache)
 
 
 class FSMNAttention(LarryAttention):
@@ -275,13 +302,13 @@ class FSMNAttention(LarryAttention):
             hidden_states: torch.Tensor,
             attention_mask: torch.Tensor | None = None,
             position_ids: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, None]:
+    ) -> LarryAttentionOutput:
         """Delegates to the super forward, applies the local convolutional "memory" module pass afterward.
 
         Applies convolutional local-context logits as residual. Does not support KV caching, and is bidirectional
         attention and cannot be overridden.
         """
-        attended, _ = super().forward(
+        output = super().forward(
             hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -289,7 +316,9 @@ class FSMNAttention(LarryAttention):
         memory = self._memory(hidden_states, attention_mask)
 
         # apply memory as residual; doesn't support KV cache
-        return attended + memory, None
+        output.logits = output.logits + memory
+
+        return output
 
     def _memory(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor | None) -> torch.Tensor:
         """Applies a memory projection as a linear convolution."""

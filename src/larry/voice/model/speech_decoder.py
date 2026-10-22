@@ -58,7 +58,7 @@ class SpeechCodesUnitEmbedding(nn.Module):
         mask = make_non_pad_mask(unit_id_lengths, unit_ids.shape[1]).to(unit_ids.device)
         x = self.unit_embedding(unit_ids)
         for block in self.blocks:
-            x = block(x, attention_mask=mask)
+            x = block(x, attention_mask=mask).logits
 
         x = self.post_blocks_norm(x)
         x = x.repeat_interleave(self.upsample, dim=1)
@@ -93,7 +93,7 @@ class SpeechDecoderVelocityNetwork(nn.Module):
         inputs = [xt, unit_cond] if context is None else [xt, unit_cond, context]
         x = self.embed(torch.cat(inputs, dim=1) * mask.unsqueeze(1)).transpose(1, 2)
         for block in self.blocks:
-            x = block(x, cond, mask)
+            x = block(x, cond, mask).logits
 
         return self.out(self.final_norm(x, cond)).transpose(1, 2) * mask.unsqueeze(1)
 

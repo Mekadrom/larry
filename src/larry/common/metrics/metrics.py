@@ -322,6 +322,12 @@ class CaptionedAudioMetric(MetricEntry[tuple[AudioMetric, str]]):
 class MetricDict(UserDict[str, MetricEntry]):
     """Dictionary wrapper for MetricEntry objects keyed by their intended tag in the metrics backend."""
 
+    def __add__(self, other: MetricDict) -> MetricDict:
+        combined = MetricDict()
+        combined.update(self)
+        combined.update(other)
+        return combined
+
     def __setitem__(self, key: str, item: MetricEntry) -> None:
         """Basic dict override to merge MetricEntry types that support merging and to set the value otherwise."""
         if not isinstance(item, MetricEntry):

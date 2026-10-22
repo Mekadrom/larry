@@ -39,8 +39,7 @@ class SpeechEncoderEncoderBlock(nn.Module):
 
     def forward(self, x: torch.Tensor, pad_mask: torch.Tensor) -> torch.Tensor:
         """Simple encoder block forward with norms and a residual."""
-        attended, _ = self.attn(self.attn_norm(x), attention_mask=pad_mask)
-        x = x + attended
+        x = x + self.attn(self.attn_norm(x), attention_mask=pad_mask).logits
         return x + self.mlp(self.mlp_norm(x))
 
 
@@ -198,7 +197,7 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
 
         hidden = quantized
         for block in self.encoder2:
-            hidden = block(hidden, attention_mask=frame_mask)
+            hidden = block(hidden, attention_mask=frame_mask).logits
 
         hidden = self.encoder2_norm(hidden)
 

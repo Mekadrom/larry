@@ -34,7 +34,8 @@ def test_padded_bidirectional_attention_runs_for_any_group_count(n_query_groups:
     x = torch.randn(2, 5, 64)
     mask = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]])
 
-    out, _ = attention(x, attention_mask=mask)
+    result = attention(x, attention_mask=mask)
+    out = result.logits
 
     assert out.shape == (2, 5, 64)
     assert torch.isfinite(out).all()
@@ -51,7 +52,7 @@ def test_grouped_attention_matches_full_attention_with_each_key_value_head_repea
             getattr(full, name).weight.copy_(heads.repeat_interleave(4, dim=0).reshape(64, 64))
     x = torch.randn(2, 5, 64)
 
-    assert torch.allclose(grouped(x)[0], full(x)[0], atol=1e-5)
+    assert torch.allclose(grouped(x).logits, full(x).logits, atol=1e-5)
 
 
 @pytest.mark.parametrize("n_query_groups", [1, 2, 8])
@@ -59,11 +60,14 @@ def test_cached_decoding_matches_a_full_causal_pass(n_query_groups: int) -> None
     attention = _attention(n_query_groups, is_causal=True)
     x = torch.randn(1, 6, 64)
 
-    full, _ = attention(x)
+    result = attention(x)
+    full = result.logits
     steps = []
     cache = None
     for t in range(6):
-        out, cache = attention(x[:, t:t + 1], kv_cache=cache, position_offset=t, use_cache=True)
+        result = attention(x[:, t:t + 1], kv_cache=cache, position_offset=t, use_cache=True)
+        out = result.logits
+        cache = result.kv_cache
         steps.append(out)
 
     assert torch.allclose(torch.cat(steps, dim=1), full, atol=1e-5)
@@ -74,9 +78,12 @@ def test_cached_decode_of_a_left_padded_row_matches_the_full_forward() -> None:
     x = torch.randn(2, 5, 64)
     mask = torch.tensor([[1, 1, 1, 1, 1], [0, 0, 1, 1, 1]])
 
-    full, _ = attention(x, attention_mask=mask)
-    _, cache = attention(x[:, :4], attention_mask=mask[:, :4], use_cache=True)
-    last, _ = attention(x[:, 4:], attention_mask=mask, kv_cache=cache, position_offset=4)
+    result = attention(x, attention_mask=mask)
+    full = result.logits
+    result = attention(x[:, :4], attention_mask=mask[:, :4], use_cache=True)
+    cache = result.kv_cache
+    result = attention(x[:, 4:], attention_mask=mask, kv_cache=cache, position_offset=4)
+    last = result.logits
 
     torch.testing.assert_close(last[:, 0], full[:, 4])
 
@@ -84,7 +91,8 @@ def test_cached_decode_of_a_left_padded_row_matches_the_full_forward() -> None:
 def test_the_cache_holds_one_head_per_query_group() -> None:
     attention = _attention(n_query_groups=2, is_causal=True)
 
-    _, cache = attention(torch.randn(2, 4, 64), use_cache=True)
+    result = attention(torch.randn(2, 4, 64), use_cache=True)
+    cache = result.kv_cache
 
     assert cache is not None and cache.key_cache is not None and cache.value_cache is not None
     assert cache.key_cache.shape == (2, 2, 4, 8)
@@ -108,11 +116,14 @@ def test_split_rope_cached_decode_offsets_the_global_positions() -> None:
     global_positions = torch.arange(5.0).expand(2, 5)
     position_ids = torch.stack([global_positions, global_positions * 0.5], dim=-1)
 
-    full, _ = attention(x, position_ids=position_ids)
-    _, cache = attention(x[:, :4], position_ids=position_ids[:, :4], use_cache=True)
+    result = attention(x, position_ids=position_ids)
+    full = result.logits
+    result = attention(x[:, :4], position_ids=position_ids[:, :4], use_cache=True)
+    cache = result.kv_cache
     decode_ids = position_ids[:, 4:].clone()
     decode_ids[..., 0] -= 4
-    last, _ = attention(x[:, 4:], kv_cache=cache, position_offset=4, position_ids=decode_ids)
+    result = attention(x[:, 4:], kv_cache=cache, position_offset=4, position_ids=decode_ids)
+    last = result.logits
 
     torch.testing.assert_close(last[:, 0], full[:, 4])
 

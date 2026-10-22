@@ -99,3 +99,5 @@ class EncodedAudio(TypedDict):
 
 
 type Color = int | tuple[int, ...] | str
+
+type NormTypeEnum = Literal["layer", "rms", "ada"]

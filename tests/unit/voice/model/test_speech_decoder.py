@@ -58,7 +58,7 @@ def test_conditional_block_starts_as_the_identity() -> None:
     ))
     x = torch.randn(2, 7, 32)
 
-    assert torch.equal(block(x, torch.randn(2, 32), torch.ones(2, 7)), x)
+    assert torch.equal(block(x, torch.randn(2, 32), torch.ones(2, 7)).logits, x)
 
 
 def test_conditional_block_is_not_causal_by_default() -> None:
