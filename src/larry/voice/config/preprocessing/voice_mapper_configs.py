@@ -1,7 +1,6 @@
 import dataclasses
 
-from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, \
-    UrlMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, UrlMapperConfig
 from larry.voice.config.preprocessing.voice_configs import AlignerConfig, SampleRateConfig
 
 
@@ -110,12 +109,12 @@ class CTCScoreMapperConfig(SampleRateConfig, MapperConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class LarrySpeechEncoderUsingMapperConfig(SampleRateConfig):
+class LarrySpeechEncoderUsingMapperConfig(SampleRateConfig, MapperConfig):
     speech_encoder_checkpoint_path: str
 
 
 @dataclasses.dataclass(kw_only=True)
-class LarrySpeechEncoderUnitIdExtractingMapperConfig(LarrySpeechEncoderUsingMapperConfig, MapperConfig):
+class LarrySpeechEncoderUnitIdExtractingMapperConfig(LarrySpeechEncoderUsingMapperConfig):
     audio_column: str = "audio"
     unit_ids_output_column: str = "unit_ids"
     frame_lengths_output_column: str = "frame_lengths"
@@ -132,6 +131,8 @@ class LarrySpeechEncoderUnitIdExtractingMapperConfig(LarrySpeechEncoderUsingMapp
 
 
 @dataclasses.dataclass(kw_only=True)
-class LarrySpeechEncoderASRMapperConfig(LarrySpeechEncoderUsingMapperConfig, SingleColumnMapperConfig):
+class LarrySpeechEncoderASRMapperConfig(SingleColumnMapperConfig, LarrySpeechEncoderUsingMapperConfig):
+    text_tokenizer_path: str
+    
     input_column: str = "audio"
     output_column: str = "text_normalized"

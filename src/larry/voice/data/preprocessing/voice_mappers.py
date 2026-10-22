@@ -19,20 +19,23 @@ from larry.common.data.preprocessing.mappers import Mapper, SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
 from larry.common.data.utils import features_of
 from larry.common.utils.types import EncodedAudio
-from larry.text.tokenizer.text_tokenizer import TextTokenizer
+from larry.text.tokenizer.text_tokenizer import SentencePieceTokenizer, TextTokenizer
 from larry.voice.config.preprocessing.voice_configs import AlignerConfig
 from larry.voice.config.preprocessing.voice_mapper_configs import (
     AudioDurationMapperConfig,
     CTCScoreMapperConfig,
+    LarrySpeechEncoderASRMapperConfig,
     LarrySpeechEncoderUnitIdExtractingMapperConfig,
+    LarrySpeechEncoderUsingMapperConfig,
     SpeechSegmentationAligningMapperConfig,
-    UrlAudioMapperConfig, LarrySpeechEncoderASRMapperConfig, LarrySpeechEncoderUsingMapperConfig,
+    UrlAudioMapperConfig,
 )
 from larry.voice.data.preprocessing.alignment import Aligner, LongAlignment, TokenTimeline
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 from larry.voice.data.preprocessing.segmentation import Segmenter
 from larry.voice.data.preprocessing.transcript import NormalizedTokens, TokenStream, Transcript, Turn
 from larry.voice.model.speech_encoder import SpeechEncoderModel
+from larry.voice.model.voice_models import SpeechEncoderModelOutput
 from larry.voice.utils import bytes_to_waveforms, collapse_ctc_emissions
 
 _ALIGNERS: dict[str, Aligner] = {}
@@ -66,7 +69,7 @@ def _lazy_get_encoder(key: str, device: torch.device) -> SpeechEncoderModel:
 
 def _lazy_get_tokenizer(key: str) -> TextTokenizer:
     if key not in _TOKENIZERS:
-        _TOKENIZERS[key] = TextTokenizer.REGISTRY.get(key)(model_file=key)
+        _TOKENIZERS[key] = SentencePieceTokenizer(model_file=key)
     return _TOKENIZERS[key]
 
 
@@ -360,12 +363,16 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
 class LarrySpeechEncoderUsingMapper[C: LarrySpeechEncoderUsingMapperConfig = LarrySpeechEncoderUsingMapperConfig](
     Mapper[C], ABC
 ):
+    def mutate_provenance(self) -> None:
+        self.provenance.ancestry.models.add(self.config.speech_encoder_checkpoint_path)
+
     def _extract_waveforms(
             self,
             batch: dict[str, list[Any]],
+            column: str,
             device: torch.device
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        audios: list[EncodedAudio] = batch[self.config.audio_column]
+        audios: list[EncodedAudio] = batch[column]
         waveforms = []
         waveform_lengths = []
         for audio in audios:
@@ -388,9 +395,7 @@ class LarrySpeechEncoderUnitIdExtractingMapper(
         model = _lazy_get_encoder(self.config.speech_encoder_checkpoint_path, self.device)
 
         device = next(model.parameters()).device
-        waveforms, waveform_lengths = self._extract_waveforms(batch, device)
-        waveforms = waveforms.to(device)
-        waveform_lengths = waveform_lengths.to(device)
+        waveforms, waveform_lengths = self._extract_waveforms(batch, self.config.audio_column, device)
 
         with torch.inference_mode():
             unit_ids, frame_lengths = model.tokenize(waveforms, waveform_lengths)
@@ -409,9 +414,6 @@ class LarrySpeechEncoderUnitIdExtractingMapper(
             self.config.frame_lengths_output_column: Value("int32"),
         })
 
-    def mutate_provenance(self) -> None:
-        self.provenance.ancestry.models.add(self.config.speech_encoder_checkpoint_path)
-
 
 class LarrySpeechEncoderASRMapper(
     LarrySpeechEncoderUsingMapper[LarrySpeechEncoderASRMapperConfig]
@@ -421,17 +423,17 @@ class LarrySpeechEncoderASRMapper(
         tokenizer = _lazy_get_tokenizer(self.config.text_tokenizer_path)
 
         device = next(model.parameters()).device
-        waveforms, waveform_lengths = self._extract_waveforms(batch, device)
+        waveforms, waveform_lengths = self._extract_waveforms(batch, self.config.input_column, device)
 
         with torch.inference_mode():
-            model_output = model(waveforms, waveform_lengths)
+            model_output: SpeechEncoderModelOutput = model(waveforms, waveform_lengths)
 
         greedy = model_output.logits.argmax(dim=-1).cpu()
 
         texts = []
         for i in range(greedy.shape[0]):
             texts.append(tokenizer.decode(collapse_ctc_emissions(
-                greedy[i, :model_output.mel_],
+                greedy[i, :int(model_output.frame_lengths[i])],
                 blank=model.config.text_vocab_size
             )))
 
@@ -443,3 +445,7 @@ class LarrySpeechEncoderASRMapper(
         return Features({
             self.config.output_column: Value("string"),
         })
+
+    def mutate_provenance(self) -> None:
+        super().mutate_provenance()
+        self.provenance.ancestry.models.add(self.config.text_tokenizer_path)
