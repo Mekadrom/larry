@@ -1,6 +1,6 @@
 import dataclasses
 
-from larry.common.config.data.data_configs import DatasetMixtureConfig, DatasetSourceConfig
+from larry.common.config.data.data_configs import DatasetMixtureConfig, DatasetSourceConfig, TextSourceConfig
 from larry.voice.config.preprocessing.voice_configs import SampleRateConfig
 
 
@@ -13,7 +13,7 @@ class SpeechSourceConfig(DatasetSourceConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class ASRSourceConfig(SpeechSourceConfig):
+class ASRSourceConfig(SpeechSourceConfig, TextSourceConfig):
     """A config dataclass for configuring a single dataset source."""
 
     text_column: str = "text_normalized"

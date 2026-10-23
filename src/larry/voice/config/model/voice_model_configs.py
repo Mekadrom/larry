@@ -5,6 +5,7 @@ from larry.common.config.model.model_configs import (
     LarryConditionalEncoderBlockModuleConfig,
     LLMBlockModuleConfig,
     ModelConfig,
+    TextVocabularyConfig,
 )
 from larry.voice.config.preprocessing.voice_configs import SampleRateConfig
 
@@ -29,7 +30,7 @@ class SpeechEncoderDecoderModelConfig(VoiceModelConfig, LLMBlockModuleConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig):
+class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig, TextVocabularyConfig):
     """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechTokenizerEncoderModel``."""
 
     n_fft: int = 400

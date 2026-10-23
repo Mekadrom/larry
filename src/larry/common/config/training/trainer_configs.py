@@ -2,7 +2,7 @@ import dataclasses
 from abc import ABC
 from typing import Any, Literal
 
-from larry.common.config.config import TaggedConfig
+from larry.common.config.config import Config, TaggedConfig
 from larry.common.config.data.data_configs import DatasetMixtureConfig
 
 
@@ -46,3 +46,8 @@ class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](Ta
     warmup_steps: int = 0
     lr_scheduler_name: Literal["constant", "cosine"] = "constant"
     decay_start_step: int | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class TextTokenizerConfig(Config):
+    tokenizer_model_path: str

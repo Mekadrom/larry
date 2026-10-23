@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Literal, Self
 
-from larry.common.config.config import TaggedConfig
+from larry.common.config.config import Config, TaggedConfig
 from larry.common.utils.types import NormTypeEnum
 
 
@@ -109,3 +109,8 @@ class LarryRecurrentTrunkConfig(LLMBlockModuleConfig):
     kv_cache_strategy: Literal["huginn", "per_iteration", "shared"] = "huginn"
     kv_cache_budget: int = 16
     kv_cache_max_iterations: int = 64
+
+
+@dataclasses.dataclass(kw_only=True)
+class TextVocabularyConfig(Config):
+    text_vocab_size: int

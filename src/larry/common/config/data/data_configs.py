@@ -21,6 +21,11 @@ class DatasetSourceConfig(Config):
 
 
 @dataclasses.dataclass(kw_only=True)
+class TextSourceConfig(DatasetSourceConfig):
+    text_column: str = "text"
+
+
+@dataclasses.dataclass(kw_only=True)
 class DatasetMixtureConfig[T: DatasetSourceConfig = DatasetSourceConfig](Config):
     """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
 

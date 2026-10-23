@@ -3,7 +3,7 @@ from typing import Any
 
 from larry.common.config.config import Config
 from larry.common.config.data.data_configs import DatasetMixtureConfig
-from larry.common.config.training.trainer_configs import LarryTrainerConfig
+from larry.common.config.training.trainer_configs import LarryTrainerConfig, TextTokenizerConfig
 from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig
 from larry.voice.config.data.voice_data_configs import ASRMixtureConfig, TTSMixtureConfig, VocoderMixtureConfig
 
@@ -53,10 +53,8 @@ class SpeechEncoderDecoderTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMi
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig[ASRMixtureConfig]):
+class SpeechEncoderTrainerConfig(SpeechEncoderDecoderTrainerConfig[ASRMixtureConfig], TextTokenizerConfig):
     """Config for ``SpeechTokenizerTrainer`` to configure the training and eval dataset sources."""
-
-    tokenizer_model_path: str
 
     speed_augment_factors: list[float] = dataclasses.field(default_factory=lambda: [1.0])
 
