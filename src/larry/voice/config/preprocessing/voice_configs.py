@@ -12,6 +12,13 @@ class SampleRateConfig(Config):
 
 
 @dataclasses.dataclass(kw_only=True)
+class MelsConfig(SampleRateConfig):
+    n_fft: int = 640
+    n_mels: int = 80
+    hop_length: int = 160
+
+
+@dataclasses.dataclass(kw_only=True)
 class VoiceConfig(PreprocessorConfig, SampleRateConfig):
     """Superclass for all voice preprocessor configs."""
 

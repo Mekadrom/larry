@@ -7,16 +7,12 @@ from larry.common.config.model.model_configs import (
     ModelConfig,
     TextVocabularyConfig,
 )
-from larry.voice.config.preprocessing.voice_configs import SampleRateConfig
+from larry.voice.config.preprocessing.voice_configs import MelsConfig
 
 
 @dataclasses.dataclass(kw_only=True)
-class VoiceModelConfig(ModelConfig, SampleRateConfig):
+class VoiceModelConfig(ModelConfig, MelsConfig):
     """Superclass for voice model configs, setting global defaults."""
-
-    n_fft: int = 640
-    n_mels: int = 80
-    hop_length: int = 160
 
 
 @dataclasses.dataclass(kw_only=True)
