@@ -14,12 +14,12 @@ from larry.common.model.norms import AdaLayerNorm, AdaLayerNormZero, get_norm_ty
 
 @dataclasses.dataclass(kw_only=True)
 class LarryEncoderBlockOutput(LarryAttentionOutput[KVCache]):
-    kv_cache: KVCache | None = None
+    ...
 
 
 @dataclasses.dataclass(kw_only=True)
 class LarryDecoderBlockOutput(LarryAttentionOutput[tuple[KVCache | None, KVCache | None]]):
-    kv_cache: tuple[KVCache | None, KVCache | None] | None = None
+    ...
 
 
 class LarrySimpleEncoderBlock(nn.Module):

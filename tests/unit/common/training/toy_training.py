@@ -35,7 +35,7 @@ class ToyCriterionConfig(CriterionConfig):
 
 class ToyModel(LarryModel[ModelConfig]):
     def __init__(self) -> None:
-        super().__init__(ModelConfig(d_model=1, max_position_embeddings=1))
+        super().__init__(ModelConfig(d_model=1, max_seq_len=1))
         self.linear = nn.Linear(1, 1)
         self.seen: list[list[int]] = []
 

@@ -31,7 +31,7 @@ class CharTokenizer(TextTokenizer):
         return self.alphabet[token_id]
 
 
-def tiny_speech_encoder_config(text_vocab_size: int, **overrides: Any) -> SpeechEncoderModelConfig:
+def tiny_speech_encoder_config(vocab_size: int, **overrides: Any) -> SpeechEncoderModelConfig:
     return SpeechEncoderModelConfig(**{
         "d_model": 32,
         "n_heads": 4,
@@ -39,14 +39,14 @@ def tiny_speech_encoder_config(text_vocab_size: int, **overrides: Any) -> Speech
         "rotary_embedding_dim": 8,
         "n_encoder1_layers": 1,
         "n_encoder2_layers": 1,
-        "text_vocab_size": text_vocab_size,
+        "vocab_size": vocab_size,
         **overrides,
     })
 
 
-def tiny_speech_encoder(text_vocab_size: int, **overrides: Any) -> SpeechEncoderModel:
+def tiny_speech_encoder(vocab_size: int, **overrides: Any) -> SpeechEncoderModel:
     torch.manual_seed(0)
-    return SpeechEncoderModel(tiny_speech_encoder_config(text_vocab_size, **overrides))
+    return SpeechEncoderModel(tiny_speech_encoder_config(vocab_size, **overrides))
 
 
 def ctc_output(log_probs: torch.Tensor, frame_lengths: torch.Tensor) -> SpeechEncoderModelOutput:

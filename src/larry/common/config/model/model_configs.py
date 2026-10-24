@@ -15,7 +15,7 @@ class ModelConfig(TaggedConfig):
 
     d_model: int = 16
 
-    max_position_embeddings: int = 1024
+    max_seq_len: int = 1024
 
     gradient_checkpointing: bool = False
 
@@ -112,5 +112,5 @@ class LarryRecurrentTrunkConfig(LLMBlockModuleConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class TextVocabularyConfig(Config):
-    text_vocab_size: int
+class VocabularyConfig(Config):
+    vocab_size: int

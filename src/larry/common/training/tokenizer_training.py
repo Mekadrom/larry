@@ -12,7 +12,7 @@ from datasets import Dataset as HFDataset
 
 from larry.common.config.config import ConfigValues
 from larry.common.config.data.data_configs import DatasetMixtureConfig, TextSourceConfig
-from larry.common.config.model.model_configs import TextVocabularyConfig
+from larry.common.config.model.model_configs import VocabularyConfig
 from larry.common.config.training.definition import TrainingDefinition
 from larry.common.config.training.trainer_configs import TextTokenizerConfig
 from larry.common.data.dataloading.indexed_dataset import indexed_column, load_index, load_source_for_columns
@@ -171,7 +171,7 @@ def main() -> None:
     trainer_config = definition.trainer
     model_config = definition.model
 
-    if not isinstance(model_config, TextVocabularyConfig):
+    if not isinstance(model_config, VocabularyConfig):
         raise TypeError(f"{type(model_config).__name__} has no text vocabulary to train a tokenizer for")
 
     output_prefix = args.output_prefix
@@ -188,5 +188,5 @@ def main() -> None:
         raise TypeError(f"train sources without a text column: {textless}")
 
     output_prefix = Path(output_prefix).expanduser().resolve()
-    model_file = TokenizerTrainer(sources, output_prefix, model_config.text_vocab_size).run()
+    model_file = TokenizerTrainer(sources, output_prefix, model_config.vocab_size).run()
     log.info(f"wrote {model_file}")

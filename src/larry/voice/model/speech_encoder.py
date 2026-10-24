@@ -130,7 +130,7 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         self.fsq = FSQ(config.d_model, dims=config.fsq_dims, levels=config.fsq_levels)
 
         if config.enable_fsq_ctc_head:
-            self.fsq_ctc_head = nn.Linear(config.d_model, config.text_vocab_size + 1)
+            self.fsq_ctc_head = nn.Linear(config.d_model, config.vocab_size + 1)
         else:
             self.fsq_ctc_head = None
 
@@ -140,7 +140,7 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         ])
         self.encoder2_norm = nn.RMSNorm(config.d_model)
 
-        self.ctc_head = nn.Linear(config.d_model, config.text_vocab_size + 1)
+        self.ctc_head = nn.Linear(config.d_model, config.vocab_size + 1)
 
     @staticmethod
     def _spec_augment(

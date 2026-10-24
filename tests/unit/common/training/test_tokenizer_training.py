@@ -202,7 +202,7 @@ def test_main_reads_sources_and_vocabulary_from_a_training_config(
 ) -> None:
     source = _asr_source(tmp_path, "a", [(line, 3.0) for line in ALPHABET_LINES] * 20)
     config = _write_config(
-        tmp_path, {"type": "SpeechEncoderModelConfig", "text_vocab_size": 40}, _encoder_trainer(tmp_path, source)
+        tmp_path, {"type": "SpeechEncoderModelConfig", "vocab_size": 40}, _encoder_trainer(tmp_path, source)
     )
     monkeypatch.setattr(sys, "argv", ["tokenizer-training", "-f", str(config), "--allow_dirty"])
 
@@ -234,7 +234,7 @@ def test_main_needs_a_tokenizer_path_and_text_sources(
         "max_steps": 1,
         "mixture_config": {"train_sources": {"a": {"index_path": source.index_path}}, "eval_sources": {}},
     }
-    config = _write_config(tmp_path, {"type": "SpeechEncoderModelConfig", "text_vocab_size": 40}, trainer)
+    config = _write_config(tmp_path, {"type": "SpeechEncoderModelConfig", "vocab_size": 40}, trainer)
     monkeypatch.setattr(sys, "argv", ["tokenizer-training", "-f", str(config), "--allow_dirty", *extra_args])
 
     with pytest.raises(error, match=match):

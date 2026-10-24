@@ -5,7 +5,7 @@ from larry.common.config.model.model_configs import (
     LarryConditionalEncoderBlockModuleConfig,
     LLMBlockModuleConfig,
     ModelConfig,
-    TextVocabularyConfig,
+    VocabularyConfig,
 )
 from larry.voice.config.preprocessing.voice_configs import MelsConfig
 
@@ -26,7 +26,7 @@ class SpeechEncoderDecoderModelConfig(VoiceModelConfig, LLMBlockModuleConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig, TextVocabularyConfig):
+class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleConfig, VocabularyConfig):
     """Uses ``SpeechTokenizerModelConfig`` and ``LLMBlockModuleConfig`` to configure ``SpeechTokenizerEncoderModel``."""
 
     n_fft: int = 400
@@ -39,7 +39,7 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
     n_encoder1_layers: int = 6
     n_encoder2_layers: int = 6
 
-    text_vocab_size: int = 512
+    vocab_size: int = 512
 
     attention_dropout_p: float = 0.0
     proj_dropout_p: float = 0.0

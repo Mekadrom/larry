@@ -51,7 +51,7 @@ def _trainer(sources: list[str]) -> SpeechEncoderTrainer:
         SpeechEncoderTrainer,
         tokenizer=CharTokenizer(ALPHABET),
         whisper_normalizer=EnglishTextNormalizer(SPELLINGS),
-        model_config=SimpleNamespace(text_vocab_size=BLANK, fsq_dims=2, fsq_levels=3, n_units=3 ** 2),
+        model_config=SimpleNamespace(vocab_size=BLANK, fsq_dims=2, fsq_levels=3, n_units=3 ** 2),
         _config=SimpleNamespace(mixture_config=SimpleNamespace(
             eval_sources=[SpeechSourceConfig(name=n, index_path=n) for n in sources],
         )),

@@ -69,7 +69,7 @@ def _trunk(**overrides: object) -> LarryRecurrentTrunk:
         "n_query_groups": 4,
         "rotary_embedding_dim": 8,
         "n_layers": 2,
-        "max_position_embeddings": 64,
+        "max_seq_len": 64,
         "is_causal": True,
         "attention_dropout_p": 0.0,
         "proj_dropout_p": 0.0,
@@ -162,7 +162,7 @@ def test_training_never_builds_a_cache() -> None:
 def test_cross_attention_reuses_the_cached_encoder_keys() -> None:
     torch.manual_seed(0)
     block = LarrySimpleDecoderBlock(LLMBlockModuleConfig(
-        d_model=32, n_heads=4, n_query_groups=4, rotary_embedding_dim=8, max_position_embeddings=32, is_causal=True,
+        d_model=32, n_heads=4, n_query_groups=4, rotary_embedding_dim=8, max_seq_len=32, is_causal=True,
         attention_dropout_p=0.0, proj_dropout_p=0.0, mlp_dropout_p=0.0,
     )).eval()
     x = torch.randn(1, 5, 32)

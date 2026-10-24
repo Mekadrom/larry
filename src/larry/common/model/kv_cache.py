@@ -116,3 +116,15 @@ class RecurrentKVCache:
     def clear(self) -> None:
         self.slots.clear()
         self.latest.clear()
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarryMultimodalModelKVCache:
+    recurrent_kv_cache_strategy: Literal["huginn", "per_iteration", "shared"] = "huginn"
+    text_prelude_cache: KVCache | None = None
+    image_prelude_cache: KVCache | None = None
+    voice_prelude_cache: KVCache | None = None
+    recurrent_cache: RecurrentKVCache | None = None
+    text_coda_cache: KVCache | None = None
+    image_coda_cache: KVCache | None = None
+    voice_coda_cache: KVCache | None = None

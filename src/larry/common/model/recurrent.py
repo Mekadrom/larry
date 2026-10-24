@@ -205,6 +205,7 @@ class LarryRecurrentTrunk(LarryModel[LarryRecurrentTrunkConfig]):
             position_ids: torch.Tensor | None = None,
             readout: Callable[[torch.Tensor], torch.Tensor] | dict[str, Callable] | None = None,
             converge_eligible: torch.Tensor | dict[str, torch.Tensor] | None = None,
+            m_rope_dim_mask: torch.Tensor | None = None,
     ) -> LarryRecurrentTrunkOutput:
         """The core of any generative model working with text as either input, output, or both in the larry project.
 
@@ -223,6 +224,9 @@ class LarryRecurrentTrunk(LarryModel[LarryRecurrentTrunkConfig]):
                 are used to match against the converge_eligible dict to determine which tokens are eligible for
                 convergence evaluation for each readout function. If it is a single callable, it is used for all tokens.
             :param converge_eligible: a mask of which tokens are eligible for convergence; masked tokens have converged.
+            :param m_rope_dim_mask: a mask of integer values signifying what number of slices of dims m-rope should act
+                on; 1 = global rope only, 2 = global rope (half) and local rope (other half), 3 = global rope (half) and
+                row rope (one quarter of the remaining half) and column rope (the remaining quarter) - both local only
         """
         if self.training:
             use_cache = False

@@ -21,7 +21,7 @@ BLANK = len(LETTERS)
 
 class StubEncoder:
     def __init__(self, frames: list[list[int]], frame_lengths: list[int]) -> None:
-        self.config = SimpleNamespace(text_vocab_size=BLANK)
+        self.config = SimpleNamespace(vocab_size=BLANK)
         self.frames = frames
         self.frame_lengths = frame_lengths
         self.calls: list[tuple[int, ...]] = []

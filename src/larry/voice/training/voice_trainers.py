@@ -270,14 +270,14 @@ class SpeechEncoderTrainer(
 
     def make_criterion(self) -> Criterion:
         """Initializes the CTC criterion."""
-        if self.tokenizer.vocab_size() != self.model_config.text_vocab_size:
+        if self.tokenizer.vocab_size() != self.model_config.vocab_size:
             raise ValueError(
                 f"vocab_sizes do not match: "
-                f"tokenizer={self.tokenizer.vocab_size()}, model_config={self.model_config.text_vocab_size}"
+                f"tokenizer={self.tokenizer.vocab_size()}, model_config={self.model_config.vocab_size}"
             )
 
         return CTCCriterion(CTCCriterionConfig(
-            blank=self.model_config.text_vocab_size,
+            blank=self.model_config.vocab_size,
             ctc_layer_loss_weights=self.config.ctc_layer_loss_weights,
         ))
 
@@ -286,7 +286,7 @@ class SpeechEncoderTrainer(
         return voice_viz_callbacks.SpeechEncoderVizCallback(
             self,
             viz_steps,
-            blank=self.model_config.text_vocab_size,
+            blank=self.model_config.vocab_size,
             tokenizer=self.tokenizer
         )
 
@@ -359,7 +359,7 @@ class SpeechEncoderTrainer(
             len(self.config.mixture_config.eval_sources),
         ).to(statistics["fsq_counts"].device)
 
-        blank = self.model_config.text_vocab_size
+        blank = self.model_config.vocab_size
         greedy = model_output.logits.argmax(dim=-1).cpu()
         frame_lengths = model_output.frame_lengths.cpu().tolist()
         targets = batch["targets"].cpu()

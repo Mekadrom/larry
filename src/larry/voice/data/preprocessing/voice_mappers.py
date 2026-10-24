@@ -434,7 +434,7 @@ class LarrySpeechEncoderASRMapper(
         for i in range(greedy.shape[0]):
             texts.append(tokenizer.decode(collapse_ctc_emissions(
                 greedy[i, :int(model_output.frame_lengths[i])],
-                blank=model.config.text_vocab_size
+                blank=model.config.vocab_size
             )))
 
         return {

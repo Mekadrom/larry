@@ -17,7 +17,7 @@ def _trunk(**overrides: object) -> LarryRecurrentTrunk:
         "n_query_groups": 4,
         "rotary_embedding_dim": 8,
         "n_layers": 2,
-        "max_position_embeddings": 64,
+        "max_seq_len": 64,
         "is_causal": True,
         "attention_dropout_p": 0.0,
         "proj_dropout_p": 0.0,

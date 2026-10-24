@@ -55,7 +55,7 @@ class LarryAttention(nn.Module, QKModule):
         self.attn_dropout = nn.Dropout(config.attention_dropout_p)
         self.proj_dropout = nn.Dropout(config.proj_dropout_p)
 
-        max_positions = config.max_position_embeddings
+        max_positions = config.max_seq_len
 
         if config.is_causal:
             self.register_buffer(
