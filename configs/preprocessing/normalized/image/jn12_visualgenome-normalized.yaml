@@ -1,0 +1,23 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: DefaultDatasetConfig
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/jn12_visualgenome-normalized/
+pipeline:
+  extract_zip_files:
+    type: VisualGenomeExtractingPreprocessorConfig
+  rename_columns:
+    type: ColumnRenamingPreprocessorConfig
+    column_name_mappings:
+      description: text
+      example_id: id
+  resize_images:
+    type: ImageResizingMapperConfig
+    batch_size: 64
+    filter_null_outputs: true
+    width: 512
+    height: 512
+    pad_to_equal: false
+    center_crop: false
