@@ -34,6 +34,23 @@ class DefaultDatasetConfig(DatasetConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
+class IndexedSourceDatasetConfig(DatasetConfig):
+    """An index joined back to the rows of its source dataset for a later pipeline to work from an earlier one's rows.
+
+    ``path`` is the index (a local directory of split folders, or a huggingface repo). Every index split listed in
+    ``split_sources`` becomes one output split, holding the source rows its ``row`` column points to plus any index
+    columns the source lacks. Without a ``source_path`` the index already holds every column and is used as is.
+    """
+
+    split: str | list[str] | None = None
+    split_sources: dict[str, str]
+    source_path: str | None = None
+    source_name: str | None = None
+    source_revision: str | None = None
+    source_cache_dir: str | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
 class CachedDatasetConfig(DatasetConfig, ABC):
     """Superclass for configs for any dataset provider that requires downloading or extracting prior to preprocessing.
 

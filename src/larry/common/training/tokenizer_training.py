@@ -12,9 +12,8 @@ from datasets import Dataset as HFDataset
 
 from larry.common.config.config import ConfigValues
 from larry.common.config.data.data_configs import DatasetMixtureConfig, TextSourceConfig
-from larry.common.config.model.model_configs import VocabularyConfig
 from larry.common.config.training.definition import TrainingDefinition
-from larry.common.config.training.trainer_configs import TextTokenizerConfig
+from larry.common.config.training.trainer_configs import TokenizerTrainingConfig
 from larry.common.data.dataloading.indexed_dataset import indexed_column, load_index, load_source_for_columns
 from larry.common.utils.git_utils import WorkingTree
 from larry.common.utils.init_helpers import import_submodules
@@ -171,15 +170,15 @@ def main() -> None:
     trainer_config = definition.trainer
     model_config = definition.model
 
-    if not isinstance(model_config, VocabularyConfig):
-        raise TypeError(f"{type(model_config).__name__} has no text vocabulary to train a tokenizer for")
+    tokenizer_config = trainer_config
+    if not isinstance(tokenizer_config, TokenizerTrainingConfig):
+        tokenizer_config = TokenizerTrainingConfig()
 
-    output_prefix = args.output_prefix
+    vocab_size = tokenizer_config.tokenizer_vocab_size(model_config)
+
+    output_prefix = args.output_prefix or tokenizer_config.tokenizer_output_prefix()
     if output_prefix is None:
-        if not isinstance(trainer_config, TextTokenizerConfig):
-            raise ValueError(f"pass --output_prefix; {type(trainer_config).__name__} has no tokenizer_model_path")
-
-        output_prefix = Path(trainer_config.tokenizer_model_path).with_suffix("")
+        raise ValueError(f"pass --output_prefix; {type(trainer_config).__name__} doesn't say where its tokenizer goes")
 
     mixture_config: DatasetMixtureConfig[Any] = trainer_config.mixture_config
     sources = mixture_config.train_sources
@@ -188,5 +187,7 @@ def main() -> None:
         raise TypeError(f"train sources without a text column: {textless}")
 
     output_prefix = Path(output_prefix).expanduser().resolve()
-    model_file = TokenizerTrainer(sources, output_prefix, model_config.vocab_size).run()
+    output_prefix.parent.mkdir(parents=True, exist_ok=True)
+    model_file = TokenizerTrainer(sources, output_prefix, vocab_size).run()
     log.info(f"wrote {model_file}")
+    tokenizer_config.write_tokenizer_artifacts(model_file)

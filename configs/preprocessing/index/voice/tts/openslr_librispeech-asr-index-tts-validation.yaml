@@ -1,15 +1,24 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
 dataset:
+  type: IndexedSourceDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/index/voice/vocoder/openslr_librispeech-asr-index-vocoder-validation/
+  split_sources:
+    train: train
+  source_path: /home/zadar/.cache/larry/datasets/normalized/voice/openslr_librispeech-asr-normalized-validation/
   cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/openslr_librispeech-asr-index-tts-validation/
 pipeline:
-  prune_ctc_mismatch:
-    type: TTSCTCMismatchColumnValuesPrunerConfig
-  prune_quality:
-    type: AudioQualityPrunerConfigForTTS
+  skip_audio_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      audio: audio_no_decode
   encode:
-    $before: minify_index
     type: LarrySpeechEncoderUnitIdExtractingMapperConfig
     speech_encoder_checkpoint_path: /home/zadar/.cache/larry/models/voice/larry-speech-encoder/
   minify_index:
+    type: SelectColumnsPreprocessorConfig
     keep_columns:
       - row
       - id

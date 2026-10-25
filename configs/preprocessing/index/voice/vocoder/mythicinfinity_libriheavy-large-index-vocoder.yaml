@@ -1,0 +1,15 @@
+dataset:
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/vocoder/mythicinfinity_libriheavy-large-index-vocoder/
+pipeline:
+  score_ctc_mismatch:
+    remove_columns: []
+  prune_ctc_mismatch:
+    type: TTSCTCMismatchColumnValuesPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForTTS
+  minify_index:
+    keep_columns:
+      - row
+      - id
+      - duration_s
+      - text_normalized

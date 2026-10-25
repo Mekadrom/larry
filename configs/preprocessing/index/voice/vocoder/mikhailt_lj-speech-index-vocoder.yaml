@@ -1,0 +1,28 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: DefaultDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
+  name: ~
+  split: ~
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/vocoder/mikhailt_lj-speech-index-vocoder/
+pipeline:
+  assign_row_index:
+    type: RowIndexAssigningPreprocessorConfig
+  skip_audio_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      audio: audio_no_decode
+  prune_duration:
+    type: AudioDurationColumnPrunerConfig
+  prune_ctc_mismatch:
+    type: TTSCTCMismatchColumnValuesPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForTTS
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id

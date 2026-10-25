@@ -239,3 +239,77 @@ def test_main_needs_a_tokenizer_path_and_text_sources(
 
     with pytest.raises(error, match=match):
         tokenizer_training.main()
+
+
+def _multimodal_definition(root: Path, tasks: list[str]) -> Path:
+    sources = {}
+    for task in tasks:
+        lines = [f"{line} {task.upper()}" for line in ALPHABET_LINES] * 4
+        write_parquet_split(root / task, "train", {"id": [str(i) for i in range(len(lines))], "text": lines})
+        sources[task] = {"index_path": str(root / task), "task": task}
+    modes = sorted({"text"} | {mode for task in tasks for mode in ("voice", "image") if mode in task})
+    definition = {
+        "trainer": {
+            "type": "LarryMultimodalTrainerConfig",
+            "processor_model_path": str(root / "processor"),
+            "text_vocab_size": 40,
+            "voice_units_per_position": 2,
+            "max_steps": 1,
+            "mixture_config": {"train_sources": sources, "eval_sources": sources},
+        },
+        "model": {
+            "type": "LarryMultimodalModelConfig",
+            "text_prelude_config": {"vocab_size": 48},
+            "text_coda_config": {"vocab_size": 48},
+            "recurrent_trunk_config": {},
+            "include_modes": modes,
+            "include_tasks": tasks,
+        },
+    }
+    path = root / "definition.yaml"
+    path.write_text(yaml.safe_dump(definition))
+    return path
+
+
+def test_multimodal_sources_are_text_sources_read_as_characters() -> None:
+    from larry.multimodal.config.data.data_configs import MultimodalSourceConfig
+
+    import_larry_submodules()
+    source = MultimodalSourceConfig(name="tts", index_path="tts", task="text_voice", text_column="text_normalized")
+
+    assert isinstance(source, TextSourceConfig)
+    assert SourceTextReader.REGISTRY.for_config(source) is TextSourceTextReader
+
+
+def test_a_multimodal_mixture_trains_its_tokenizer_and_writes_its_processor(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from larry.multimodal.processor.processor import LarryMultimodalProcessor
+
+    definition = _multimodal_definition(tmp_path, ["text_only", "voice_text"])
+    monkeypatch.setattr(sys, "argv", ["tokenizer-training", "-f", str(definition), "--allow_dirty"])
+
+    tokenizer_training.main()
+
+    processor = LarryMultimodalProcessor.from_pretrained(tmp_path / "processor")
+    assert (tmp_path / "processor" / "sentencepiece" / "text.model").is_file()
+    assert processor.text_tokenizer.vocab_size() == 40
+    assert processor.config.voice_units_per_position == 2
+    assert processor.config.image_patch_size == 2
+
+
+def test_training_refuses_a_processor_built_with_other_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from larry.common.config.config import ConfigValues
+    from larry.common.config.training.definition import TrainingDefinition
+    from larry.multimodal.processor.processor import LarryMultimodalPretrainProcessor
+    from larry.multimodal.training.trainers import LarryMultimodalTrainer
+
+    definition_path = _multimodal_definition(tmp_path, ["text_only"])
+    monkeypatch.setattr(sys, "argv", ["tokenizer-training", "-f", str(definition_path), "--allow_dirty"])
+    tokenizer_training.main()
+    definition = ConfigValues([definition_path]).load(TrainingDefinition)
+    processor = LarryMultimodalPretrainProcessor.from_pretrained(tmp_path / "processor")
+    definition.trainer.voice_units_per_position = 3
+
+    with pytest.raises(ValueError, match="voice_units_per_position"):
+        LarryMultimodalTrainer.check_processor_settings(processor, definition.trainer)

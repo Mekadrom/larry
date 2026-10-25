@@ -36,6 +36,7 @@ def _trainer_config(
             train_sources=sources, eval_sources=sources, pool_size=16, max_batch_tokens=max_batch_tokens
         ),
         "processor_model_path": collator.config.processor_model_path,
+        "text_vocab_size": collator.processor.text_tokenizer.vocab_size(),
         "image_latent_channels": 3,
         "max_steps": 3,
         "train_batch_size": 2,

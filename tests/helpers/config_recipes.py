@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 from larry.common.config.config import ConfigValues
 from larry.common.config.data.preprocessing.pipeline_config import PipelineDefinition
 from larry.common.config.training.definition import TrainingDefinition
@@ -19,13 +21,21 @@ TRAINING_RECIPES: dict[str, list[str]] = {
 }
 
 
+def _asr_base(rel: str) -> str:
+    # overlays under tts/ and vocoder/ build on the ASR index pipeline of the same dataset
+    for variant in ("tts", "vocoder"):
+        marker = f"-index-{variant}"
+        if f"/{variant}/" in rel and marker in rel:
+            return rel.replace(f"/{variant}/", "/asr/").replace(marker, "-index-asr")
+    raise ValueError(f"{rel} has no dataset type, so it must be an overlay on an ASR index pipeline")
+
+
 def _preprocessing_recipes() -> dict[str, list[str]]:
     recipes = {}
     for path in sorted((CONFIG_ROOT / "preprocessing").rglob("*.yaml")):
         rel = str(path.relative_to(CONFIG_ROOT))
-        head, _, tail = rel.rpartition("-tts")
-        base = (head + "-asr" + tail).replace("/tts/", "/asr/")
-        recipes[rel] = [base, rel] if "/tts/" in rel and (CONFIG_ROOT / base).exists() else [rel]
+        is_overlay = "type" not in (yaml.safe_load(path.read_text()).get("dataset") or {})
+        recipes[rel] = [_asr_base(rel), rel] if is_overlay else [rel]
     return recipes
 
 

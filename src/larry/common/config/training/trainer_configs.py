@@ -1,9 +1,11 @@
 import dataclasses
 from abc import ABC
+from pathlib import Path
 from typing import Any, Literal
 
 from larry.common.config.config import Config, TaggedConfig
 from larry.common.config.data.data_configs import DatasetMixtureConfig
+from larry.common.config.model.model_configs import ModelConfig, VocabularyConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -51,6 +53,27 @@ class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](Ta
     decay_start_step: int | None = None
 
 
+class TokenizerTrainingConfig:
+    """A trainer config whose text tokenizer is trained by ``tokenizer-training`` on its own train mixture."""
+
+    def tokenizer_vocab_size(self, model_config: ModelConfig) -> int:
+        if not isinstance(model_config, VocabularyConfig):
+            raise TypeError(f"{type(model_config).__name__} has no text vocabulary to train a tokenizer for")
+
+        return model_config.vocab_size
+
+    def tokenizer_output_prefix(self) -> Path | None:
+        """Where ``<prefix>.model`` is written when ``--output_prefix`` isn't given; None means it must be."""
+        return None
+
+    def write_tokenizer_artifacts(self, model_file: Path) -> None:
+        """Anything the trainer reads besides the SentencePiece model itself; nothing by default."""
+        ...
+
+
 @dataclasses.dataclass(kw_only=True)
-class TextTokenizerConfig(Config):
+class TextTokenizerConfig(Config, TokenizerTrainingConfig):
     tokenizer_model_path: str
+
+    def tokenizer_output_prefix(self) -> Path | None:
+        return Path(self.tokenizer_model_path).with_suffix("")

@@ -61,6 +61,7 @@ class LarryMultimodalTrainer(
             fsq_dims, fsq_levels = encoder_config["fsq_dims"], encoder_config["fsq_levels"]
 
         processor = LarryMultimodalPretrainProcessor.from_pretrained(config.processor_model_path)
+        cls.check_processor_settings(processor, config)
         # only the modules the configured tasks need are built
         return LarryMultimodalModelConfigBuilder(model_config).build(
             processor,
@@ -68,6 +69,29 @@ class LarryMultimodalTrainer(
             fsq_levels,
             config.image_latent_channels,
         )
+
+    @staticmethod
+    def check_processor_settings(
+            processor: LarryMultimodalPretrainProcessor,
+            config: LarryMultimodalTrainerConfig,
+    ) -> None:
+        settings = {
+            "text_vocab_size": (processor.text_tokenizer.vocab_size(), config.text_vocab_size),
+            "image_patch_size": (processor.config.image_patch_size, config.image_patch_size),
+            "voice_units_per_position": (processor.config.voice_units_per_position, config.voice_units_per_position),
+        }
+
+        stale = {
+            name: values
+            for name, values in settings.items()
+            if values[0] != values[1]
+        }
+
+        if stale:
+            raise ValueError(
+                f"the processor at {config.processor_model_path} was built with other settings "
+                f"(processor, config): {stale}; rerun tokenizer-training"
+            )
 
     @staticmethod
     def speech_encoder_config(path: str) -> dict[str, Any]:

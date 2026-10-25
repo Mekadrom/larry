@@ -1,17 +1,26 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
 dataset:
+  type: IndexedSourceDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/index/voice/vocoder/mythicinfinity_libriheavy-large-index-vocoder/
+  split_sources:
+    train: train
+  source_path: mythicinfinity/libriheavy
+  source_name: large
+  source_cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/mythicinfinity_libriheavy-large-index-tts/
   cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/mythicinfinity_libriheavy-large-index-tts/
 pipeline:
-  score_ctc_mismatch:
-    remove_columns: []
-  prune_ctc_mismatch:
-    type: TTSCTCMismatchColumnValuesPrunerConfig
-  prune_quality:
-    type: AudioQualityPrunerConfigForTTS
+  skip_audio_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      audio: audio_no_decode
   encode:
-    $before: minify_index
     type: LarrySpeechEncoderUnitIdExtractingMapperConfig
     speech_encoder_checkpoint_path: /home/zadar/.cache/larry/models/voice/larry-speech-encoder/
   minify_index:
+    type: SelectColumnsPreprocessorConfig
     keep_columns:
       - row
       - id

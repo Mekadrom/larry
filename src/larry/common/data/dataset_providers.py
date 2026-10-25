@@ -5,9 +5,12 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import datasets
+import pyarrow.compute as pc
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, NamedSplit, Split
 
-from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig
+from larry.common.config.data.data_configs import DatasetSourceConfig
+from larry.common.config.data.preprocessing.dataset_configs import DatasetConfig, IndexedSourceDatasetConfig
+from larry.common.data.dataloading.indexed_dataset import arrow_column, load_index, load_source
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
 
@@ -117,3 +120,45 @@ class HuggingFaceDatasetProvider[C: DatasetConfig = DatasetConfig](DatasetProvid
             return datasets.load_dataset(**kwargs, streaming=True)
 
         return datasets.load_dataset(**kwargs, streaming=False)
+
+
+class IndexedSourceDatasetProvider(DatasetProvider[IndexedSourceDatasetConfig]):
+    """Joins each configured index split to the source rows it points to."""
+
+    def split_config(self, index_split: str, source_split: str) -> DatasetSourceConfig:
+        return DatasetSourceConfig(
+            name=index_split,
+            index_path=self.config.path,
+            split=index_split,
+            source_path=self.config.source_path,
+            source_name=self.config.source_name,
+            source_revision=self.config.source_revision,
+            source_cache_dir=self.config.source_cache_dir,
+            source_split=source_split,
+        )
+
+    @staticmethod
+    def join(index: Dataset, source: Dataset | None) -> Dataset:
+        if source is None:
+            return index
+
+        rows = arrow_column(index, "row")
+        source_ids = arrow_column(source, "id").take(rows)
+        if not pc.all(pc.equal(source_ids, arrow_column(index, "id"))).as_py():
+            raise KeyError("index rows point at source rows with a different id")
+
+        joined = source.select(rows.to_pylist())
+        for name in index.column_names:
+            if name not in joined.column_names:
+                joined = joined.add_column(name, index[name])
+
+        return joined
+
+    def load_dataset(self) -> DatasetDict:
+        splits = {}
+        for index_split, source_split in self.config.split_sources.items():
+            split_config = self.split_config(index_split, source_split)
+            self.log.info(f"Joining index split {index_split} to source split {source_split}")
+            splits[index_split] = self.join(load_index(split_config), load_source(split_config))
+
+        return DatasetDict(splits)

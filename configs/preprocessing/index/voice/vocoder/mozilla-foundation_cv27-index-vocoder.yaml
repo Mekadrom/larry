@@ -1,0 +1,11 @@
+dataset:
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/vocoder/mozilla-foundation_cv27-index-vocoder/
+pipeline:
+  prune_ctc_mismatch:
+    type: TTSCTCMismatchColumnValuesPrunerConfig
+  prune_quality:
+    type: AudioQualityPrunerConfigForTTS
+  minify_index:
+    keep_columns:
+      - row
+      - id
