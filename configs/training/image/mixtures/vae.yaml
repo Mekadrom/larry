@@ -1,0 +1,17 @@
+trainer:
+  mixture_config:
+    crop_size: 256
+    random_flip: true
+    pool_size: 20000
+    train_sources:
+      docci:
+        index_path: /home/zadar/.cache/larry/datasets/index/image/vae/google_docci-index-vae/
+        source_path: /home/zadar/.cache/larry/datasets/normalized/image/google_docci-normalized/
+        split: train
+        source_split: train
+    eval_sources:
+      docci:
+        index_path: /home/zadar/.cache/larry/datasets/index/image/vae/google_docci-index-vae/
+        source_path: /home/zadar/.cache/larry/datasets/normalized/image/google_docci-normalized/
+        split: test
+        source_split: test

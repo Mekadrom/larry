@@ -9,6 +9,8 @@ from larry.common.config.training.definition import TrainingDefinition
 CONFIG_ROOT = Path(__file__).resolve().parents[2] / "configs"
 
 ENCODER = ["training/voice/mixtures/asr.yaml", "training/voice/ctc/larry-speech-encoder.yaml"]
+DECODER = ["training/voice/mixtures/tts.yaml", "training/voice/tts/decoder/larry-speech-decoder.yaml"]
+IMAGE_VAE = ["training/image/mixtures/vae.yaml", "training/image/vae/larry-image-vae.yaml"]
 VOCODER = ["training/voice/mixtures/vocoder.yaml", "training/voice/vocoder/larry-vocoder.yaml"]
 MULTIMODAL = "training/multimodal/larry-multimodal.yaml"
 MULTIMODAL_TASKS = ("text-only", "text-voice", "voice-text")
@@ -18,12 +20,20 @@ TRAINING_RECIPES: dict[str, list[str]] = {
         f"larry-speech-encoder+{overlay.stem}": [*ENCODER, str(overlay.relative_to(CONFIG_ROOT))]
         for overlay in sorted((CONFIG_ROOT / "training/voice/ctc/overlays").glob("*.yaml"))
     },
-    "larry-speech-decoder": ["training/voice/mixtures/tts.yaml",
-                             "training/voice/tts/decoder/larry-speech-decoder.yaml"],
+    "larry-speech-decoder": DECODER,
+    **{
+        f"larry-speech-decoder+{overlay.stem}": [*DECODER, str(overlay.relative_to(CONFIG_ROOT))]
+        for overlay in sorted((CONFIG_ROOT / "training/voice/tts/decoder/overlays").glob("*.yaml"))
+    },
     "larry-vocoder": VOCODER,
     **{
         f"larry-vocoder+{overlay.stem}": [*VOCODER, str(overlay.relative_to(CONFIG_ROOT))]
         for overlay in sorted((CONFIG_ROOT / "training/voice/vocoder/overlays").glob("*.yaml"))
+    },
+    "larry-image-vae": IMAGE_VAE,
+    **{
+        f"larry-image-vae+{overlay.stem}": [*IMAGE_VAE, str(overlay.relative_to(CONFIG_ROOT))]
+        for overlay in sorted((CONFIG_ROOT / "training/image/vae/overlays").glob("*.yaml"))
     },
     "larry-multimodal": [
         *(f"training/multimodal/mixtures/{task}.yaml" for task in MULTIMODAL_TASKS),

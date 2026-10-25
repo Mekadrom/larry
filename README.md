@@ -78,6 +78,11 @@ All voice data as redistributed (again, where applicable) or trained on is filte
 - VCTK
   - 24.9 hours for training
   - 1.2 hours for val
+- LJSpeech
+  - 23.7 hours for training
+- HiFi-TTS v1
+  - 289.8 hours for training
+  - 0.6 hours for val
 ## Image
 All image data was filtered by per-image licenses where possible.
 - Wikimedia Commons

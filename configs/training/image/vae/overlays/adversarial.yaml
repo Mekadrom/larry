@@ -1,0 +1,4 @@
+trainer:
+  criterion:
+    adversarial_weight: 0.1
+    adversarial_start_step: 20000

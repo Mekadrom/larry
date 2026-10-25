@@ -1,8 +1,9 @@
+import itertools
 from typing import Any
 
 import torch
-from datasets import Dataset as HFDataset
 from PIL import Image
+from datasets import Dataset as HFDataset
 from torchcodec.decoders import ImageReadMode, decode_image
 from torchvision.transforms.v2 import functional as TVF
 
@@ -28,6 +29,12 @@ class IndexedImageDataset(IndexedDataset[ImageSourceConfig]):
         self.train = train
         self.random_flip = random_flip
         self.random = WorkerRandom(seed, process_index)
+
+    def source_ids(self) -> torch.Tensor:
+        return torch.cat([
+            torch.full((end - start,), source, dtype=torch.long)
+            for source, (start, end) in enumerate(itertools.pairwise(self.offsets))
+        ])
 
     def get_data(self, source_idx: int, entry: dict[Any, Any]) -> Any:
         return entry[self.configs[source_idx].image_column]

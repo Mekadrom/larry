@@ -1,0 +1,3 @@
+trainer:
+  criterion:
+    frequency_weight: 0.1

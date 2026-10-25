@@ -1,0 +1,28 @@
+training:
+  metrics_backend: tensorboard
+model:
+  type: ImageVAEConfig
+  base_channels: 128
+  channel_mults:
+    - 1
+    - 2
+    - 4
+    - 4
+  latent_channels: 16
+trainer:
+  type: ImageVAETrainerConfig
+  optimizer_name: adamw
+  adamw_betas:
+    - 0.5
+    - 0.9
+  lr: 0.0001
+  min_lr: 1.0e-05
+  lr_scheduler_name: cosine
+  warmup_steps: 1000
+  weight_decay: 0.0
+  train_batch_size: 8
+  eval_batch_size: 16
+  max_steps: 100000
+  eval_steps: 2000
+  viz_steps: 2000
+  save_steps: 5000

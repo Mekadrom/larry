@@ -1,0 +1,33 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: DefaultDatasetConfig
+  path: common-canvas/commoncatalog-cc-by
+  name: ~
+  split: train
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/mythicinfinity_libriheavy-large-index-asr/
+pipeline:
+  drop_impure_columns:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - photoid
+      - jpg
+      - licensename
+  rename_columns:
+    type: ColumnRenamingPreprocessorConfig
+    column_name_mappings:
+      photoid: id
+      licensename: license
+      jpg: image
+  license_pruner:
+    type: LicenseColumnValuesPrunerConfig
+  resize_images:
+    type: ImageResizingMapperConfig
+    batch_size: 64
+    filter_null_outputs: true
+    width: 512
+    height: 512
+    pad_to_equal: false
+    center_crop: false

@@ -130,6 +130,23 @@ class LarryMultimodalTrainer(
         image_output = ["image_coda.out.weight"] if image_coda is not None else []
         return super().muon_excluded_names(model) + embeddings + image_output
 
+    @staticmethod
+    def used_columns(config: MultimodalSourceConfig) -> list[str]:
+        columns = ["id", "row", config.text_column]
+        if config.text_tokens_column is not None:
+            columns.append(config.text_tokens_column)
+
+        if IndexedMultimodalDataset.has_voice(config):
+            columns.append(config.voice_column)
+
+        if IndexedMultimodalDataset.has_image(config):
+            columns += [config.image_column, config.image_shape_column]
+
+        return columns
+
+    def transform_as_source(self, config: MultimodalSourceConfig, dataset: HFDataset) -> HFDataset:
+        return dataset.select_columns([c for c in self.used_columns(config) if c in dataset.column_names])
+
     def load_indexed(
             self,
             configs: list[MultimodalSourceConfig],

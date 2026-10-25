@@ -72,3 +72,16 @@ class TTSCTCMismatchColumnValuesPrunerConfig(CTCMismatchColumnValuesPrunerConfig
     op_config: MatchOpConfig | RangeOpConfig | None = dataclasses.field(
         default_factory=lambda: RangeOpConfig(max_value=0.2)
     )
+
+
+@dataclasses.dataclass(kw_only=True)
+class LicenseColumnValuesPrunerConfig(ColumnValuesPrunerConfig):
+    input_columns: list[str] = dataclasses.field(default_factory=lambda: [
+        "license"
+    ])
+    op: Literal["matches", "nmatches", "in_range", "nin_range"] = "matches"
+    op_config: MatchOpConfig | RangeOpConfig | None = dataclasses.field(
+        default_factory=lambda: MatchOpConfig(values=[
+            "Attribution License",
+        ])
+    )

@@ -1,7 +1,7 @@
 preprocessor:
   provenance:
     id_columns:
-      - example_id
+      - id
 dataset:
   type: GoogleDOCCIMediaCachedDatasetConfig
   download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/google_docci-normalized/
@@ -12,7 +12,12 @@ pipeline:
     type: ColumnRenamingPreprocessorConfig
     column_name_mappings:
       description: text
+      example_id: id
   resize_images:
     type: ImageResizingMapperConfig
     batch_size: 64
     filter_null_outputs: true
+    width: 512
+    height: 512
+    pad_to_equal: false
+    center_crop: false
