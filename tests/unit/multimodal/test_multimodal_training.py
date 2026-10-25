@@ -41,7 +41,7 @@ def test_synthesis_trains_on_voice_and_the_delimiter_text_targets_only(
 ) -> None:
     model = _model(collator)
     batch = collator([{"text": "say this", "voice": np.array([4, 5, 6]), "source": 0}])
-    criterion = _criterion()
+    criterion = _criterion(text_label_smoothing=0.0, voice_label_smoothing=0.0)
 
     with torch.no_grad():
         out = _forward(model, batch)

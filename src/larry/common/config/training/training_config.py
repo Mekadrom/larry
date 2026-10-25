@@ -30,17 +30,17 @@ class TrainingRunState:
         self.definition = definition
         self.config = definition.training
         self.trainer_config = definition.trainer
-        model_config = definition.model
         self.log.info(f"Using {self.config.metrics_backend} metrics backend.")
 
         state = PartialState()
         metrics_type = _metrics[self.config.metrics_backend]
         metrics = metrics_type(log_dir) if state.is_main_process else NoneMetrics(log_dir=str(log_dir))
 
+        trainer_type = trainers.TrainerBase.REGISTRY.for_config(self.trainer_config)
+        model_config = trainer_type.prepare_model_config(definition.model, self.trainer_config)
         model_type = LarryModel.REGISTRY.for_config(model_config)
         model = model_type(model_config)
 
-        trainer_type = trainers.TrainerBase.REGISTRY.for_config(self.trainer_config)
         record = RunRecord.of(definition)
         provenance = dataclasses.replace(copy.deepcopy(self.config.provenance), config=record.config, cli=record.cli)
 

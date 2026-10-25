@@ -136,3 +136,28 @@ class WeightedBatchSampler(ResumableBatchSampler, ABC):
     @abstractmethod
     def make_batches(self, pool: torch.Tensor) -> list[list[int]]:
         ...
+
+
+class FixedSizeWeightedBatchSampler(WeightedBatchSampler):
+    def __init__(
+            self,
+            source_ids: torch.Tensor,
+            weights: list[float],
+            batch_size: int,
+            pool_size: int,
+            seed: int,
+    ) -> None:
+        self.batch_size = batch_size
+        super().__init__(source_ids, weights, pool_size, seed)
+
+    def recalculate_source_probs(self) -> torch.Tensor:
+        # weights are shares of rows
+        return torch.tensor(self.weights, dtype=torch.float64)
+
+    def sort_pool(self, pool: torch.Tensor, generator: torch.Generator) -> torch.Tensor:
+        # the pool arrives grouped by source; shuffle so batches mix sources
+        return pool[torch.randperm(len(pool), generator=generator)]
+
+    def make_batches(self, pool: torch.Tensor) -> list[list[int]]:
+        rows = pool.tolist()
+        return [rows[start:start + self.batch_size] for start in range(0, len(rows), self.batch_size)]

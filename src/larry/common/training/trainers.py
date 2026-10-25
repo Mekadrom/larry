@@ -13,6 +13,7 @@ from accelerate import Accelerator
 from accelerate.data_loader import DataLoaderShard
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
+from accelerate.utils import KwargsHandler
 from datasets import Dataset as HFDataset
 from torch import nn
 from torch.optim import AdamW, Muon, Optimizer
@@ -23,6 +24,7 @@ from tqdm import tqdm
 from larry.common.config.config import RunRecord
 from larry.common.config.data.data_configs import DatasetSourceConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
+from larry.common.config.model.model_configs import ModelConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.common.criteria import criterion
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset, load_index, load_source
@@ -138,6 +140,7 @@ D: Dataset = Dataset,
             mixed_precision=self.config.mixed_precision,
             gradient_accumulation_steps=self.config.gradient_accumulation,
             step_scheduler_with_optimizer=False,
+            kwargs_handlers=self.accelerator_kwargs_handlers(),
         )
         self._model, self.train_loader, self.eval_loader, *rest = self.accelerator.prepare(
             model, train_loader, eval_loader, *optimizers, *schedulers
@@ -171,6 +174,17 @@ D: Dataset = Dataset,
 
         self._compile_and_save_provenance()
         self._save_model_config()
+
+    @classmethod
+    def prepare_model_config(cls, model_config: ModelConfig, config: C) -> ModelConfig:
+        # lets a trainer derive the config it trains from the configured one, before the model is built
+        return model_config
+
+    def accelerator_kwargs_handlers(self) -> list[KwargsHandler]:
+        return []
+
+    def muon_excluded_names(self, model: nn.Module) -> list[str]:
+        return self.config.muon_first_layer_names + self.config.muon_last_layer_names
 
     @property
     def model(self) -> M:
@@ -211,7 +225,7 @@ D: Dataset = Dataset,
         trainable = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
 
         if self.config.optimizer_name == "muon":
-            excluded = set(self.config.muon_first_layer_names + self.config.muon_last_layer_names)
+            excluded = set(self.muon_excluded_names(model))
             missing = excluded - {n for n, _ in model.named_parameters()}
             if missing:
                 raise ValueError(f"excluded Muon params not found in model: {missing}")

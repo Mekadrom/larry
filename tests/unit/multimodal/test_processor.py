@@ -77,7 +77,7 @@ def test_the_voice_segment_carries_its_units_and_points_at_its_placeholder_token
 
     voice = out.input_placeholders[1]
     assert isinstance(voice, VoicePlaceholder)
-    assert voice.payload.dtype == np.int64
+    assert voice.payload.dtype == np.int32
     assert voice.payload.tolist() == [5, 9, 9, 2]
     assert voice.size == 4
     assert out.text_token_ids[voice.text_idx] == _special(processor, P.VPH)

@@ -1058,11 +1058,12 @@ class LarryMultimodalGenerator:
         units: list[int] = []
         n_groups = 0
 
-        voice_states = encoding.voice_states
-        if voice_states is None:
-            return encoding
-
         while self.generated < self.config.max_new_positions:
+            # each group starts from the newest position's state, so read it from the latest encoding
+            voice_states = encoding.voice_states
+            if voice_states is None:
+                return encoding
+
             state = voice_states[0, -1:]
             group: list[int] = []
             group_logits = []
