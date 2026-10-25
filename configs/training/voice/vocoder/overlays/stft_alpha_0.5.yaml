@@ -1,0 +1,3 @@
+model:
+  stft_alpha: 0.5
+  stft_scale: 2.72

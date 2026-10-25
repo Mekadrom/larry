@@ -152,15 +152,9 @@ class Segmenter:
         while trim_end and end > start and not self._edge_ok(piece[end - 1]):
             end -= 1
 
-        if start > 0:
-            floor = self._span_edge(piece[start - 1], "end")
-        else:
-            floor = None
+        floor = self._span_edge(piece[start - 1], "end") if start > 0 else None
 
-        if end < len(piece):
-            ceiling = self._span_edge(piece[end], "start")
-        else:
-            ceiling = None
+        ceiling = self._span_edge(piece[end], "start") if end < len(piece) else None
 
         return piece[start:end], floor, ceiling
 
@@ -222,7 +216,8 @@ class Segmenter:
 
         return pieces
 
-    def _is_sentence_end(self, token: str) -> bool:
+    @staticmethod
+    def _is_sentence_end(token: str) -> bool:
         """Detects the end of a sentence from the provided token."""
         core = token.rstrip("\"')")
         if not core.endswith((".", "?", "!")):

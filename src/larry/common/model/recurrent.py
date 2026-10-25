@@ -109,10 +109,7 @@ class LarryRecurrentTrunk(LarryModel[LarryRecurrentTrunkConfig]):
             if use_cache and kv_cache is not None:
                 iter_cache = kv_cache.read(iteration, block_idx, position_offset)
 
-            if _extend_mask_fn:
-                mask = _extend_mask_fn(attention_mask, iter_cache)
-            else:
-                mask = attention_mask
+            mask = _extend_mask_fn(attention_mask, iter_cache) if _extend_mask_fn else attention_mask
 
             if self.config.gradient_checkpointing and self.training and not use_cache:
                 block_output = checkpoint(
@@ -136,10 +133,7 @@ class LarryRecurrentTrunk(LarryModel[LarryRecurrentTrunkConfig]):
                 )
 
             h = block_output.logits
-            if metric_dict:
-                metric_dict = metric_dict + block_output.metrics
-            else:
-                metric_dict = block_output.metrics
+            metric_dict = metric_dict + block_output.metrics if metric_dict else block_output.metrics
 
             if use_cache and block_output.kv_cache is not None and kv_cache is not None:
                 kv_cache.write(iteration, block_idx, block_output.kv_cache)
@@ -223,6 +217,7 @@ class LarryRecurrentTrunk(LarryModel[LarryRecurrentTrunkConfig]):
                 are used to match against the converge_eligible dict to determine which tokens are eligible for
                 convergence evaluation for each readout function. If it is a single callable, it is used for all tokens.
             :param converge_eligible: a mask of which tokens are eligible for convergence; masked tokens have converged.
+
         """
         if self.training:
             use_cache = False
@@ -262,20 +257,14 @@ class LarryRecurrentTrunk(LarryModel[LarryRecurrentTrunkConfig]):
                 if eligible_mask is None:
                     continue
 
-                if eligible_any is None:
-                    eligible_any = eligible_mask
-                else:
-                    eligible_any = (eligible_any | eligible_mask)
+                eligible_any = eligible_mask if eligible_any is None else eligible_any | eligible_mask
         else:
             eligible_any = converge_eligible
 
         use_logit_kl = converged is not None and self.exit_criteria.needs_readout and readout_map
         prev_log_probs: dict[str, torch.Tensor] = {}
 
-        if use_cache and kv_cache is not None:
-            new_kv_cache = kv_cache
-        else:
-            new_kv_cache = None
+        new_kv_cache = kv_cache if use_cache and kv_cache is not None else None
 
         if use_cache and new_kv_cache is None:
             new_kv_cache = RecurrentKVCache(
@@ -399,10 +388,7 @@ class LarryRecurrentTrunk(LarryModel[LarryRecurrentTrunkConfig]):
                     position_ids=position_ids,
                 )
 
-                if metric_dict and iteration_metrics:
-                    metric_dict = metric_dict + iteration_metrics
-                else:
-                    metric_dict = iteration_metrics
+                metric_dict = metric_dict + iteration_metrics if metric_dict and iteration_metrics else iteration_metrics
 
                 last_thought_state = thought_state
                 iteration += 1

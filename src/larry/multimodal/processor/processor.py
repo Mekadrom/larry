@@ -10,8 +10,8 @@ from typing import Any, ClassVar, Literal, Self, cast
 import numpy as np
 import torch
 import torchvision.transforms.functional as TVF
-from PIL import Image
 from huggingface_hub import ModelHubMixin, constants, hf_hub_download
+from PIL import Image
 
 from larry.multimodal.config.processor_configs import LarryProcessorConfig
 from larry.text.tokenizer.text_tokenizer import SentencePieceTokenizer
@@ -153,7 +153,7 @@ def _process_audio(audio_example: list[int] | NPAudio | torch.Tensor) -> VoicePl
             unit_ids = audio_example
         elif audio_example.ndim == 2:
             if audio_example.shape[0] != 1:
-                raise ValueError(f"Batch of audio passed to _process_audio; don't do this.")
+                raise ValueError("Batch of audio passed to _process_audio; don't do this.")
 
             unit_ids = audio_example[0]
         else:
@@ -163,7 +163,7 @@ def _process_audio(audio_example: list[int] | NPAudio | torch.Tensor) -> VoicePl
             unit_ids = audio_example.long().cpu().numpy()
         elif audio_example.ndim == 2:
             if audio_example.shape[0] != 1:
-                raise ValueError(f"Batch of audio passed to _process_audio; don't do this.")
+                raise ValueError("Batch of audio passed to _process_audio; don't do this.")
 
             unit_ids = audio_example[0].long().cpu().numpy()
         else:
@@ -424,7 +424,7 @@ class LarryMultimodalPretrainProcessor(LarryProcessorBase):
             processed_voices.append(_process_audio(voice_example))
 
         if len(processed_images + processed_voices) > 1:
-            raise ValueError(f"Pretraining doesn't support multiple media examples.")
+            raise ValueError("Pretraining doesn't support multiple media examples.")
 
         media = processed_images or processed_voices
         # no image or voice examples means text must be included in loss

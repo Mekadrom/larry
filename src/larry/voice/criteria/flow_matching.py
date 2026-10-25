@@ -1,11 +1,17 @@
+import contextlib
+import dataclasses
 from typing import Any
 
 import torch
 
 from larry.common.criteria.criterion import LossTerm
 from larry.common.criteria.flow_matching import ConditionalFlowMatchingCriterion
-from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig
-from larry.voice.model.voice_models import SpeechDecoderModelOutput
+from larry.common.model.masks import make_non_pad_mask
+from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig, VocoderCriterionConfig
+from larry.voice.config.model.voice_model_configs import LarryVocoderConfig
+from larry.voice.criteria.spectral import MultiResolutionSTFTLoss
+from larry.voice.model.voice_models import LarryVocoderOutput, SpeechDecoderModelOutput
+from larry.voice.model.voice_modules import TTSLogMelFrontend
 
 
 class SpeechDecoderCriterion(ConditionalFlowMatchingCriterion[SpeechDecoderModelOutput, SpeechDecoderCriterionConfig]):
@@ -37,3 +43,62 @@ class SpeechDecoderCriterion(ConditionalFlowMatchingCriterion[SpeechDecoderModel
             "prior": self.prior_term(model_output),
             "kl": LossTerm(weight=self.kl_scale(step), sums=kl, counts=torch.ones_like(kl)),
         }
+
+
+class VocoderCriterion(ConditionalFlowMatchingCriterion[LarryVocoderOutput, VocoderCriterionConfig]):
+    def __init__(self, config: VocoderCriterionConfig, model_config: LarryVocoderConfig) -> None:
+        super().__init__(config)
+        self.frontend = TTSLogMelFrontend(
+            model_config.sample_rate, model_config.n_mels, model_config.n_fft, model_config.hop_length
+        )
+        self.stft = MultiResolutionSTFTLoss(config.stft_fft_sizes)
+
+    @staticmethod
+    def gradients_for(weight: float) -> contextlib.AbstractContextManager[Any]:
+        return contextlib.nullcontext() if weight != 0 else torch.no_grad()
+
+    def estimate_term(self, weight: float, values: torch.Tensor, t: torch.Tensor) -> LossTerm:
+        weighted = values * t.to(values.dtype).pow(self.config.estimate_t_power)
+        return LossTerm(weight=weight, sums=weighted, counts=torch.ones_like(weighted))
+
+    def stft_term(
+            self,
+            model_output: LarryVocoderOutput,
+            waveforms: torch.Tensor,
+            waveform_lengths: torch.Tensor,
+    ) -> LossTerm:
+        estimates = model_output.waveform_estimates
+        n = estimates.shape[-1]
+        with self.gradients_for(self.config.stft_weight):
+            values = self.stft(estimates, waveforms[..., :n], waveform_lengths.clamp(max=n))
+
+        return self.estimate_term(self.config.stft_weight, values, model_output.t)
+
+    def mel_term(self, model_output: LarryVocoderOutput, mels: torch.Tensor, mel_lengths: torch.Tensor) -> LossTerm:
+        estimates = model_output.waveform_estimates
+        with self.gradients_for(self.config.mel_weight):
+            estimate_mels, _ = self.frontend(estimates, mel_lengths.new_full(mel_lengths.shape, estimates.shape[-1]))
+            frames = min(estimate_mels.shape[-1], mels.shape[-1])
+            mask = make_non_pad_mask(mel_lengths.clamp(max=frames), frames).unsqueeze(1).to(estimate_mels.dtype)
+            distance = (estimate_mels[..., :frames] - mels[..., :frames].float()).abs() * mask
+            values = distance.sum(dim=(1, 2)) / (mask.sum(dim=(1, 2)) * mels.shape[1]).clamp(min=1)
+
+        return self.estimate_term(self.config.mel_weight, values, model_output.t)
+
+    def loss_terms(
+            self,
+            model_output: LarryVocoderOutput,
+            waveforms: torch.Tensor | None = None,
+            waveform_lengths: torch.Tensor | None = None,
+            mels: torch.Tensor | None = None,
+            mel_lengths: torch.Tensor | None = None,
+            **batch_kwargs: Any,
+    ) -> dict[str, LossTerm]:
+        terms = {"flow": dataclasses.replace(self.flow_term(model_output), weight=self.config.flow_weight)}
+        if waveforms is not None and waveform_lengths is not None:
+            terms["stft"] = self.stft_term(model_output, waveforms, waveform_lengths)
+
+        if mels is not None and mel_lengths is not None:
+            terms["mel"] = self.mel_term(model_output, mels, mel_lengths)
+
+        return terms

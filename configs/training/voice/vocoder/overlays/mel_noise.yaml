@@ -1,0 +1,4 @@
+trainer:
+  mel_augment:
+    noise_p: 0.5
+    noise_std: 0.2

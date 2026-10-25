@@ -1,0 +1,15 @@
+trainer:
+  mixture_config:
+    train_sources:
+      starcoderdata-open-text:
+        task: text_only
+        index_path: /home/zadar/.cache/larry/datasets/index/text/bigcode_starcoderdata-open-index-text/
+        text_column: text
+        split: train
+        weight: 1.0
+    eval_sources:
+      starcoderdata-open-text:
+        task: text_only
+        index_path: /home/zadar/.cache/larry/datasets/index/text/bigcode_starcoderdata-open-index-text/
+        text_column: text
+        split: validation

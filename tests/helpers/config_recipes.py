@@ -9,6 +9,9 @@ from larry.common.config.training.definition import TrainingDefinition
 CONFIG_ROOT = Path(__file__).resolve().parents[2] / "configs"
 
 ENCODER = ["training/voice/mixtures/asr.yaml", "training/voice/ctc/larry-speech-encoder.yaml"]
+VOCODER = ["training/voice/mixtures/vocoder.yaml", "training/voice/vocoder/larry-vocoder.yaml"]
+MULTIMODAL = "training/multimodal/larry-multimodal.yaml"
+MULTIMODAL_TASKS = ("text-only", "text-voice", "voice-text")
 TRAINING_RECIPES: dict[str, list[str]] = {
     "larry-speech-encoder": ENCODER,
     **{
@@ -17,7 +20,25 @@ TRAINING_RECIPES: dict[str, list[str]] = {
     },
     "larry-speech-decoder": ["training/voice/mixtures/tts.yaml",
                              "training/voice/tts/decoder/larry-speech-decoder.yaml"],
-    "larry-vocoder": ["training/voice/mixtures/vocoder.yaml", "training/voice/vocoder/larry-vocoder.yaml"],
+    "larry-vocoder": VOCODER,
+    **{
+        f"larry-vocoder+{overlay.stem}": [*VOCODER, str(overlay.relative_to(CONFIG_ROOT))]
+        for overlay in sorted((CONFIG_ROOT / "training/voice/vocoder/overlays").glob("*.yaml"))
+    },
+    "larry-multimodal": [
+        *(f"training/multimodal/mixtures/{task}.yaml" for task in MULTIMODAL_TASKS),
+        MULTIMODAL,
+    ],
+    **{
+        f"larry-multimodal+{task}": [f"training/multimodal/mixtures/{task}.yaml", MULTIMODAL,
+                                     f"training/multimodal/overlays/{task}.yaml"]
+        for task in MULTIMODAL_TASKS
+    },
+    "larry-multimodal+voice-viz": [
+        *(f"training/multimodal/mixtures/{task}.yaml" for task in MULTIMODAL_TASKS),
+        MULTIMODAL,
+        "training/multimodal/overlays/voice-viz.yaml",
+    ],
 }
 
 

@@ -11,6 +11,7 @@ from larry.multimodal.training.multimodal_viz_callbacks import (
     ImageSynthesisVizCallback,
     MultimodalVizCallbacks,
     TextContinuationVizCallback,
+    UnitVocalizer,
     VoiceSynthesisVizCallback,
     distinct_n,
     latent_preview,
@@ -104,7 +105,7 @@ def test_voice_synthesis_is_heard_back_and_vocalized_when_decoders_are_configure
         examples_per_source=1, vocoder_steps=2,
         speech_decoder_model_path=str(tmp_path / "decoder"), vocoder_model_path=str(tmp_path / "vocoder"),
     )
-    callback = VoiceSynthesisVizCallback(trainer, 1, config)
+    callback = VoiceSynthesisVizCallback(trainer, 1, config, UnitVocalizer(config, torch.device("cpu")))
     # always emit a couple of units and then <eov>, so there is something to vocalize and hear back
     eov = callback.trainer.accelerator.unwrap_model(trainer.model).config.voice_coda_config.vocab_size - 1
     script = iter([3, 5, eov] * 4)
@@ -124,6 +125,36 @@ def test_voice_synthesis_is_heard_back_and_vocalized_when_decoders_are_configure
     assert "viz/text_voice/round_trip_wer" in trainer.metrics.scalars
     assert trainer.metrics.scalars["viz/text_voice/eov_rate"] == 1.0
     assert any("**heard back:**" in text for _, text, _ in trainer.metrics.text)
+
+
+def test_voice_callbacks_share_one_vocalizer_that_loads_on_first_use(
+        collator: PretrainingMultimodalCollator, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    torch.manual_seed(0)
+    SpeechDecoderModel(tiny_config()).save_pretrained(tmp_path / "decoder")
+    LarryVocoder(TINY).save_pretrained(tmp_path / "vocoder")
+    trainer = _trainer(collator, tmp_path, ["text_voice", "voice_text"])
+    config = MultimodalVizConfig(
+        examples_per_source=1, vocoder_steps=2,
+        speech_decoder_model_path=str(tmp_path / "decoder"), vocoder_model_path=str(tmp_path / "vocoder"),
+    )
+    loads: list[str] = []
+    for cls in (SpeechDecoderModel, LarryVocoder):
+        load = cls.from_pretrained
+        monkeypatch.setattr(cls, "from_pretrained", lambda path, load=load: loads.append(path) or load(path))
+
+    callbacks = MultimodalVizCallbacks(trainer, 1, config).callbacks
+    vocalizers = {id(callback.vocalizer) for callback in callbacks}
+
+    assert len(callbacks) == 2 and len(vocalizers) == 1 and None not in {c.vocalizer for c in callbacks}
+    assert loads == []
+
+    vocalization = callbacks[0].vocalizer.audio(torch.tensor([1, 2, 3]))
+    callbacks[1].vocalizer.audio(torch.tensor([4, 5]))
+
+    assert sorted(loads) == sorted([str(tmp_path / "decoder"), str(tmp_path / "vocoder")])
+    assert vocalization.waveform.dim() == 1 and vocalization.mels.dim() == 2
+    assert vocalization.frame_seconds == TINY.hop_length / TINY.sample_rate
 
 
 def test_image_synthesis_samples_differ_by_seed(collator: PretrainingMultimodalCollator, tmp_path: Path) -> None:

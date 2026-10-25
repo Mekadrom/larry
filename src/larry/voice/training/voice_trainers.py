@@ -15,11 +15,9 @@ from rapidfuzz.distance import Levenshtein
 from torch.utils.data import Sampler
 from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
 
-from larry.common.config.criteria.criterion_configs import CriterionConfig
 from larry.common.config.data.data_configs import DatasetSourceConfig
 from larry.common.criteria import criterion
 from larry.common.criteria.criterion import Criterion
-from larry.common.criteria.flow_matching import ConditionalFlowMatchingCriterion
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset
 from larry.common.data.dataloading.weighted_batch_sampler import WeightedBatchSampler, length_batches
 from larry.common.metrics.metrics import MetricDict, ScalarMetricEntry
@@ -41,9 +39,8 @@ from larry.voice.config.training.voice_trainer_configs import (
     VoiceTrainerConfig,
 )
 from larry.voice.criteria.ctc import CTCCriterion
-from larry.voice.criteria.flow_matching import SpeechDecoderCriterion
-from larry.voice.data.dataloading.indexed_speech_dataset import IndexedASRDataset, IndexedSpeechDataset, \
-    IndexedTTSDataset
+from larry.voice.criteria.flow_matching import SpeechDecoderCriterion, VocoderCriterion
+from larry.voice.data.dataloading.indexed_speech_dataset import IndexedASRDataset, IndexedSpeechDataset, IndexedTTSDataset
 from larry.voice.data.dataloading.voice_dataloading import (
     AudioDurationBucketingWeightedBatchSampler,
     ClipCropWeightedBatchSampler,
@@ -58,6 +55,7 @@ from larry.voice.model.speech_decoder import SpeechDecoderModel
 from larry.voice.model.speech_encoder import SpeechEncoderModel
 from larry.voice.model.vocoder import LarryVocoder
 from larry.voice.model.voice_models import SpeechDecoderModelOutput, SpeechEncoderModelOutput, VoiceModel
+from larry.voice.model.voice_modules import MelAugmenter
 from larry.voice.training import voice_callbacks, voice_viz_callbacks
 from larry.voice.utils import collapse_ctc_emissions
 
@@ -446,18 +444,40 @@ class VocoderTrainer(VoiceTrainer[LarryVocoder, VocoderTrainerConfig, SpeechSour
     def make_eval_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
         return WaveformCollator()
 
+    @functools.cached_property
+    def mel_augmenter(self) -> MelAugmenter:
+        return MelAugmenter(self.config.mel_augment)
+
     def make_criterion(self) -> criterion.Criterion:
-        return ConditionalFlowMatchingCriterion(CriterionConfig())
+        return VocoderCriterion(self.config.criterion, self.unwrapped_model.config).to(self.accelerator.device)
 
     def _forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
         waveforms = batch["waveforms"].to(self.accelerator.device)
         waveform_lengths = batch["waveform_lengths"].to(self.accelerator.device)
 
-        model = self.accelerator.unwrap_model(self.model)
+        model = self.unwrapped_model
         mels, mel_lengths = model.frontend(waveforms, waveform_lengths)
         spec = model.codec.encode(waveforms)
-        output = self.model(spec, mels, mel_lengths)
-        return self.step_output(output, self.criterion.loss_terms(output))
+        conditioning = self.mel_augmenter(mels) if self.model.training else mels
+        output = self.model(spec, conditioning, mel_lengths)
+        terms = self.criterion.loss_terms(
+            output,
+            waveforms=waveforms,
+            waveform_lengths=waveform_lengths,
+            mels=mels,
+            mel_lengths=mel_lengths,
+        )
+        return self.step_output(output, terms)
 
     def make_viz_callback(self, viz_steps: int) -> VizCallback:
-        return voice_viz_callbacks.VocoderVizCallback(self, viz_steps)
+        viz = self.config.viz
+        return voice_viz_callbacks.VocoderVizCallback(
+            self,
+            viz_steps,
+            examples_per_source=viz.examples_per_source,
+            generation_steps=viz.generation_steps,
+            step_sweep=tuple(viz.step_sweep),
+            sway_coefficient=viz.sway_coefficient,
+            seed=viz.seed,
+            world=viz.world,
+        )

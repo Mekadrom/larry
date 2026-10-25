@@ -32,6 +32,8 @@ dependencies = [
     "rapidfuzz>=3.14.6",
     "accelerate>=1.15.0",
     "mashumaro>=3.23",
+    "pyworld>=0.3.5",
+    "pesq>=0.0.4",
 ]
 
 [[tool.uv.index]]
@@ -43,6 +45,7 @@ explicit = true
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 torchaudio = { index = "pytorch-cu130" }
+pyworld = { git = "https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder", rev = "f31ad88d543fdaebbda2d0c9a5e4d4f991ae0b6c" }
 
 [tool.ruff]
 line-length = 122

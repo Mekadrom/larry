@@ -1,0 +1,4 @@
+trainer:
+  criterion:
+    stft_weight: 0.1
+    mel_weight: 0.1

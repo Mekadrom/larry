@@ -25,10 +25,7 @@ class MultimodalCollator:
             if len(row.voices) > 1 or len(row.images) > 1:
                 raise NotImplementedError("the model takes at most one voice and one image per row")
 
-            if row.voices:
-                units = torch.from_numpy(row.voices[0]).long()
-            else:
-                units = torch.zeros(0, dtype=torch.long)
+            units = torch.from_numpy(row.voices[0]).long() if row.voices else torch.zeros(0, dtype=torch.long)
 
             voice_unit_ids.append(units)
 

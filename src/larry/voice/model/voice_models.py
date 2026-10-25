@@ -33,6 +33,12 @@ class SpeechDecoderModelOutput(LarryFlowMatchingOutput, LarryModelOutput):
     frame_mask: torch.Tensor
 
 
+@dataclasses.dataclass(kw_only=True)
+class LarryVocoderOutput(LarryFlowMatchingOutput):
+    t: torch.Tensor
+    waveform_estimates: torch.Tensor
+
+
 class VoiceModel[C: VoiceModelConfig = VoiceModelConfig](LarryModel[C], ABC):
     """Superclass for voice models."""
 

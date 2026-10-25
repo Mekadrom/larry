@@ -100,3 +100,14 @@ def test_viz_restores_training_mode() -> None:
     callback.viz(10)
 
     assert callback.trainer.model.training
+
+
+def test_viz_logs_pesq_and_world_metrics_with_averages() -> None:
+    callback, metrics = _callback()
+
+    callback.viz(10)
+
+    assert {"viz/0/a/vuv_error", "viz/0/a/aperiodicity_l1", "viz/vuv_error", "viz/aperiodicity_l1"} <= set(
+        metrics.scalars
+    )
+    assert any(tag.startswith("viz/pesq_wb_by_steps/") for tag in metrics.scalars) == ("viz/pesq_wb" in metrics.scalars)

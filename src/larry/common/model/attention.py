@@ -198,10 +198,7 @@ class LarryAttention(nn.Module, QKModule):
         output logits/projected scores and the updated KVCache object.
         """
         is_cross_attention = encoder_hidden_states is not None
-        if is_cross_attention:
-            kv_input = encoder_hidden_states
-        else:
-            kv_input = hidden_states
+        kv_input = encoder_hidden_states if is_cross_attention else hidden_states
 
         batch_size, _ = hidden_states.shape[:2]
 
@@ -250,10 +247,7 @@ class LarryAttention(nn.Module, QKModule):
         if self.config.is_causal and not is_cross_attention:
             causal_mask = self._sliced_causal_mask(q_seq_len, k_seq_len)
 
-        if is_cross_attention:
-            active_mask = encoder_attention_mask
-        else:
-            active_mask = attention_mask
+        active_mask = encoder_attention_mask if is_cross_attention else attention_mask
 
         attn_mask = None
         if active_mask is not None and active_mask.dim() == 4:
@@ -263,10 +257,7 @@ class LarryAttention(nn.Module, QKModule):
 
         if active_mask is not None and active_mask.dim() != 4:
             pad_bool = active_mask.unsqueeze(1).unsqueeze(2) != 0
-            if attn_mask is None:
-                attn_mask = pad_bool
-            else:
-                attn_mask = (attn_mask & pad_bool)
+            attn_mask = pad_bool if attn_mask is None else attn_mask & pad_bool
 
         # explicitly let each token attend to itself to avoid infs/NaNs
         if attn_mask is not None and not is_cross_attention:

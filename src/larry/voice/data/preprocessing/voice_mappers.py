@@ -29,11 +29,13 @@ from larry.voice.config.preprocessing.voice_mapper_configs import (
     LarrySpeechEncoderUsingMapperConfig,
     SpeechSegmentationAligningMapperConfig,
     UrlAudioMapperConfig,
+    WorldFeatureExtractingMapperConfig,
 )
 from larry.voice.data.preprocessing.alignment import Aligner, LongAlignment, TokenTimeline
 from larry.voice.data.preprocessing.normalization import TextNormalizer
 from larry.voice.data.preprocessing.segmentation import Segmenter
 from larry.voice.data.preprocessing.transcript import NormalizedTokens, TokenStream, Transcript, Turn
+from larry.voice.features.world import WorldAnalyzer
 from larry.voice.model.speech_encoder import SpeechEncoderModel
 from larry.voice.model.voice_models import SpeechEncoderModelOutput
 from larry.voice.utils import bytes_to_waveforms, collapse_ctc_emissions
@@ -42,6 +44,7 @@ _ALIGNERS: dict[str, Aligner] = {}
 _NORMALIZERS: dict[str, TextNormalizer] = {}
 _ENCODERS: dict[str, SpeechEncoderModel] = {}
 _TOKENIZERS: dict[str, TextTokenizer] = {}
+_WORLD_ANALYZERS: dict[str, WorldAnalyzer] = {}
 
 
 def _lazy_get_aligner(aligner_config: AlignerConfig, device: torch.device) -> Aligner:
@@ -71,6 +74,14 @@ def _lazy_get_tokenizer(key: str) -> TextTokenizer:
     if key not in _TOKENIZERS:
         _TOKENIZERS[key] = SentencePieceTokenizer(model_file=key)
     return _TOKENIZERS[key]
+
+
+def _lazy_get_world_analyzer(config: WorldFeatureExtractingMapperConfig) -> WorldAnalyzer:
+    key = repr(config)
+    if key not in _WORLD_ANALYZERS:
+        _WORLD_ANALYZERS[key] = WorldAnalyzer(config)
+
+    return _WORLD_ANALYZERS[key]
 
 
 class UrlAudioMapper(UrlMapper[EncodedAudio, UrlAudioMapperConfig]):
@@ -301,7 +312,8 @@ class CTCScoreMapper(Mapper[CTCScoreMapperConfig]):
 
         return result
 
-    def make_normalizer(self) -> TextNormalizer:
+    @staticmethod
+    def make_normalizer() -> TextNormalizer:
         """Allows for overriding to make an instance of any ``TextNormalizer`` implementation."""
         return TextNormalizer()
 
@@ -405,7 +417,7 @@ class LarrySpeechEncoderUnitIdExtractingMapper(
                 u[:n].astype(np.int16)
                 for u, n in zip(unit_ids.cpu().numpy(), frame_lengths.tolist(), strict=True)
             ],
-            self.config.frame_lengths_output_column: frame_lengths.cpu().numpy(),
+            self.config.frame_lengths_output_column: frame_lengths.cpu().numpy().tolist(),
         }
 
     def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
@@ -449,3 +461,22 @@ class LarrySpeechEncoderASRMapper(
     def mutate_provenance(self) -> None:
         super().mutate_provenance()
         self.provenance.ancestry.models.add(self.config.text_tokenizer_path)
+
+
+class WorldFeatureExtractingMapper(Mapper[WorldFeatureExtractingMapperConfig]):
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        analyzer = _lazy_get_world_analyzer(self.config)
+        features = [
+            analyzer.analyze(bytes_to_waveforms(audio["bytes"], self.config.sample_rate)[0])
+            for audio in batch[self.config.audio_column]
+        ]
+        return {
+            self.config.f0_output_column: [f.f0 for f in features],
+            self.config.aperiodicity_output_column: [f.aperiodicity for f in features],
+        }
+
+    def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        return Features({
+            self.config.f0_output_column: List(Value("float32")),
+            self.config.aperiodicity_output_column: List(List(Value("float32"))),
+        })

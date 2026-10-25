@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Literal
 
 from larry.common.config.config import Config
 from larry.common.config.data.preprocessing.preprocessor_configs import PreprocessorConfig
@@ -34,6 +35,15 @@ class AlignerConfig(SampleRateConfig):
     overlap_seconds: float = 3.0
     emission_batch_size: int = 8
     wildcard_penalty: float = 1.0
+
+
+@dataclasses.dataclass(kw_only=True)
+class WorldConfig(SampleRateConfig):
+    f0_method: Literal["harvest", "dio"] = "harvest"
+    f0_floor: float = 50.0
+    f0_ceil: float = 800.0
+    hop_length: int = 160
+    n_aperiodicity_bands: int = 8
 
 
 @dataclasses.dataclass(kw_only=True)

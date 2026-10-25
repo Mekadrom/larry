@@ -1,0 +1,5 @@
+model:
+  include_modes:
+    - text
+  include_tasks:
+    - text_only

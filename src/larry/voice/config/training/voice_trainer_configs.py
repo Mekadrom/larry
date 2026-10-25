@@ -3,13 +3,14 @@ from typing import Any
 
 from larry.common.config.config import Config
 from larry.common.config.training.trainer_configs import LarryTrainerConfig, TextTokenizerConfig
-from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig
+from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig, VocoderCriterionConfig
 from larry.voice.config.data.voice_data_configs import (
     ASRMixtureConfig,
     SpeechMixtureConfig,
     TTSMixtureConfig,
     VocoderMixtureConfig,
 )
+from larry.voice.config.preprocessing.voice_configs import WorldConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -43,12 +44,35 @@ class VoiceTrainerConfig[M: SpeechMixtureConfig[Any] = SpeechMixtureConfig](Larr
 
 
 @dataclasses.dataclass(kw_only=True)
+class MelAugmentConfig(Config):
+    noise_p: float = 0.0
+    noise_std: float = 0.1
+    time_blur_p: float = 0.0
+    time_blur_sigma: float = 1.0
+    freq_blur_p: float = 0.0
+    freq_blur_sigma: float = 1.0
+
+
+@dataclasses.dataclass(kw_only=True)
+class VocoderVizConfig(Config):
+    examples_per_source: int = 2
+    generation_steps: int = 32
+    step_sweep: list[int] = dataclasses.field(default_factory=lambda: [4, 8, 16, 32])
+    sway_coefficient: float | None = -1.0
+    seed: int = 0
+    world: WorldConfig = dataclasses.field(default_factory=WorldConfig)
+
+
+@dataclasses.dataclass(kw_only=True)
 class VocoderTrainerConfig(VoiceTrainerConfig[VocoderMixtureConfig]):
     """Config for ``VocoderTrainer``."""
 
     crop_seconds: float = 2.0
     crops_per_clip: int = 4
     clips_per_batch: int = 32
+    criterion: VocoderCriterionConfig = dataclasses.field(default_factory=VocoderCriterionConfig)
+    mel_augment: MelAugmentConfig = dataclasses.field(default_factory=MelAugmentConfig)
+    viz: VocoderVizConfig = dataclasses.field(default_factory=VocoderVizConfig)
 
 
 @dataclasses.dataclass(kw_only=True)

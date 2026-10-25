@@ -1,0 +1,3 @@
+model:
+  t_sampling: logit_normal
+  t_mean: 0.5

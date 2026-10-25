@@ -3,11 +3,9 @@ import copy
 import dataclasses
 import shlex
 import sys
-from collections.abc import Iterable
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
-from typing import Self
+from typing import Any, Self
 
 import yaml
 from mashumaro.config import BaseConfig

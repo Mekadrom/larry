@@ -1,5 +1,5 @@
 import dataclasses
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 
 import torch
 import torch.nn.functional as F
@@ -14,7 +14,7 @@ class RecurrentExitCriteriaOutput:
 class RecurrentExitCriteria(ABC):
     needs_readout = False
 
-    def __init__(self, threshold: float):
+    def __init__(self, threshold: float) -> None:
         self.threshold = threshold
 
     @abstractmethod
@@ -23,7 +23,7 @@ class RecurrentExitCriteria(ABC):
 
 
 class NoOpCriteria(RecurrentExitCriteria):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(float("-inf"))
 
     def step(self, last_output: torch.Tensor, output: torch.Tensor) -> RecurrentExitCriteriaOutput:

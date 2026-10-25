@@ -1,0 +1,4 @@
+trainer:
+  mel_augment:
+    time_blur_p: 0.5
+    time_blur_sigma: 1.0

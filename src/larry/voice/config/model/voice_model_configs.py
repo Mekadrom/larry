@@ -89,6 +89,7 @@ class SpeechDecoderModelConfig(
 @dataclasses.dataclass(kw_only=True)
 class LarryVocoderConfig(VoiceModelConfig, FlowMatchingConfig):
     """Configures ``LarryVocoder`` models."""
+
     d_model: int = 512
     d_inner: int = 1536
     n_layers: int = 6

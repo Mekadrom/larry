@@ -1,3 +1,5 @@
+import dataclasses
+import functools
 import math
 import re
 from abc import ABC, abstractmethod
@@ -87,31 +89,41 @@ def latent_preview(latents: torch.Tensor) -> np.ndarray:
     return ((channels - low) / (high - low).clamp(min=1e-6)).permute(1, 2, 0).cpu().numpy()
 
 
+@dataclasses.dataclass(kw_only=True)
+class Vocalization:
+    waveform: torch.Tensor
+    mels: torch.Tensor
+    sample_rate: int
+    frame_seconds: float
+
+
 class UnitVocalizer:
     def __init__(self, config: MultimodalVizConfig, device: torch.device) -> None:
-        self.config = config
-        self.device = device
-
-        if self.config.speech_decoder_model_path is None:
+        if config.speech_decoder_model_path is None:
             raise ValueError("Config missing for speech decoder")
 
-        if self.config.vocoder_model_path is None:
+        if config.vocoder_model_path is None:
             raise ValueError("Config missing for vocoder")
 
-        self.decoder = SpeechDecoderModel.from_pretrained(
-            self.config.speech_decoder_model_path
-        ).to(self.device).eval()
-
-        self.vocoder = LarryVocoder.from_pretrained(
-            self.config.vocoder_model_path
-        ).to(self.device).eval()
+        self.config = config
+        self.device = device
+        self.decoder_model_path = config.speech_decoder_model_path
+        self.vocoder_model_path = config.vocoder_model_path
 
     @staticmethod
     def configured(config: MultimodalVizConfig) -> bool:
         return config.speech_decoder_model_path is not None and config.vocoder_model_path is not None
 
+    @functools.cached_property
+    def decoder(self) -> SpeechDecoderModel:
+        return SpeechDecoderModel.from_pretrained(self.decoder_model_path).to(self.device).eval()
+
+    @functools.cached_property
+    def vocoder(self) -> LarryVocoder:
+        return LarryVocoder.from_pretrained(self.vocoder_model_path).to(self.device).eval()
+
     @torch.no_grad()
-    def audio(self, units: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, int]:
+    def audio(self, units: torch.Tensor) -> Vocalization:
         generator = torch.Generator(device=self.device).manual_seed(self.config.seed)
         unit_ids = units.to(self.device)[None]
         mels = self.decoder.generate(
@@ -130,8 +142,12 @@ class UnitVocalizer:
 
         n_samples = int(waveforms.waveform_lengths[0])
         frames = int(mels.mel_lengths[0])
-        return waveforms.waveforms[0, :n_samples].float().cpu(), mels.mels[0, :, :frames].float().cpu(), (
-            self.vocoder.config.sample_rate
+        vocoder_config = self.vocoder.config
+        return Vocalization(
+            waveform=waveforms.waveforms[0, :n_samples].float().cpu(),
+            mels=mels.mels[0, :, :frames].float().cpu(),
+            sample_rate=vocoder_config.sample_rate,
+            frame_seconds=vocoder_config.hop_length / vocoder_config.sample_rate,
         )
 
 
@@ -142,10 +158,12 @@ class MultimodalTaskVizCallback(VizCallback, ABC):
             self,
             trainer: trainers.TrainerBase[Any, Any, Any],
             viz_steps: int,
-            config: MultimodalVizConfig
+            config: MultimodalVizConfig,
+            vocalizer: UnitVocalizer | None = None,
     ) -> None:
         super().__init__(trainer, viz_steps)
         self.config = config
+        self.vocalizer = vocalizer
         self.dataset = trainer.eval_loader.dataset
         sources = {
             s
@@ -271,12 +289,6 @@ class TextContinuationVizCallback(MultimodalTaskVizCallback):
 class VoiceCaptioningVizCallback(MultimodalTaskVizCallback):
     task = "voice_text"
 
-    def __init__(self, trainer: trainers.TrainerBase[Any, Any, Any], viz_steps: int,
-                 config: MultimodalVizConfig) -> None:
-        super().__init__(trainer, viz_steps, config)
-        # audio is optional: without both decoders, voice is judged on units alone
-        self.vocalizer = UnitVocalizer(config, self.device) if UnitVocalizer.configured(config) else None
-
     def viz_items(self, items: list[dict[str, Any]], model: LarryMultimodalModel, step: int) -> None:
         totals = np.zeros(4)
         values: dict[str, list[float]] = {"eos_rate": [], "length_ratio": []}
@@ -287,8 +299,13 @@ class VoiceCaptioningVizCallback(MultimodalTaskVizCallback):
             tag = self.tag(i, item)
             self.add_text(tag, values, ended, text, item, step)
             if self.vocalizer is not None and not self.references_logged:
-                waveform, _, sample_rate = self.vocalizer.audio(torch.as_tensor(item["voice"]).long())
-                self.trainer.metrics.add_audio(f"{tag}/input", waveform, step, sample_rate=sample_rate)
+                vocalization = self.vocalizer.audio(torch.as_tensor(item["voice"]).long())
+                self.trainer.metrics.add_audio(
+                    f"{tag}/input",
+                    vocalization.waveform,
+                    step,
+                    sample_rate=vocalization.sample_rate,
+                )
 
         self.log_means(values, step)
         self.trainer.metrics.add_scalar(f"viz/{self.task}/wer", totals[0] / max(totals[1], 1), step)
@@ -311,18 +328,13 @@ class ImageCaptioningVizCallback(MultimodalTaskVizCallback):
                 self.trainer.metrics.add_image(f"{tag}/latents", latent_preview(torch.as_tensor(item["image"])), step)
 
         self.log_means(values, step)
+
         # captions that all read alike mean the model ignores the image
         self.trainer.metrics.add_scalar(f"viz/{self.task}/distinct_2", distinct_n(captions, 2), step)
 
 
 class VoiceSynthesisVizCallback(MultimodalTaskVizCallback):
     task = "text_voice"
-
-    def __init__(self, trainer: trainers.TrainerBase[Any, Any, Any], viz_steps: int,
-                 config: MultimodalVizConfig) -> None:
-        super().__init__(trainer, viz_steps, config)
-        # audio is optional: without both decoders, voice is judged on units alone
-        self.vocalizer = UnitVocalizer(config, self.device) if UnitVocalizer.configured(config) else None
 
     def viz_items(self, items: list[dict[str, Any]], model: LarryMultimodalModel, step: int) -> None:
         values: dict[str, list[float]] = {
@@ -341,8 +353,7 @@ class VoiceSynthesisVizCallback(MultimodalTaskVizCallback):
             groups = math.ceil(len(reference) / model.voice_units_per_position)
             generation, start = self.generate(
                 model,
-                {"text": item["text"],
-                 "open_modality": "voice"},
+                {"text": item["text"], "open_modality": "voice"},
                 max_new_positions=math.ceil(groups * self.config.voice_length_budget) + 8,
             )
 
@@ -369,23 +380,27 @@ class VoiceSynthesisVizCallback(MultimodalTaskVizCallback):
             self.trainer.metrics.add_text(f"{tag}/synthesis", "  \n".join(summary), step)
 
             if self.vocalizer is not None and units:
-                waveform, mels, sample_rate = self.vocalizer.audio(torch.tensor(units))
-                self.trainer.metrics.add_audio(f"{tag}/generated", waveform, step, sample_rate=sample_rate)
-                reference_waveform, reference_mels, _ = self.vocalizer.audio(torch.tensor(reference))
+                generated = self.vocalizer.audio(torch.tensor(units))
+                self.trainer.metrics.add_audio(
+                    f"{tag}/generated",
+                    generated.waveform,
+                    step,
+                    sample_rate=generated.sample_rate,
+                )
+                reference_audio = self.vocalizer.audio(torch.tensor(reference))
                 if not self.references_logged:
                     self.trainer.metrics.add_audio(
                         f"{tag}/reference",
-                        reference_waveform,
+                        reference_audio.waveform,
                         step,
-                        sample_rate=sample_rate
+                        sample_rate=reference_audio.sample_rate
                     )
 
-                frames = min(mels.shape[-1], reference_mels.shape[-1])
-                frame_seconds = self.vocalizer.vocoder.config.hop_length / sample_rate
+                frames = min(generated.mels.shape[-1], reference_audio.mels.shape[-1])
                 self.trainer.metrics.add_figure(f"{tag}/mels", VoiceVizCallback.comparison_figure(
-                    reference_mels[:, :frames],
-                    mels[:, :frames],
-                    frame_seconds
+                    reference_audio.mels[:, :frames],
+                    generated.mels[:, :frames],
+                    generated.frame_seconds
                 ), step)
 
         self.log_means(values, step)
@@ -476,8 +491,9 @@ class MultimodalVizCallbacks(VizCallback):
             for source in trainer.config.mixture_config.eval_sources
         }
 
+        vocalizer = UnitVocalizer(config, trainer.accelerator.device) if UnitVocalizer.configured(config) else None
         self.callbacks = [
-            callback(trainer, viz_steps, config)
+            callback(trainer, viz_steps, config, vocalizer)
             for task, callback in TASK_VIZ_CALLBACKS.items()
             if task in tasks
         ]

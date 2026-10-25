@@ -6,7 +6,8 @@ from torch import nn
 from larry.common.config.model.model_configs import (
     AttentionModuleConfig,
     LarryConditionalEncoderBlockModuleConfig,
-    LLMBlockModuleConfig, )
+    LLMBlockModuleConfig,
+)
 from larry.common.model.attention import LarryAttention, LarryAttentionOutput
 from larry.common.model.kv_cache import KVCache
 from larry.common.model.norms import AdaLayerNorm, AdaLayerNormZero, get_norm_type

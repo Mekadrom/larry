@@ -4,13 +4,13 @@ import torch
 from huggingface_hub import PyTorchModelHubMixin
 from torch import nn
 
-from larry.common.model.flow import ConditionalFlowMatching, LarryFlowMatchingOutput, TimestepEmbedding
+from larry.common.model.flow import ConditionalFlowMatching, TimestepEmbedding
 from larry.common.model.init import WeightInitializer
 from larry.common.model.masks import make_non_pad_mask
 from larry.common.model.norms import AdaLayerNorm, AdaLayerNormZero
 from larry.common.training.training_model import GenerationOutput
 from larry.voice.config.model.voice_model_configs import LarryVocoderConfig
-from larry.voice.model.voice_models import VoiceModel
+from larry.voice.model.voice_models import LarryVocoderOutput, VoiceModel
 from larry.voice.model.voice_modules import TTSLogMelFrontend
 
 
@@ -114,11 +114,22 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
         nn.init.zeros_(self.backbone.out.weight)
         nn.init.zeros_(self.backbone.out.bias)
 
-    def forward(self, spec: torch.Tensor, mels: torch.Tensor, mel_lengths: torch.Tensor) -> LarryFlowMatchingOutput:
+    def forward(self, spec: torch.Tensor, mels: torch.Tensor, mel_lengths: torch.Tensor) -> LarryVocoderOutput:
         mask = make_non_pad_mask(mel_lengths, spec.shape[-1]).to(spec.dtype)
         xt, t, target = self.path(spec)
         pred = self.backbone(xt, t, mels, mask)
-        return LarryFlowMatchingOutput(logits=pred, targets=target, mask=mask)
+        return LarryVocoderOutput(
+            logits=pred,
+            targets=target,
+            mask=mask,
+            t=t,
+            waveform_estimates=self.one_step_waveforms(xt, t, pred),
+        )
+
+    def one_step_waveforms(self, xt: torch.Tensor, t: torch.Tensor, velocity: torch.Tensor) -> torch.Tensor:
+        with torch.autocast(device_type=xt.device.type, enabled=False):
+            spec = xt.float() + (1 - t.float()).view(-1, 1, 1) * velocity.float()
+            return self.codec.decode(spec, (spec.shape[-1] - 1) * self.config.hop_length)
 
     def generate(
             self,

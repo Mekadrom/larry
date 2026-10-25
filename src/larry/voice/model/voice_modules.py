@@ -1,10 +1,13 @@
+import math
 from typing import cast
 
 import torch
+import torch.nn.functional as F
 import torchaudio
 from torch import nn
 
 from larry.common.model.masks import make_non_pad_mask
+from larry.voice.config.training.voice_trainer_configs import MelAugmentConfig
 
 
 class ASRLogMelFrontend(nn.Module):
@@ -62,3 +65,41 @@ class TTSLogMelFrontend(nn.Module):
 
         mel_lengths = ((waveform_lengths - self.mel.n_fft // 2) // self.hop_length + 1).clamp(min=0)
         return mels, mel_lengths
+
+
+class MelAugmenter:
+    def __init__(self, config: MelAugmentConfig) -> None:
+        self.config = config
+
+    @staticmethod
+    def gaussian_kernel(sigma: float, device: torch.device) -> torch.Tensor:
+        radius = max(1, math.ceil(3 * sigma))
+        offsets = torch.arange(-radius, radius + 1, device=device, dtype=torch.float32)
+        kernel = torch.exp(-0.5 * (offsets / sigma) ** 2)
+        return kernel / kernel.sum()
+
+    def blur_last(self, mels: torch.Tensor, sigma: float) -> torch.Tensor:
+        kernel = self.gaussian_kernel(sigma, mels.device)
+        radius = kernel.shape[0] // 2
+        flat = F.pad(mels.reshape(-1, 1, mels.shape[-1]), (radius, radius), mode="replicate")
+        return F.conv1d(flat, kernel.view(1, 1, -1)).view(mels.shape)
+
+    @staticmethod
+    def chosen(p: float, mels: torch.Tensor) -> torch.Tensor:
+        return torch.rand(mels.shape[0], 1, 1, device=mels.device) < p
+
+    def __call__(self, mels: torch.Tensor) -> torch.Tensor:
+        config = self.config
+        if config.time_blur_p > 0:
+            blurred = self.blur_last(mels, config.time_blur_sigma)
+            mels = torch.where(self.chosen(config.time_blur_p, mels), blurred, mels)
+
+        if config.freq_blur_p > 0:
+            blurred = self.blur_last(mels.transpose(1, 2), config.freq_blur_sigma).transpose(1, 2)
+            mels = torch.where(self.chosen(config.freq_blur_p, mels), blurred, mels)
+
+        if config.noise_p > 0:
+            std = torch.rand(mels.shape[0], 1, 1, device=mels.device) * config.noise_std
+            mels = mels + torch.randn_like(mels) * std * self.chosen(config.noise_p, mels)
+
+        return mels

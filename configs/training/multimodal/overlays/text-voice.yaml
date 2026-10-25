@@ -1,0 +1,3 @@
+model:
+  include_tasks:
+    - text_voice

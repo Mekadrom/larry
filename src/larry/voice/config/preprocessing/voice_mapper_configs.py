@@ -1,7 +1,8 @@
 import dataclasses
+from typing import Literal
 
 from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, UrlMapperConfig
-from larry.voice.config.preprocessing.voice_configs import AlignerConfig, SampleRateConfig
+from larry.voice.config.preprocessing.voice_configs import AlignerConfig, SampleRateConfig, WorldConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -133,6 +134,25 @@ class LarrySpeechEncoderUnitIdExtractingMapperConfig(LarrySpeechEncoderUsingMapp
 @dataclasses.dataclass(kw_only=True)
 class LarrySpeechEncoderASRMapperConfig(SingleColumnMapperConfig, LarrySpeechEncoderUsingMapperConfig):
     text_tokenizer_path: str
-    
+
     input_column: str = "audio"
     output_column: str = "text_normalized"
+
+
+@dataclasses.dataclass(kw_only=True)
+class WorldFeatureExtractingMapperConfig(WorldConfig, MapperConfig):
+    audio_column: str = "audio"
+    f0_output_column: str = "f0"
+    aperiodicity_output_column: str = "aperiodicity"
+
+    f0_method: Literal["harvest", "dio"] = "dio"
+
+    batch_size: int = 64
+    writer_batch_size: int = 64
+    num_proc: int = 16
+
+    def required_input_columns(self) -> list[str]:
+        return [self.audio_column]
+
+    def required_output_columns(self) -> list[str]:
+        return [self.f0_output_column, self.aperiodicity_output_column]
