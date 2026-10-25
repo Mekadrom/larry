@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader, Dataset
 from larry.voice.data.dataloading.voice_dataloading import SpeechCTCCollator
 from tests.helpers.voice import CharTokenizer
 
-
 ITEMS = [
     {"waveform": torch.ones(5), "text": "AB", "source": 0},
     {"waveform": torch.ones(3), "text": "CDEF", "source": 2},

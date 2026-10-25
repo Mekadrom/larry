@@ -45,15 +45,16 @@ def test_synthesis_trains_on_voice_and_the_delimiter_text_targets_only(
 
     with torch.no_grad():
         out = _forward(model, batch)
-        text = criterion.text_loss(out, criterion.next_in_loss(batch["loss_mask"]))
-        voice = criterion.voice_loss(out, criterion.next_in_loss(batch["loss_mask"]))
+        terms = criterion.loss_terms(out, loss_mask=batch["loss_mask"])
 
     targets = out.text_targets
     trained = (targets == P.BOV + collator.processor.text_tokenizer.vocab_size()) | (
         targets == P.EOS + collator.processor.text_tokenizer.vocab_size()
     )
-    assert torch.allclose(text, F.cross_entropy(out.logits[trained], targets[trained]))
-    assert torch.allclose(voice, F.cross_entropy(out.voice_logits.flatten(0, 1), out.voice_targets.flatten()))
+    assert torch.allclose(terms["text"].value, F.cross_entropy(out.logits[trained], targets[trained]))
+    assert terms["text"].counts.tolist() == [2.0]
+    expected_voice = F.cross_entropy(out.voice_logits.flatten(0, 1), out.voice_targets.flatten())
+    assert torch.allclose(terms["voice"].value, expected_voice)
 
 
 def test_captioning_trains_on_text_and_never_on_the_input_voice(collator: PretrainingMultimodalCollator) -> None:
@@ -62,33 +63,33 @@ def test_captioning_trains_on_text_and_never_on_the_input_voice(collator: Pretra
     criterion = _criterion()
 
     with torch.no_grad():
-        out = _forward(model, batch)
+        terms = criterion.loss_terms(_forward(model, batch), loss_mask=batch["loss_mask"])
 
-    in_loss = criterion.next_in_loss(batch["loss_mask"])
-    assert criterion.voice_loss(out, in_loss) is None
-    assert in_loss[out.text_route].sum() == len(collator.processor.text_tokenizer.encode("say this")) + 1
+    assert terms["voice"].counts.sum() == 0
+    assert terms["text"].counts.tolist() == [len(collator.processor.text_tokenizer.encode("say this")) + 1]
 
 
-def test_heads_are_weighted_and_logged_per_split(collator: PretrainingMultimodalCollator) -> None:
+def test_heads_are_weighted_and_kept_per_row(collator: PretrainingMultimodalCollator) -> None:
     model = _model(collator, **_image())
     batch = collator([
         {"text": "say this", "voice": np.array([4, 5, 6]), "source": 0},
         {"text": "a cat", "image": torch.randn(3, 2, 4), "source": 1},
+        {"text": "hello there", "source": 2},
     ])
     criterion = _criterion(text_weight=0.5, voice_weight=2.0, image_weight=3.0)
 
     with torch.no_grad():
         out = _forward(model, batch)
         total = criterion(out, **batch)
-    in_loss = criterion.next_in_loss(batch["loss_mask"])
-    expected = (
-        0.5 * criterion.text_loss(out, in_loss)
-        + 2.0 * criterion.voice_loss(out, in_loss)
-        + 3.0 * criterion.image_loss(out)
-    )
+        terms = criterion.loss_terms(out, **batch)
 
-    assert torch.allclose(total, expected)
-    assert set(out.metrics) == {"eval/loss/text", "eval/loss/voice", "eval/loss/image"}
+    assert {name: term.weight for name, term in terms.items()} == {"text": 0.5, "voice": 2.0, "image": 3.0}
+    assert torch.allclose(total, sum(term.weight * term.value for term in terms.values()))
+    # each head's rows: voice only on the TTS row, the image only on the synthesis row, text everywhere
+    assert terms["voice"].counts.gt(0).tolist() == [True, False, False]
+    assert terms["image"].counts.tolist() == [0.0, 1.0, 0.0]
+    assert terms["text"].counts.gt(0).all()
+    assert torch.allclose(terms["image"].value, criterion.flow.flow_loss(out.image_flow))
 
 
 def test_a_training_step_reaches_every_head_it_uses(collator: PretrainingMultimodalCollator) -> None:
@@ -101,7 +102,6 @@ def test_a_training_step_reaches_every_head_it_uses(collator: PretrainingMultimo
     out = _forward(model, batch)
     _criterion()(out, **batch).backward()
 
-    assert set(out.metrics) == {"train/loss/text", "train/loss/voice", "train/loss/image"}
     assert model.voice_coda.eov.grad.abs().sum() > 0
     assert model.image_coda.out.weight.grad.abs().sum() > 0
     assert model.text_prelude.wte.weight.grad.abs().sum() > 0

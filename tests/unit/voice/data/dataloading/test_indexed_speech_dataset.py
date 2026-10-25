@@ -82,7 +82,7 @@ def test_speed_factors_reach_only_the_training_split() -> None:
 
     assert train.speed_factors == (0.9, 1.0, 1.1)
     assert validation.speed_factors == (1.0,)
-    assert train.seed == 11
+    assert train.random.seed == 11
 
 
 def test_speaker_keys_follow_row_order_and_mapping_keys() -> None:

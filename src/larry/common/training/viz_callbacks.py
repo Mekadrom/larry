@@ -1,11 +1,25 @@
-import logging
+import itertools
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from typing import Any
 
 import torch
 
 from larry.common.metrics.metrics import MetricDict
 from larry.common.training import callbacks, trainers
+
+
+def pick_rows(offsets: list[int], per_source: int, sources: Collection[int] | None = None) -> list[int]:
+    """Picks the same rows from each dataset source (or only the given sources) for visualization."""
+    rows: list[int] = []
+    for source, (start, end) in enumerate(itertools.pairwise(offsets)):
+        if sources is not None and source not in sources:
+            continue
+
+        span = end - start
+        rows += sorted({start + (j * span) // per_source for j in range(min(per_source, span))})
+
+    return rows
 
 
 class VizCallback(callbacks.TrainingCallback, ABC):
@@ -16,8 +30,7 @@ class VizCallback(callbacks.TrainingCallback, ABC):
 
     def __init__(self, trainer: trainers.TrainerBase[Any, Any, Any], viz_steps: int) -> None:
         """Common initializer for all subclasses."""
-        self.log = logging.getLogger(type(self).__name__)
-        self.trainer = trainer
+        super().__init__(trainer)
         self.viz_steps = viz_steps
 
     def on_step_end(self, train_loss: torch.Tensor, step: int) -> MetricDict | None:

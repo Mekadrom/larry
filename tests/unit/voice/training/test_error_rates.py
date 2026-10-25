@@ -9,10 +9,10 @@ from larry.common.training.trainers import StepOutput
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.training.voice_trainers import (
     ErrorCounts,
-    error_counts,
     SpeechEncoderTrainer,
     _normalize_for_scoring,
     _normalize_reference_for_scoring,
+    error_counts,
 )
 from tests.helpers.common import uninitialized
 from tests.helpers.voice import LETTERS, CharTokenizer, ctc_output
@@ -51,7 +51,9 @@ def _trainer(sources: list[str]) -> SpeechEncoderTrainer:
         SpeechEncoderTrainer,
         tokenizer=CharTokenizer(ALPHABET),
         whisper_normalizer=EnglishTextNormalizer(SPELLINGS),
-        model_config=SimpleNamespace(vocab_size=BLANK, fsq_dims=2, fsq_levels=3, n_units=3 ** 2),
+        unwrapped_model=SimpleNamespace(
+            config=SimpleNamespace(vocab_size=BLANK, fsq_dims=2, fsq_levels=3, n_units=3 ** 2)
+        ),
         _config=SimpleNamespace(mixture_config=SimpleNamespace(
             eval_sources=[SpeechSourceConfig(name=n, index_path=n) for n in sources],
         )),

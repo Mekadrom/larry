@@ -4,14 +4,15 @@ import torch
 from larry.common.data.dataloading.weighted_batch_sampler import (
     FixedSizeWeightedBatchSampler,
     LengthBucketingWeightedBatchSampler,
+    length_batches,
 )
 from tests.helpers.common import first
 
 
-def test_padded_batches_keep_the_padded_length_within_budget() -> None:
+def test_length_batches_keep_the_padded_length_within_budget() -> None:
     lengths = torch.tensor([3, 5, 5, 9, 20, 40])
 
-    batches = LengthBucketingWeightedBatchSampler.padded_batches(list(range(6)), lengths, 20)
+    batches = length_batches(list(range(6)), lengths, 20)
 
     assert batches == [[0, 1, 2], [3], [4], [5]]
     assert all(len(b) * int(lengths[b].max()) <= 20 or len(b) == 1 for b in batches)

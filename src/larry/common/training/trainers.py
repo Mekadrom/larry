@@ -1,10 +1,11 @@
+import contextlib
 import dataclasses
 import functools
 import json
 import logging
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -27,9 +28,11 @@ from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.model.model_configs import ModelConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
 from larry.common.criteria import criterion
+from larry.common.criteria.criterion import LossTerm, weighted_total
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset, load_index, load_source
 from larry.common.data.dataloading.samplers import ResumableBatchSampler
 from larry.common.metrics.metrics import MetricDict, Metrics, ScalarMetricEntry
+from larry.common.model.flow import ConditionalFlowMatching
 from larry.common.model.model import LarryModelOutput
 from larry.common.training.callbacks import ModelInitLoggingCallback, TrainingCallback, TrainLossByTokens
 from larry.common.training.qk_clip import QKClipCallback, QKClipHandler
@@ -54,7 +57,7 @@ class StepOutput:
 
     loss: torch.Tensor
     metrics: MetricDict
-    sample_losses: torch.Tensor | None = None
+    terms: dict[str, LossTerm] | None = None
     model_output: LarryModelOutput | None = None
 
 
@@ -86,6 +89,7 @@ D: Dataset = Dataset,
 
     _model: M
     _config: C
+    unwrapped_model: M
 
     train_state: TrainState
 
@@ -114,6 +118,7 @@ D: Dataset = Dataset,
 
         self.provenance = provenance
         self._config = config
+        self.unwrapped_model = model
         self.model_config = model.config
 
         self.training_callbacks = []
@@ -143,7 +148,11 @@ D: Dataset = Dataset,
             kwargs_handlers=self.accelerator_kwargs_handlers(),
         )
         self._model, self.train_loader, self.eval_loader, *rest = self.accelerator.prepare(
-            model, train_loader, eval_loader, *optimizers, *schedulers
+            model,
+            train_loader,
+            eval_loader,
+            *optimizers,
+            *schedulers,
         )
 
         self.log.info(f"optimizers={optimizers}")
@@ -356,6 +365,7 @@ D: Dataset = Dataset,
 
         batches = iter(self.train_loader)
         window_losses: list[torch.Tensor] = []
+        window_terms: dict[str, list[torch.Tensor]] = {}
         while self.train_state.global_step < self.config.max_steps:
             batch = next(batches)
 
@@ -369,6 +379,8 @@ D: Dataset = Dataset,
             with self.accelerator.accumulate(self.model):
                 output = self.train_forward_pass(batch)
                 window_losses.append(output.loss.detach())
+                for name, term in (output.terms or {}).items():
+                    window_terms.setdefault(name, []).append(term.value.detach())
 
                 if output.metrics:
                     step_metrics.update(output.metrics)
@@ -383,6 +395,13 @@ D: Dataset = Dataset,
                 stats = self.after_optimizer_step(window_loss, metrics_step)
                 if stats:
                     step_metrics.update(stats)
+
+                if metrics_step % self.config.logging_steps == 0:
+                    step_metrics.update(self.term_metrics("train", {
+                        name: torch.stack(values).float().mean() for name, values in window_terms.items()
+                    }))
+
+                window_terms.clear()
                 pbar.update(1)
 
             self.metrics.batch_metrics(step_metrics, metrics_step)
@@ -416,50 +435,105 @@ D: Dataset = Dataset,
 
         return step_metrics
 
+    @staticmethod
+    def term_metrics(split: str, values: Mapping[str, torch.Tensor], suffix: str = "") -> MetricDict:
+        """``{split}/{term}{suffix}`` for every component; the weighted total is logged separately as the loss."""
+        metrics = MetricDict()
+        for name, value in values.items():
+            if name != "loss":
+                metrics.add_metric(ScalarMetricEntry(tag=f"{split}/{name}{suffix}", scalar=float(value)))
+
+        return metrics
+
+    def flow_matchers(self) -> list[ConditionalFlowMatching]:
+        """Every flow-matching path in the model, whether the module is one or holds one."""
+        found: list[ConditionalFlowMatching] = []
+        for module in self.accelerator.unwrap_model(self.model).modules():
+            if isinstance(module, ConditionalFlowMatching):
+                found.append(module)
+
+            found += [value for value in vars(module).values() if isinstance(value, ConditionalFlowMatching)]
+
+        return found
+
+    @contextlib.contextmanager
+    def fixed_eval_noise(self) -> Iterator[None]:
+        """Every eval draws the same flow-matching t and noise for the same rows, so flow losses compare across runs."""
+        flows = self.flow_matchers()
+        generator = torch.Generator(device=self.accelerator.device).manual_seed(self.config.eval_noise_seed)
+        for flow in flows:
+            flow.noise_generator = generator
+
+        try:
+            yield
+        finally:
+            for flow in flows:
+                flow.noise_generator = None
+
     @torch.no_grad()
     def evaluate(self) -> torch.Tensor:
-        """Does the entire evaluation loop over the finite eval dataloader."""
+        """Does the entire evaluation loop over the finite eval dataloader.
+
+        Every loss term is summed per row, so the loss and each of its components are logged overall and for every
+        grouping of rows (per source, plus whatever ``eval_groupings`` adds).
+        """
         self.model.eval()
-        # [loss_sum, count]
 
         eval_metrics = MetricDict()
-
-        group_names = self.eval_group_names()
-        groups = torch.zeros((len(group_names), 2), device=self.accelerator.device)
+        groupings = self.eval_groupings()
         statistics = self.eval_statistics()
-        total = torch.zeros(2, device=self.accelerator.device)
+        device = self.accelerator.device
+        weights: dict[str, float] = {}
+        # [term] -> [sum, count] overall, and [term] -> (n_groups, 2) for each grouping
+        overall: dict[str, torch.Tensor] = {}
+        grouped: list[dict[str, torch.Tensor]] = [{} for _ in groupings]
+
         eval_batches = tqdm(
-            self.eval_loader, desc="eval", leave=False, disable=not self.accelerator.is_local_main_process
+            self.eval_loader,
+            desc="eval",
+            leave=False,
+            disable=not self.accelerator.is_local_main_process,
         )
-        for batch in eval_batches:
-            output = self.eval_forward_pass(batch)
-            loss = output.loss
+        with self.fixed_eval_noise():
+            for batch in eval_batches:
+                output = self.eval_forward_pass(batch)
+                if output.metrics:
+                    eval_metrics.update(output.metrics)
 
-            if output.metrics:
-                eval_metrics.update(output.metrics)
+                self.update_eval_statistics(statistics, batch, output)
 
-            self.update_eval_statistics(statistics, batch, output)
+                terms = output.terms or {
+                    "loss": LossTerm(weight=1.0, sums=output.loss.reshape(1), counts=torch.ones(1, device=device))
+                }
 
-            grouped = self.eval_group_totals(batch, output)
-            if grouped is not None:
-                group_ids, loss_sums, token_counts = grouped
-                values = torch.stack([loss_sums.float(), token_counts.float()], dim=1).to(groups.device)
-                groups.index_add_(0, group_ids.to(groups.device), values)
-            else:
-                n_tokens = self.eval_token_count(batch)
-                total += torch.stack([loss.float() * n_tokens, torch.tensor(float(n_tokens), device=total.device)])
+                group_ids = self.eval_group_ids(batch)
+                for name, term in terms.items():
+                    weights[name] = term.weight
+                    row_values = torch.stack([term.sums.float(), term.counts.float()], dim=1).to(device)
+                    overall[name] = overall.get(name, torch.zeros(2, device=device)) + row_values.sum(dim=0)
+                    # terms without one value per row (a criterion that only reports a batch loss) can't be grouped
+                    if group_ids is None or row_values.shape[0] != group_ids[0].shape[0]:
+                        continue
 
-        if group_names:
-            groups = _reduce_sum(self.accelerator, groups)
-            for name, (loss_sum, token_count) in zip(group_names, groups.tolist(), strict=True):
-                if token_count > 0:
-                    eval_metrics.add_metric(ScalarMetricEntry(tag=f"eval/loss/{name}", scalar=loss_sum / token_count))
-            total = groups.sum(dim=0)
-        else:
-            total = _reduce_sum(self.accelerator, total)
-        avg_loss = (total[0] / total[1])
+                    for (_, names), ids, accumulated in zip(groupings, group_ids, grouped, strict=True):
+                        totals = accumulated.setdefault(name, torch.zeros(len(names), 2, device=device))
+                        totals.index_add_(0, ids.to(device), row_values)
 
-        eval_metrics.add_metric(ScalarMetricEntry(tag="eval/loss", scalar=avg_loss.item()))
+        overall = {name: _reduce_sum(self.accelerator, values) for name, values in overall.items()}
+        avg_loss = self.log_eval_terms(eval_metrics, overall, weights, "")
+        for (prefix, names), accumulated in zip(groupings, grouped, strict=True):
+            accumulated = {name: _reduce_sum(self.accelerator, values) for name, values in accumulated.items()}
+            for g, group_name in enumerate(names):
+                self.log_eval_terms(
+                    eval_metrics,
+                    {
+                        name: values[g]
+                        for name, values in accumulated.items()
+                    },
+                    weights,
+                    f"/{prefix}{group_name}",
+                )
+
         eval_metrics.update(self.eval_statistics_metrics({
             name: _reduce_sum(self.accelerator, value)
             for name, value in statistics.items()
@@ -468,6 +542,23 @@ D: Dataset = Dataset,
         self.metrics.batch_metrics(eval_metrics, self.train_state.global_step)
 
         return avg_loss
+
+    def log_eval_terms(
+            self,
+            metrics: MetricDict,
+            totals: Mapping[str, torch.Tensor],
+            weights: Mapping[str, float],
+            suffix: str,
+    ) -> torch.Tensor:
+        """Logs the weighted total and every component for one group of rows; skips terms the group never had."""
+        values = {name: sums_counts[0] / sums_counts[1] for name, sums_counts in totals.items() if sums_counts[1] > 0}
+        if not values:
+            return torch.tensor(float("nan"))
+
+        total = torch.stack([weights[name] * value for name, value in values.items()]).sum()
+        metrics.add_metric(ScalarMetricEntry(tag=f"eval/loss{suffix}", scalar=total.item()))
+        metrics.update(self.term_metrics("eval", values, suffix))
+        return total
 
     def backward_and_step(self, loss: torch.Tensor) -> MetricDict | None:
         """Clips grads and performs all optimizer steps. Returns grad metrics from before zeroing."""
@@ -563,15 +654,16 @@ D: Dataset = Dataset,
         """Allows for overriding to implement the real eval forward pass for the training model."""
         ...
 
-    def eval_group_names(self) -> list[str]:
-        """Allows for overriding to return the list of eval dataset sources."""
-        return []
+    def eval_groupings(self) -> list[tuple[str, list[str]]]:
+        """(tag prefix, group names) for every way eval rows are grouped; by default, one group per eval source."""
+        return [("", [source.name for source in self.config.mixture_config.eval_sources])]
 
-    def eval_group_totals(
-            self, batch: Mapping[str, Any], output: StepOutput
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
-        """Allows for overriding to return the number of examples in a provided batch belonging to each source."""
-        return None
+    def eval_group_ids(self, batch: Mapping[str, Any]) -> list[torch.Tensor] | None:
+        """Each row's group under every grouping, in ``eval_groupings`` order; None when the batch can't be grouped."""
+        if "source_ids" not in batch:
+            return None
+
+        return [batch["source_ids"]]
 
     def eval_statistics(self) -> dict[str, torch.Tensor]:
         """Allows for overriding to initialize metrics to log under eval."""
@@ -586,13 +678,6 @@ D: Dataset = Dataset,
     def eval_statistics_metrics(self, statistics: dict[str, torch.Tensor]) -> MetricDict:
         """Collects eval statistics and converts them to a ``MetricDict`` for logging."""
         return MetricDict()
-
-    def eval_token_count(self, batch: Mapping[str, Any]) -> int:
-        """Allows for overriding to return the number of tokens in a provided eval batch.
-
-        Default implementation assumes the loss already reduces by token count.
-        """
-        return 1
 
     def train_batch_size(self, batch: Mapping[str, Any]) -> int:
         """Allows for overriding to determine the real batch size for a given train batch."""
@@ -731,8 +816,9 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
                 f"and types {[type(v) for v in batch.values()]}"
             )
             raise
+
         try:
-            loss = self.criterion(model_output, **batch)
+            terms = self.criterion.loss_terms(model_output, **batch)
         except:
             self.log.error(
                 f"Criterion forward failed with type(model_outputs)={type(model_output)}, "
@@ -740,7 +826,22 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
                 f"types={[type(v) for v in batch.values()]}"
             )
             raise
-        return StepOutput(loss=loss, metrics=model_output.metrics)
+
+        return self.step_output(model_output, terms)
+
+    @staticmethod
+    def step_output(model_output: LarryModelOutput, terms: dict[str, LossTerm]) -> StepOutput:
+        """The loss is the weighted total of the criterion's terms; the terms ride along for logging."""
+        return StepOutput(
+            loss=weighted_total(terms),
+            metrics=model_output.metrics or MetricDict(),
+            terms=terms,
+            model_output=model_output,
+        )
+
+    def update_provenance(self, provenance: Provenance) -> None:
+        for source in self.config.mixture_config.train_sources:
+            provenance.ancestry.datasets.add(source.provenance_name or source.index_path)
 
     @abstractmethod
     def make_train_sampler(self, dataset: D, weights: list[float]) -> Sampler:
@@ -752,10 +853,5 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
 
     @abstractmethod
     def make_criterion(self) -> criterion.Criterion:
-        """Forces implementation to create the criterion for subclasses of this base trainer class."""
-        ...
-
-    @abstractmethod
-    def update_provenance(self, provenance: Provenance) -> None:
         """Forces implementation to create the criterion for subclasses of this base trainer class."""
         ...

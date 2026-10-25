@@ -4,14 +4,13 @@ import torch
 import torch.nn.functional as F
 
 from larry.common.config.criteria.criterion_configs import CriterionConfig
-from larry.common.criteria.criterion import Criterion
+from larry.common.criteria.criterion import LossTerm, TermCriterion
 from larry.common.criteria.flow_matching import ConditionalFlowMatchingCriterion
-from larry.common.metrics.metrics import AggregateMetricEntry, MetricDict
 from larry.multimodal.config.criterion.criterion_configs import LarryMultimodalCriterionConfig
 from larry.multimodal.model.multimodal_model import LarryMultimodalModelOutput
 
 
-class LarryMultimodalCriterion(Criterion[LarryMultimodalModelOutput, LarryMultimodalCriterionConfig]):
+class LarryMultimodalCriterion(TermCriterion[LarryMultimodalModelOutput, LarryMultimodalCriterionConfig]):
     def __init__(self, config: LarryMultimodalCriterionConfig) -> None:
         super().__init__(config)
         self.flow = ConditionalFlowMatchingCriterion(CriterionConfig())
@@ -23,63 +22,83 @@ class LarryMultimodalCriterion(Criterion[LarryMultimodalModelOutput, LarryMultim
         shifted[:, :-1] = loss_mask[:, 1:]
         return shifted
 
-    def text_loss(self, model_output: LarryMultimodalModelOutput, in_loss: torch.Tensor) -> torch.Tensor | None:
-        targets = model_output.text_targets.masked_fill(~in_loss[model_output.text_route], -100)
-        if not (targets >= 0).any():
-            return None
+    @staticmethod
+    def per_row(rows: torch.Tensor, values: torch.Tensor, n_rows: int) -> torch.Tensor:
+        # routed positions are flattened row-major; fold their values back into one total per batch row
+        return values.new_zeros(n_rows).index_add_(0, rows, values)
 
-        return F.cross_entropy(
-            model_output.logits.float(), targets, ignore_index=-100, label_smoothing=self.config.text_label_smoothing
-        )
+    def token_term(
+            self,
+            weight: float,
+            logits: torch.Tensor | None,
+            targets: torch.Tensor | None,
+            route: torch.Tensor,
+            in_loss: torch.Tensor,
+            label_smoothing: float,
+    ) -> LossTerm:
+        n_rows = route.shape[0]
+        if logits is None or targets is None:
+            zeros = torch.zeros(n_rows, device=route.device)
+            return LossTerm(weight=weight, sums=zeros, counts=zeros.clone())
 
-    def voice_loss(self, model_output: LarryMultimodalModelOutput, in_loss: torch.Tensor) -> torch.Tensor | None:
-        if model_output.voice_logits is None or model_output.voice_targets is None:
-            return None
-
-        # (n, k) group targets, already -100 after <eov>; positions out of the loss drop the whole group
-        targets = model_output.voice_targets.masked_fill(~in_loss[model_output.voice_route][:, None], -100)
-        if not (targets >= 0).any():
-            return None
-
-        return F.cross_entropy(
-            model_output.voice_logits.flatten(0, 1).float(),
+        # (n,) or (n, k) targets; a position out of the loss drops every target it predicts
+        position_in_loss = in_loss[route].view(-1, *([1] * (targets.dim() - 1)))
+        targets = targets.masked_fill(~position_in_loss, -100)
+        losses = F.cross_entropy(
+            logits.flatten(0, targets.dim() - 1).float(),
             targets.flatten(),
             ignore_index=-100,
-            label_smoothing=self.config.voice_label_smoothing,
+            reduction="none",
+            label_smoothing=label_smoothing,
+        ).view(targets.shape)
+
+        valid = (targets >= 0).float()
+        if targets.dim() > 1:
+            losses, valid = losses.sum(dim=1), valid.sum(dim=1)
+
+        rows = route.nonzero()[:, 0]
+
+        # averaged over every trained token in the batch
+        return LossTerm(weight=weight, sums=self.per_row(rows, losses, n_rows),
+                        counts=self.per_row(rows, valid, n_rows))
+
+    def text_term(self, model_output: LarryMultimodalModelOutput, in_loss: torch.Tensor) -> LossTerm:
+        return self.token_term(
+            self.config.text_weight, model_output.logits, model_output.text_targets, model_output.text_route, in_loss,
+            self.config.text_label_smoothing,
         )
 
-    def image_loss(self, model_output: LarryMultimodalModelOutput) -> torch.Tensor | None:
-        if model_output.image_flow is None:
-            return None
+    def voice_term(self, model_output: LarryMultimodalModelOutput, in_loss: torch.Tensor) -> LossTerm:
+        return self.token_term(
+            self.config.voice_weight, model_output.voice_logits, model_output.voice_targets, model_output.voice_route,
+            in_loss, self.config.voice_label_smoothing,
+        )
 
-        return self.flow.flow_loss(model_output.image_flow)
+    def image_term(self, model_output: LarryMultimodalModelOutput) -> LossTerm:
+        n_rows = model_output.image_route.shape[0]
+        sums = torch.zeros(n_rows, device=model_output.image_route.device)
+        counts = sums.clone()
+        if model_output.image_flow is not None:
+            # one flow value per generated image, in the order of the rows that hold one
+            rows = model_output.image_route.any(dim=1).nonzero()[:, 0]
+            term = self.flow.flow_term(model_output.image_flow)
+            sums = self.per_row(rows, term.sums.float(), n_rows)
+            counts = self.per_row(rows, term.counts.float(), n_rows)
 
-    def forward(
+        return LossTerm(weight=self.config.image_weight, sums=sums, counts=counts)
+
+    def loss_terms(
             self,
             model_output: LarryMultimodalModelOutput,
             loss_mask: torch.Tensor | None = None,
             **batch_kwargs: Any,
-    ) -> torch.Tensor:
+    ) -> dict[str, LossTerm]:
         if loss_mask is None:
             raise ValueError("the multimodal criterion needs the collator's loss_mask")
 
         in_loss = self.next_in_loss(loss_mask.to(model_output.text_route.device))
-        losses = {
-            "text": (self.config.text_weight, self.text_loss(model_output, in_loss)),
-            "voice": (self.config.voice_weight, self.voice_loss(model_output, in_loss)),
-            "image": (self.config.image_weight, self.image_loss(model_output)),
+        return {
+            "text": self.text_term(model_output, in_loss),
+            "voice": self.voice_term(model_output, in_loss),
+            "image": self.image_term(model_output),
         }
-
-        # eval runs without grad; keeps train and eval curves under separate tags
-        split = "train" if torch.is_grad_enabled() else "eval"
-        metrics = model_output.metrics if model_output.metrics is not None else MetricDict()
-        total = model_output.logits.new_zeros(())
-        for name, (weight, loss) in losses.items():
-            if loss is None:
-                continue
-
-            total = total + weight * loss
-            metrics.add_metric(AggregateMetricEntry(tag=f"{split}/loss/{name}", total=float(loss.detach()), n_items=1))
-
-        model_output.metrics = metrics
-        return total

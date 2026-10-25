@@ -2,6 +2,7 @@ from typing import Any
 
 import torch
 
+from larry.common.criteria.criterion import LossTerm
 from larry.common.criteria.flow_matching import ConditionalFlowMatchingCriterion
 from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig
 from larry.voice.model.voice_models import SpeechDecoderModelOutput
@@ -14,19 +15,25 @@ class SpeechDecoderCriterion(ConditionalFlowMatchingCriterion[SpeechDecoderModel
 
         return self.config.kl_weight * min(1.0, step / self.config.kl_warmup_steps)
 
-    def prior_loss(self, model_output: SpeechDecoderModelOutput) -> torch.Tensor:
+    def prior_term(self, model_output: SpeechDecoderModelOutput) -> LossTerm:
         mask = model_output.frame_mask.unsqueeze(1)
         squared = (model_output.prior - model_output.prior_targets).square() * mask
-        return squared.sum() / (mask.sum() * model_output.prior.shape[1]).clamp(min=1)
+        # averaged over every valid frame and mel bin in the batch
+        counts = mask.sum(dim=(1, 2)) * model_output.prior.shape[1]
+        return LossTerm(weight=self.config.prior_weight, sums=squared.sum(dim=(1, 2)), counts=counts)
 
-    def forward(
+    def prior_loss(self, model_output: SpeechDecoderModelOutput) -> torch.Tensor:
+        return self.prior_term(model_output).value
+
+    def loss_terms(
             self,
             model_output: SpeechDecoderModelOutput,
             step: int | None = None,
             **batch_kwargs: Any,
-    ) -> torch.Tensor:
-        return (
-            self.flow_loss(model_output)
-            + self.config.prior_weight * self.prior_loss(model_output)
-            + self.kl_scale(step) * model_output.kl.mean()
-        )
+    ) -> dict[str, LossTerm]:
+        kl = model_output.kl
+        return {
+            "flow": self.flow_term(model_output),
+            "prior": self.prior_term(model_output),
+            "kl": LossTerm(weight=self.kl_scale(step), sums=kl, counts=torch.ones_like(kl)),
+        }

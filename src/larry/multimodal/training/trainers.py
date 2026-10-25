@@ -10,14 +10,13 @@ from datasets import Dataset as HFDataset
 from huggingface_hub import hf_hub_download
 from torch import nn
 
-from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.model.model_configs import ModelConfig
 from larry.common.criteria.criterion import Criterion
 from larry.common.data.dataloading.weighted_batch_sampler import (
     LengthBucketingWeightedBatchSampler,
     WeightedBatchSampler,
+    length_batches,
 )
-from larry.common.metrics.metrics import MetricDict
 from larry.common.training.trainers import MODEL_CONFIG_FILE, LarryTrainer, StepOutput
 from larry.common.training.viz_callbacks import VizCallback
 from larry.multimodal.config.data.data_configs import MultimodalSourceConfig
@@ -30,6 +29,7 @@ from larry.multimodal.data.dataloading.dataloading import PretrainingMultimodalC
 from larry.multimodal.data.dataloading.indexed_multimodal_dataset import IndexedMultimodalDataset
 from larry.multimodal.model.multimodal_model import LarryMultimodalModel, LarryMultimodalModelOutput
 from larry.multimodal.processor.processor import LarryMultimodalPretrainProcessor
+from larry.multimodal.training.multimodal_viz_callbacks import MultimodalVizCallbacks
 
 MODEL_KEYS = (
     "input_ids", "modality_ids", "input_lengths", "voice_unit_ids", "voice_unit_id_lengths", "images", "image_sizes",
@@ -137,11 +137,7 @@ class LarryMultimodalTrainer(
         # shortest first, under the same padded token budget as training
         _, lengths = dataset.source_ids_and_lengths()
         rows = torch.argsort(lengths).tolist()
-        return LengthBucketingWeightedBatchSampler.padded_batches(
-            rows,
-            lengths,
-            self.config.mixture_config.max_batch_tokens,
-        )
+        return length_batches(rows, lengths, self.config.mixture_config.max_batch_tokens)
 
     def make_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
         return PretrainingMultimodalCollator(
@@ -152,25 +148,39 @@ class LarryMultimodalTrainer(
         return LarryMultimodalCriterion(self.config.criterion)
 
     def make_viz_callback(self, viz_steps: int) -> VizCallback:
-        raise NotImplementedError("the multimodal viz callback isn't implemented yet; leave viz_steps unset")
+        # one callback per task the eval mixture holds
+        return MultimodalVizCallbacks(self, viz_steps, self.config.viz)
 
     def model_forward(self, batch: Mapping[str, Any]) -> LarryMultimodalModelOutput:
         return self.model(**{key: batch[key] for key in MODEL_KEYS}, is_synthesis=batch["is_synthesis_mask"])
 
     def _forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
         output = self.model_forward(batch)
-        loss = self.criterion(output, loss_mask=batch["loss_mask"])
-        return StepOutput(loss=loss, metrics=output.metrics or MetricDict(), model_output=output)
+        return self.step_output(output, self.criterion.loss_terms(output, loss_mask=batch["loss_mask"]))
 
-    def eval_forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
-        return self._forward_pass(batch)
+    @functools.cached_property
+    def eval_tasks(self) -> list[str]:
+        return sorted({
+            source.task
+            for source in self.config.mixture_config.eval_sources
+        })
+
+    @functools.cached_property
+    def eval_source_tasks(self) -> torch.Tensor:
+        # each eval source's index into eval_tasks
+        tasks = [self.eval_tasks.index(source.task) for source in self.config.mixture_config.eval_sources]
+        return torch.tensor(tasks, dtype=torch.long, device=self.accelerator.device)
+
+    def eval_groupings(self) -> list[tuple[str, list[str]]]:
+        # per source, then per task across every source that holds it
+        return [*super().eval_groupings(), ("task/", self.eval_tasks)]
+
+    def eval_group_ids(self, batch: Mapping[str, Any]) -> list[torch.Tensor] | None:
+        source_ids = batch["source_ids"].to(self.accelerator.device)
+        return [source_ids, self.eval_source_tasks[source_ids]]
 
     def count_tokens(self, batch: Mapping[str, Any]) -> None:
         self._pending_tokens += int(batch["input_lengths"].sum())
-
-    def update_provenance(self, provenance: Provenance) -> None:
-        for source in self.config.mixture_config.train_sources:
-            provenance.ancestry.datasets.add(source.provenance_name or source.index_path)
 
     def save(self, step: int) -> None:
         super().save(step)

@@ -1,4 +1,3 @@
-import itertools
 import textwrap
 from abc import ABC, abstractmethod
 from typing import Any, cast
@@ -8,6 +7,8 @@ import torchaudio.functional as AF
 from matplotlib.figure import Figure
 
 import larry.common.training.trainers as trainers
+from larry.common.model.masks import make_non_pad_mask
+from larry.common.training.viz_callbacks import pick_rows
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.model.voice_model_configs import SpeechEncoderDecoderModelConfig
 from larry.voice.data.dataloading.voice_dataloading import WaveformCollator
@@ -15,17 +16,7 @@ from larry.voice.model.speech_decoder import SpeechDecoderModel
 from larry.voice.model.speech_encoder import SpeechEncoderModel, SpeechEncoderPreBottleneck
 from larry.voice.model.vocoder import LarryVocoder, LarryVocoderGeneration
 from larry.voice.training import voice_trainers
-from larry.voice.utils import collapse_ctc_emissions, make_non_pad_mask
-
-
-def pick_rows(offsets: list[int], per_source: int) -> list[int]:
-    """Picks the same rows from each dataset source for visualization."""
-    rows: list[int] = []
-    for start, end in itertools.pairwise(offsets):
-        span = end - start
-        rows += sorted({start + (j * span) // per_source for j in range(min(per_source, span))})
-
-    return rows
+from larry.voice.utils import collapse_ctc_emissions
 
 
 class VoiceVizCallback(trainers.VizCallback, ABC):

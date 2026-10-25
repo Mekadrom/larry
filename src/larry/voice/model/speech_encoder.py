@@ -10,11 +10,11 @@ from larry.common.config.model.model_configs import FSMNAttentionConfig
 from larry.common.model.attention import FSMNAttention
 from larry.common.model.init import WeightInitializer
 from larry.common.model.llm import LarrySimpleEncoderBlock
+from larry.common.model.masks import make_non_pad_mask
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.model.fsq import FSQ
 from larry.voice.model.voice_models import SpeechEncoderModelOutput, VoiceModel
 from larry.voice.model.voice_modules import ASRLogMelFrontend
-from larry.voice.utils import make_non_pad_mask
 
 
 class SpeechEncoderEncoderBlock(nn.Module):

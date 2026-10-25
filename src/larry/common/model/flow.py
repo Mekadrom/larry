@@ -39,16 +39,17 @@ class ConditionalFlowMatching:
         self.t_sampling = config.t_sampling
         self.t_mean = config.t_mean
         self.t_std = config.t_std
+        self.noise_generator: torch.Generator | None = None
 
-    def sample_t(self, n: int, device: torch.device) -> torch.Tensor:
+    def sample_t(self, n: int, device: torch.device, generator: torch.Generator | None = None) -> torch.Tensor:
         if self.t_sampling == "logit_normal":
-            return torch.sigmoid(torch.randn(n, device=device) * self.t_std + self.t_mean)
+            return torch.sigmoid(torch.randn(n, device=device, generator=generator) * self.t_std + self.t_mean)
 
-        return torch.rand(n, device=device)
+        return torch.rand(n, device=device, generator=generator)
 
     def path(self, x1: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        t = self.sample_t(x1.shape[0], x1.device)
-        x0 = torch.randn_like(x1)
+        t = self.sample_t(x1.shape[0], x1.device, self.noise_generator)
+        x0 = torch.randn(x1.shape, device=x1.device, dtype=x1.dtype, generator=self.noise_generator)
         tb = t.view(-1, *([1] * (x1.dim() - 1)))
         xt = (1 - (1 - self.sigma_min) * tb) * x0 + tb * x1
         return xt, t, x1 - (1 - self.sigma_min) * x0

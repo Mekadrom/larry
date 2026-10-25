@@ -25,15 +25,20 @@ class TTSSourceConfig(SpeechSourceConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
-class VocoderMixtureConfig(DatasetMixtureConfig[SpeechSourceConfig], SampleRateConfig):
+class SpeechMixtureConfig[T: SpeechSourceConfig = SpeechSourceConfig](DatasetMixtureConfig[T], SampleRateConfig):
+    """A mixture of speech sources, all resampled to one sample rate."""
+
+
+@dataclasses.dataclass(kw_only=True)
+class VocoderMixtureConfig(SpeechMixtureConfig[SpeechSourceConfig]):
     ...
 
 
 @dataclasses.dataclass(kw_only=True)
-class ASRMixtureConfig(DatasetMixtureConfig[ASRSourceConfig], SampleRateConfig):
+class ASRMixtureConfig(SpeechMixtureConfig[ASRSourceConfig]):
     """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""
 
 
 @dataclasses.dataclass(kw_only=True)
-class TTSMixtureConfig(DatasetMixtureConfig[TTSSourceConfig], SampleRateConfig):
+class TTSMixtureConfig(SpeechMixtureConfig[TTSSourceConfig]):
     """A config dataclass for defining the entire training and eval mixture of dataset sources and batch hyperparams."""

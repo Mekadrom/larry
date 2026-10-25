@@ -7,7 +7,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset, Subset
 
 from larry.common.config.training.trainer_configs import LarryTrainerConfig
-from larry.voice.config.training.voice_trainer_configs import SpeakerLeakageProbesConfig, SpeechEncoderTrainerConfig
+from larry.voice.config.training.voice_trainer_configs import SpeakerLeakageProbesConfig
 from larry.voice.model.speech_encoder import SpeechEncoderModel
 from larry.voice.training.voice_callbacks import PooledActivations, SpeakerLeakageProbesCallback
 from larry.voice.training.voice_trainers import SpeechEncoderTrainer

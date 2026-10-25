@@ -7,6 +7,22 @@ import torch
 from larry.common.data.dataloading.samplers import ResumableBatchSampler
 
 
+def length_batches(rows: list[int], lengths: torch.Tensor, max_batch_length: float) -> list[list[int]]:
+    batches: list[list[int]] = []
+    batch: list[int] = []
+    for row in rows:
+        if batch and (len(batch) + 1) * float(lengths[row]) > max_batch_length:
+            batches.append(batch)
+            batch = []
+
+        batch.append(row)
+
+    if batch:
+        batches.append(batch)
+
+    return batches
+
+
 class WeightedBatchSampler(ResumableBatchSampler, ABC):
     def __init__(
             self,
@@ -190,21 +206,4 @@ class LengthBucketingWeightedBatchSampler(WeightedBatchSampler):
         return pool[torch.argsort(self.lengths[pool])]
 
     def make_batches(self, pool: torch.Tensor) -> list[list[int]]:
-        return self.padded_batches(pool.tolist(), self.lengths, self.max_batch_length)
-
-    @staticmethod
-    def padded_batches(rows: list[int], lengths: torch.Tensor, max_batch_length: float) -> list[list[int]]:
-        # rows ascend by length, so each new row is the longest so far and sets the padded size
-        batches: list[list[int]] = []
-        batch: list[int] = []
-        for row in rows:
-            if batch and (len(batch) + 1) * float(lengths[row]) > max_batch_length:
-                batches.append(batch)
-                batch = []
-
-            batch.append(row)
-
-        if batch:
-            batches.append(batch)
-
-        return batches
+        return length_batches(pool.tolist(), self.lengths, self.max_batch_length)

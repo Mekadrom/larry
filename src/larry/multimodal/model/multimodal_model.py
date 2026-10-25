@@ -14,6 +14,7 @@ from larry.common.model.flow import ConditionalFlowMatching, LarryFlowMatchingOu
 from larry.common.model.init import WeightInitializer
 from larry.common.model.kv_cache import KVCache, LarryMultimodalModelKVCache
 from larry.common.model.llm import LarryConditionalEncoderBlock, LarrySimpleEncoderBlock
+from larry.common.model.masks import make_non_pad_mask
 from larry.common.model.norms import AdaLayerNorm
 from larry.common.model.recurrent import LarryRecurrentTrunk
 from larry.common.training.training_model import LarryModel
@@ -494,9 +495,8 @@ class LarryMultimodalModel(LarryModel[LarryMultimodalModelConfig], PyTorchModelH
         if input_lengths is None:
             return torch.ones_like(input_ids, dtype=torch.bool)
 
-        positions = torch.arange(input_ids.shape[1], device=input_ids.device)
         # (B, T) True for real tokens, False for padding
-        return positions[None, :] < input_lengths[:, None].to(input_ids.device)
+        return make_non_pad_mask(input_lengths.to(input_ids.device), input_ids.shape[1])
 
     @staticmethod
     def run_index(mask: torch.Tensor) -> torch.Tensor:
@@ -551,8 +551,7 @@ class LarryMultimodalModel(LarryModel[LarryMultimodalModelConfig], PyTorchModelH
         batch_size, n_units = voice_unit_ids.shape
         n_groups = math.ceil(n_units / k)
         unit_ids = F.pad(voice_unit_ids, (0, n_groups * k - n_units))
-        positions = torch.arange(n_groups * k, device=voice_unit_ids.device)
-        unit_valid = positions[None, :] < voice_unit_id_lengths[:, None].to(voice_unit_ids.device)
+        unit_valid = make_non_pad_mask(voice_unit_id_lengths.to(voice_unit_ids.device), n_groups * k)
         return VoiceGroups(
             unit_ids=unit_ids.view(batch_size, n_groups, k),
             unit_valid=unit_valid.view(batch_size, n_groups, k),

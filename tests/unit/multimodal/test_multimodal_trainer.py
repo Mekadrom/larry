@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 
@@ -183,3 +184,46 @@ def test_ranks_whose_batches_skip_a_modality_still_train_together(
     write_sources(tmp_path / "data", ["text_voice", "text_only"])
 
     spawn_launcher(_train_on_two_processes, args=(collator.config.processor_model_path, str(tmp_path)))
+
+
+def test_eval_logs_the_loss_and_each_head_per_source_and_per_task(
+        collator: PretrainingMultimodalCollator, tmp_path: Path,
+) -> None:
+    trainer = _trainer(collator, tmp_path, ALL_TASKS)
+
+    overall = trainer.evaluate()
+
+    scalars = trainer.metrics.scalars
+    assert np.isfinite(float(overall)) and scalars["eval/loss"] == pytest.approx(float(overall))
+    for task in ALL_TASKS:
+        assert np.isfinite(scalars[f"eval/loss/task/{task}"]), task
+        assert np.isfinite(scalars[f"eval/loss/{task}"]), task
+    assert {"eval/text", "eval/voice", "eval/image"} <= set(scalars)
+    assert "eval/voice/task/text_voice" in scalars and "eval/voice/task/voice_text" not in scalars
+    assert "eval/image/task/text_image" in scalars and "eval/image/task/image_text" not in scalars
+    weights = trainer.config.criterion
+    assert scalars["eval/loss/task/text_voice"] == pytest.approx(
+        weights.text_weight * scalars["eval/text/task/text_voice"]
+        + weights.voice_weight * scalars["eval/voice/task/text_voice"], rel=1e-5,
+    )
+
+
+def test_eval_flow_noise_is_fixed_across_evals(collator: PretrainingMultimodalCollator, tmp_path: Path) -> None:
+    trainer = _trainer(collator, tmp_path, ["text_image"])
+
+    first = float(trainer.evaluate())
+    first_image = trainer.metrics.scalars["eval/image"]
+    torch.randn(100)
+    second = float(trainer.evaluate())
+
+    assert second == first
+    assert trainer.metrics.scalars["eval/image"] == first_image
+    assert trainer.flow_matchers() and all(flow.noise_generator is None for flow in trainer.flow_matchers())
+
+
+def test_training_logs_each_head_beside_the_total(collator: PretrainingMultimodalCollator, tmp_path: Path) -> None:
+    trainer = _trainer(collator, tmp_path, ALL_TASKS, max_steps=1)
+
+    trainer.run()
+
+    assert {"train/loss", "train/text", "train/voice", "train/image"} <= set(trainer.metrics.scalars)

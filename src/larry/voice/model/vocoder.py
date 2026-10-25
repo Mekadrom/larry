@@ -6,12 +6,12 @@ from torch import nn
 
 from larry.common.model.flow import ConditionalFlowMatching, LarryFlowMatchingOutput, TimestepEmbedding
 from larry.common.model.init import WeightInitializer
+from larry.common.model.masks import make_non_pad_mask
 from larry.common.model.norms import AdaLayerNorm, AdaLayerNormZero
 from larry.common.training.training_model import GenerationOutput
 from larry.voice.config.model.voice_model_configs import LarryVocoderConfig
 from larry.voice.model.voice_models import VoiceModel
 from larry.voice.model.voice_modules import TTSLogMelFrontend
-from larry.voice.utils import make_non_pad_mask
 
 
 @dataclasses.dataclass(kw_only=True)

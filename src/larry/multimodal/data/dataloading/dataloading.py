@@ -3,6 +3,7 @@ from typing import Any, Literal
 import torch
 from torch.nn.utils.rnn import pad_sequence
 
+from larry.image.utils import pad_images
 from larry.multimodal.config.data.dataloading.dataloading_configs import (
     InferenceMultimodalCollatorConfig,
     PretrainingMultimodalCollatorConfig,
@@ -41,14 +42,6 @@ class MultimodalCollator:
             else:
                 image_sizes.append((0, 0))
 
-        # images are (C, H, W) pixels or VAE latents
-        max_w = max(w for w, _ in image_sizes)
-        max_h = max(h for _, h in image_sizes)
-        channels = max(image.shape[0] for image in images)
-        padded_images = torch.zeros(len(rows), channels, max_h, max_w)
-        for i, image in enumerate(images):
-            padded_images[i, :image.shape[0], :image.shape[1], :image.shape[2]] = image
-
         input_ids = [torch.tensor(row.input_ids, dtype=torch.long) for row in rows]
         batch = {
             "input_ids": pad_sequence(input_ids, batch_first=True),
@@ -59,7 +52,8 @@ class MultimodalCollator:
             ], batch_first=True),
             "voice_unit_ids": pad_sequence(voice_unit_ids, batch_first=True),
             "voice_unit_id_lengths": torch.tensor([len(units) for units in voice_unit_ids]),
-            "images": padded_images,
+            # (C, H, W) pixels or VAE latents
+            "images": pad_images(images),
             "image_sizes": torch.tensor(image_sizes, dtype=torch.long),
         }
         if all(row.loss_mask is not None for row in rows):

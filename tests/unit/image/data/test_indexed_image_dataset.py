@@ -82,3 +82,16 @@ def test_the_collator_stacks_crops_and_sources(tmp_path: Path) -> None:
 
     assert batch["images"].shape == (3, 3, 32, 32)
     assert batch["source_ids"].tolist() == [0, 0, 0]
+
+
+def test_pad_images_pads_every_dimension_to_the_batch_largest() -> None:
+    from larry.image.utils import pad_images
+
+    small, wide = torch.ones(3, 2, 2), torch.full((4, 1, 5), 2.0)
+
+    padded = pad_images([small, wide, torch.zeros(0, 0, 0)])
+
+    assert padded.shape == (3, 4, 2, 5)
+    assert torch.equal(padded[0, :3, :2, :2], small) and not padded[0, 3:].any() and not padded[0, :, :, 2:].any()
+    assert torch.equal(padded[1, :, :1], wide) and not padded[1, :, 1:].any()
+    assert not padded[2].any()

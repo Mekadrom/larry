@@ -75,8 +75,6 @@ class IndexedASRDataset(IndexedSpeechDataset[ASRSourceConfig]):
     ) -> None:
         super().__init__(configs, indexes, sources, sample_rate)
         self.speed_factors = speed_factors
-        self.seed = seed
-        self.process_index = process_index
         self.random = WorkerRandom(seed, process_index)
 
     def format_example_dict(self, source_idx: int, entry: dict[Any, Any], data: Any) -> dict[str, Any]:

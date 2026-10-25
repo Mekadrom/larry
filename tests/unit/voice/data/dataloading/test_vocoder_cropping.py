@@ -188,11 +188,10 @@ def test_trainer_eval_batches_cover_every_clip_once() -> None:
     assert sorted(r for b in batches for r in b) == list(range(len(durations)))
 
 
-def test_vocoder_eval_losses_are_grouped_by_source() -> None:
+def test_vocoder_flow_loss_is_one_term_per_row_grouped_by_source() -> None:
     from larry.common.config.criteria.criterion_configs import CriterionConfig
     from larry.common.criteria.flow_matching import ConditionalFlowMatchingCriterion
     from larry.common.model.flow import LarryFlowMatchingOutput
-    from larry.common.training.trainers import StepOutput
 
     trainer = uninitialized(
         VocoderTrainer,
@@ -203,14 +202,11 @@ def test_vocoder_eval_losses_are_grouped_by_source() -> None:
     )
     mask = torch.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
     output = LarryFlowMatchingOutput(logits=torch.ones(2, 4, 3), targets=torch.zeros(2, 4, 3), mask=mask)
-    sample_losses = trainer.criterion.sample_losses(output, output.targets)
 
-    groups = trainer.eval_group_totals(
-        {"source_ids": torch.tensor([1, 0])},
-        StepOutput(loss=torch.tensor(1.0), metrics=None, sample_losses=sample_losses, model_output=output),
-    )
+    terms = trainer.criterion.loss_terms(output)
 
-    assert trainer.eval_group_names() == ["a", "b"]
-    assert groups[0].tolist() == [1, 0]
-    assert groups[1].tolist() == [8.0, 4.0]
-    assert groups[2].tolist() == [8.0, 4.0]
+    assert list(terms) == ["flow"]
+    # every valid element is off by 1, so each row's mean squared error is 1 however many frames it has
+    assert terms["flow"].sums.tolist() == [1.0, 1.0] and terms["flow"].counts.tolist() == [1.0, 1.0]
+    assert trainer.eval_groupings() == [("", ["a", "b"])]
+    assert [ids.tolist() for ids in trainer.eval_group_ids({"source_ids": torch.tensor([1, 0])})] == [[1, 0]]

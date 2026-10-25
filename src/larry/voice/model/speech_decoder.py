@@ -8,12 +8,12 @@ from larry.common.config.model.model_configs import LarryConditionalEncoderBlock
 from larry.common.model.flow import ConditionalFlowMatching, TimestepEmbedding
 from larry.common.model.init import WeightInitializer
 from larry.common.model.llm import LarryConditionalEncoderBlock, LarrySimpleEncoderBlock
+from larry.common.model.masks import make_non_pad_mask
 from larry.common.model.norms import AdaLayerNorm
 from larry.common.training.training_model import GenerationOutput
 from larry.voice.config.model.voice_model_configs import SpeechDecoderModelConfig
 from larry.voice.model.voice_models import SpeechDecoderModelOutput, VoiceModel
 from larry.voice.model.voice_modules import TTSLogMelFrontend
-from larry.voice.utils import make_non_pad_mask
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -32,7 +32,8 @@ class SpeakerLatentEmbeddings(nn.Module):
     def forward(self, speaker_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         mu = self.mean_embedding(speaker_ids)
         logvar = self.logvar_embedding(speaker_ids)
-        z = self._reparameterize(mu, logvar)
+        # sampled while training; the mean at eval, so eval losses don't depend on the draw
+        z = self._reparameterize(mu, logvar) if self.training else mu
         return z, mu, logvar
 
     @staticmethod
@@ -134,11 +135,13 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
         return mels * self.config.mel_std + self.config.mel_mean
 
     def infill_mask(self, lengths: torch.Tensor, frames: int) -> torch.Tensor:
+        generator = self.noise_generator
         fraction = torch.empty(len(lengths), device=lengths.device).uniform_(
-            self.config.infill_min_fraction, self.config.infill_max_fraction
+            self.config.infill_min_fraction, self.config.infill_max_fraction, generator=generator
         )
         span = (lengths.float() * fraction).long().clamp(min=1)
-        start = (torch.rand(len(lengths), device=lengths.device) * (lengths - span + 1).clamp(min=1).float()).long()
+        offsets = torch.rand(len(lengths), device=lengths.device, generator=generator)
+        start = (offsets * (lengths - span + 1).clamp(min=1).float()).long()
         positions = torch.arange(frames, device=lengths.device)[None]
         return (positions >= start[:, None]) & (positions < (start + span)[:, None])
 

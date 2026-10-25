@@ -53,7 +53,7 @@ def test_viz_logs_audio_once_and_alignments_for_every_example_each_time(tmp_path
         make_collate_fn=lambda: SpeechCTCCollator(tokenizer),
         _model=model,
         tokenizer=tokenizer,
-        model_config=model.config,
+        unwrapped_model=model,
         _config=SimpleNamespace(mixture_config=SimpleNamespace(eval_sources=[toy_source()], sample_rate=16000)),
         metrics=metrics,
     )

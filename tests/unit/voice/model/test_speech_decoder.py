@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 import torch
 
@@ -266,3 +268,18 @@ def test_generation_without_speaker_ids_uses_the_null_speaker() -> None:
     out = model.generate(batch["unit_ids"], batch["unit_id_lengths"], None, steps=2, sway_coefficient=-1.0)
 
     assert torch.isfinite(out.mels).all()
+
+
+def test_an_eval_forward_repeats_exactly_under_a_fixed_noise_generator() -> None:
+    model = _model(infill_enabled=True).eval()
+
+    def run() -> Any:
+        model.noise_generator = torch.Generator().manual_seed(0)
+        return model(**_batch())
+
+    first, second = run(), run()
+
+    assert torch.equal(first.targets, second.targets)
+    assert torch.equal(first.mask, second.mask)
+    assert torch.equal(first.logits, second.logits)
+    assert torch.equal(first.speaker_embeddings, first.speaker_mus)

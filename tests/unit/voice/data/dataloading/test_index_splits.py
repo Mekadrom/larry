@@ -3,9 +3,8 @@ from pathlib import Path
 import datasets.config
 import pytest
 
+from larry.common.data.dataloading.indexed_dataset import index_split_files, load_index
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
-from larry.common.data.dataloading.indexed_dataset import index_split_files
-from larry.common.data.dataloading.indexed_dataset import load_index
 from tests.helpers.common import write_parquet_splits
 
 SPLITS = {

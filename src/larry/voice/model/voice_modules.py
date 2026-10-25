@@ -4,7 +4,7 @@ import torch
 import torchaudio
 from torch import nn
 
-from larry.voice.utils import make_non_pad_mask
+from larry.common.model.masks import make_non_pad_mask
 
 
 class ASRLogMelFrontend(nn.Module):

@@ -69,8 +69,6 @@ class RandomCropCollator:
     def __init__(self, crop_samples: int, crops_per_clip: int, seed: int, process_index: int = 0) -> None:
         self.crop_samples = crop_samples
         self.crops_per_clip = crops_per_clip
-        self.seed = seed
-        self.process_index = process_index
         self.random = WorkerRandom(seed, process_index)
 
     def crop_starts(self, n_samples: int) -> list[int]:

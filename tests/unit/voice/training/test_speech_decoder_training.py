@@ -55,7 +55,7 @@ def _trainer() -> tuple[SpeechDecoderTrainer, RecordingMetrics]:
         SpeechDecoderTrainer,
         _model=model,
         _config=SimpleNamespace(mixture_config=SimpleNamespace(eval_sources=configs)),
-        model_config=model.config,
+        unwrapped_model=model,
         criterion=SpeechDecoderCriterion(SpeechDecoderCriterionConfig()),
         metrics=metrics,
         eval_loader=SimpleNamespace(dataset=dataset),
@@ -76,19 +76,24 @@ def _eval_batch(trainer: SpeechDecoderTrainer) -> dict[str, torch.Tensor]:
     return trainer.make_collate_fn()([dataset[k] for k in range(len(dataset))])
 
 
-def test_eval_losses_are_grouped_by_source_and_weighted_by_valid_elements() -> None:
+def test_eval_loss_terms_are_per_row_and_grouped_by_source() -> None:
     trainer, _ = _trainer()
+    trainer.model.eval()
     batch = _eval_batch(trainer)
 
     with torch.no_grad():
         output = trainer.eval_forward_pass(batch)
-    group_ids, loss_sums, elements = trainer.eval_group_totals(batch, output)
 
-    mask = output.model_output.mask
-    assert group_ids.tolist() == [0, 0, 1]
-    assert elements.tolist() == (mask.sum(dim=1) * 80).tolist()
-    expected = trainer.criterion.sample_losses(output.model_output, output.model_output.targets)
-    assert loss_sums.tolist() == expected.tolist()
+    model_output = output.model_output
+    terms = output.terms
+    assert set(terms) == {"flow", "prior", "kl"}
+    assert all(term.sums.shape == (3,) for term in terms.values())
+    elements = model_output.mask.sum(dim=1) * 80
+    expected_flow = trainer.criterion.sample_losses(model_output, model_output.targets) / elements
+    assert torch.allclose(terms["flow"].sums, expected_flow)
+    assert terms["prior"].counts.tolist() == (model_output.frame_mask.sum(dim=1) * 80).tolist()
+    assert (terms["flow"].weight, terms["prior"].weight, terms["kl"].weight) == (1.0, 1.0, 0.0)
+    assert [ids.tolist() for ids in trainer.eval_group_ids(batch)] == [[0, 0, 1]]
     assert torch.isfinite(output.loss)
 
 
@@ -97,10 +102,10 @@ def test_training_loss_includes_the_kl_term_after_warmup() -> None:
     trainer.model.train()
     batch = _eval_batch(trainer)
     trainer.train_state.global_step = 10_000
-    output = trainer._model_forward(batch)
 
-    loss = trainer._criterion_forward(output, batch)
+    step = trainer._forward_pass(batch)
 
+    output, loss = step.model_output, step.loss
     criterion = trainer.criterion
     prior = criterion.config.prior_weight * criterion.prior_loss(output)
     kl = criterion.config.kl_weight * output.kl.mean()

@@ -2,10 +2,14 @@ import dataclasses
 from typing import Any
 
 from larry.common.config.config import Config
-from larry.common.config.data.data_configs import DatasetMixtureConfig
 from larry.common.config.training.trainer_configs import LarryTrainerConfig, TextTokenizerConfig
 from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig
-from larry.voice.config.data.voice_data_configs import ASRMixtureConfig, TTSMixtureConfig, VocoderMixtureConfig
+from larry.voice.config.data.voice_data_configs import (
+    ASRMixtureConfig,
+    SpeechMixtureConfig,
+    TTSMixtureConfig,
+    VocoderMixtureConfig,
+)
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -32,7 +36,7 @@ class SpeakerLeakageProbesConfig(Config):
 
 
 @dataclasses.dataclass(kw_only=True)
-class VoiceTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](LarryTrainerConfig[M]):
+class VoiceTrainerConfig[M: SpeechMixtureConfig[Any] = SpeechMixtureConfig](LarryTrainerConfig[M]):
     """Superclass for voice trainer configs."""
 
     ...
@@ -48,7 +52,7 @@ class VocoderTrainerConfig(VoiceTrainerConfig[VocoderMixtureConfig]):
 
 
 @dataclasses.dataclass(kw_only=True)
-class SpeechEncoderDecoderTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](VoiceTrainerConfig[M]):
+class SpeechEncoderDecoderTrainerConfig[M: SpeechMixtureConfig[Any] = SpeechMixtureConfig](VoiceTrainerConfig[M]):
     speaker_mapping_path: str
 
 

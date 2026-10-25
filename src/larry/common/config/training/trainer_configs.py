@@ -43,6 +43,9 @@ class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](Ta
     muon_qk_clip_probe_every: int = 50
     muon_qk_clip_alpha: float = 0.5
 
+    # seeds the flow-matching t and noise at eval, so flow losses compare across evals and across runs
+    eval_noise_seed: int = 0
+
     warmup_steps: int = 0
     lr_scheduler_name: Literal["constant", "cosine"] = "constant"
     decay_start_step: int | None = None
