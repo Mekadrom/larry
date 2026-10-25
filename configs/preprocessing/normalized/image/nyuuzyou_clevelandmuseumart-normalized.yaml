@@ -6,7 +6,7 @@ dataset:
   type: DefaultDatasetConfig
   path: nyuuzyou/ClevelandMuseumArt
   split: ~
-  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/nyuuzyou_clevelandmuseum-art-normalized/
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/nyuuzyou_clevelandmuseumart-normalized/
 pipeline:
   prune_by_license:
     type: LicenseColumnValuesPrunerConfig
@@ -26,7 +26,7 @@ pipeline:
     batch_size: 8
     writer_batch_size: 8
     filter_null_outputs: true
-    download_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/nyuuzyou_clevelandmuseum-art-normalized/print/
+    download_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/nyuuzyou_clevelandmuseumart-normalized/print/
   resize_images:
     type: ImageResizingMapperConfig
     batch_size: 64

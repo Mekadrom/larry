@@ -4,6 +4,7 @@ preprocessor:
       - id
 dataset:
   type: DefaultDatasetConfig
+  path: jn12/VisualGenome
   cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/jn12_visualgenome-normalized/
 pipeline:
   rename_columns:

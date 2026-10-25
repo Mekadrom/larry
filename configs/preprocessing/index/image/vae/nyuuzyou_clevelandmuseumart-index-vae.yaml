@@ -1,0 +1,18 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: DefaultDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/normalized/image/nyuuzyou_clevelandmuseumart-normalized/
+  name: ~
+  split: ~
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/image/vae/nyuuzyou_clevelandmuseumart-index-vae/
+pipeline:
+  assign_row_index:
+    type: RowIndexAssigningPreprocessorConfig
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id
