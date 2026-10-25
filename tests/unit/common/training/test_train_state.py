@@ -1,9 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from accelerate import Accelerator, debug_launcher
+from accelerate import Accelerator
 
 from larry.common.training.trainers import TrainerBase, TrainState
+from tests.helpers.common import spawn_launcher
 
 
 def test_tokens_seen_survives_an_accelerate_checkpoint_round_trip(tmp_path: Path) -> None:
@@ -39,4 +40,4 @@ def _count_and_sync_on_each_process() -> None:
 
 def test_tokens_seen_sums_every_process_and_agrees_on_all_of_them() -> None:
     # accelerate keeps process-wide state; one left by an earlier single-process Accelerator would leak into the fork
-    debug_launcher(_count_and_sync_on_each_process, num_processes=2)
+    spawn_launcher(_count_and_sync_on_each_process, num_processes=2)

@@ -1,10 +1,10 @@
 import pytest
 import torch
-from accelerate import Accelerator, debug_launcher
+from accelerate import Accelerator
 from torch.utils.data import DataLoader
 
 from larry.common.data.dataloading.samplers import ShuffledBatchSampler
-from tests.helpers.common import first
+from tests.helpers.common import first, spawn_launcher
 
 
 def test_each_pass_is_a_shuffle_of_every_full_batch() -> None:
@@ -50,7 +50,7 @@ def _shard_an_endless_sampler_across_processes() -> None:
 
 @pytest.mark.usefixtures("fresh_accelerate_state")
 def test_accelerate_splits_an_endless_resumed_sampler_between_processes() -> None:
-    debug_launcher(_shard_an_endless_sampler_across_processes, num_processes=2)
+    spawn_launcher(_shard_an_endless_sampler_across_processes, num_processes=2)
 
 
 def test_adjacent_seeds_do_not_share_passes() -> None:

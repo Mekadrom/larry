@@ -1,11 +1,14 @@
 import itertools
-from collections.abc import Iterable
+import tempfile
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from accelerate.state import AcceleratorState
+from accelerate.utils import PrepareForLaunch, patch_environment
+from torch.multiprocessing import start_processes
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.utils.init_helpers import import_submodules
@@ -52,3 +55,18 @@ def write_parquet_splits(root: Path, splits: dict[str, dict[str, list[Any]]]) ->
     for split, columns in splits.items():
         write_parquet_split(root, split, columns)
     return root
+
+
+def spawn_launcher(function: Callable[..., None], args: tuple[Any, ...] = (), num_processes: int = 2) -> None:
+    # accelerate's debug_launcher forks, which breaks once this pytest process has run autograd; spawned workers
+    # start clean, at the cost of re-importing, so function must be importable at module level
+    with tempfile.NamedTemporaryFile() as rendezvous, patch_environment(
+        world_size=num_processes,
+        master_addr="127.0.0.1",
+        master_port="29500",
+        accelerate_mixed_precision="no",
+        accelerate_debug_rdv_file=rendezvous.name,
+        accelerate_use_cpu="yes",
+        gloo_socket_ifname="lo",
+    ):
+        start_processes(PrepareForLaunch(function, debug=True), args=args, nprocs=num_processes, start_method="spawn")

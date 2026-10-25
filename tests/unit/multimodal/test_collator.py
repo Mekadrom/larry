@@ -117,7 +117,7 @@ def test_text_only_batches_still_collate(collator: PretrainingMultimodalCollator
     out = collator([{"text": "hello there", "source": 0}, {"text": "say this out loud", "source": 1}])
 
     assert out["voice_unit_ids"].shape == (2, 0)
-    assert out["images"].shape == (2, 3, 0, 0)
+    assert out["images"].shape == (2, 0, 0, 0)
     assert out["loss_mask"][1, :int(out["input_lengths"][1])].all()
 
 
@@ -132,3 +132,18 @@ def test_the_collator_survives_pickling_for_dataloader_workers(collator: Pretrai
     restored = pickle.loads(pickle.dumps(collator))
 
     assert torch.equal(restored(_items())["input_ids"], collator(_items())["input_ids"])
+
+
+def test_latent_images_are_padded_with_their_own_channel_count(collator: PretrainingMultimodalCollator) -> None:
+    latent = torch.randn(16, 4, 6)
+    items = [
+        {"text": "a cat", "image": latent, "is_modal_synthesis": False, "source": 0},
+        {"text": "a mat", "image": torch.randn(16, 2, 2), "source": 1},
+    ]
+
+    out = collator(items)
+
+    assert out["images"].shape == (2, 16, 4, 6)
+    assert torch.equal(out["images"][0], latent)
+    assert out["image_sizes"].tolist() == [[6, 4], [2, 2]]
+    assert (out["input_ids"] == _special(collator, P.IPH)).sum(dim=1).tolist() == [6, 1]

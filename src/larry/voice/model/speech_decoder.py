@@ -6,6 +6,7 @@ from torch import nn
 
 from larry.common.config.model.model_configs import LarryConditionalEncoderBlockModuleConfig, LLMBlockModuleConfig
 from larry.common.model.flow import ConditionalFlowMatching, TimestepEmbedding
+from larry.common.model.init import WeightInitializer
 from larry.common.model.llm import LarryConditionalEncoderBlock, LarrySimpleEncoderBlock
 from larry.common.model.norms import AdaLayerNorm
 from larry.common.training.training_model import GenerationOutput
@@ -109,6 +110,22 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
         self.speaker_projection = nn.Linear(config.speaker_dim, config.d_model)
         self.unit_encoder = SpeechCodesUnitEmbedding(config)
         self.backbone = SpeechDecoderVelocityNetwork(config)
+        self.init_weights()
+
+    @torch.no_grad()
+    def init_weights(self) -> None:
+        # DiT-style: xavier projections, small embeddings and timestep MLP, zeroed modulations and output
+        initializer = WeightInitializer("xavier_uniform", 0.02)
+        initializer.apply(self)
+        for layer in self.backbone.time.mlp:
+            if isinstance(layer, nn.Linear):
+                nn.init.normal_(layer.weight, std=0.02)
+
+        initializer.scale_residuals(self.unit_encoder.blocks, len(self.unit_encoder.blocks))
+        # posteriors start at unit variance, matching the KL prior
+        nn.init.zeros_(self.speaker_embedding.logvar_embedding.weight)
+        nn.init.zeros_(self.backbone.out.weight)
+        nn.init.zeros_(self.backbone.out.bias)
 
     def normalize(self, mels: torch.Tensor) -> torch.Tensor:
         return (mels - self.config.mel_mean) / self.config.mel_std

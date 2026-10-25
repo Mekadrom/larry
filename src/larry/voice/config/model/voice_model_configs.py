@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Literal
 
 from larry.common.config.model.model_configs import (
     FlowMatchingConfig,
@@ -51,6 +52,9 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
     spec_time_fraction: float = 0.05
 
     enable_fsq_ctc_head: bool = False
+
+    weight_init: Literal["pytorch", "scaled_normal"] = "pytorch"
+    init_std: float = 0.02
 
 
 @dataclasses.dataclass(kw_only=True)

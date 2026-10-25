@@ -5,6 +5,7 @@ from huggingface_hub import PyTorchModelHubMixin
 from torch import nn
 
 from larry.common.model.flow import ConditionalFlowMatching, LarryFlowMatchingOutput, TimestepEmbedding
+from larry.common.model.init import WeightInitializer
 from larry.common.model.norms import AdaLayerNorm, AdaLayerNormZero
 from larry.common.training.training_model import GenerationOutput
 from larry.voice.config.model.voice_model_configs import LarryVocoderConfig
@@ -29,7 +30,14 @@ class CompressedSTFT(nn.Module):
         self.register_buffer("window", torch.hann_window(n_fft).clone())
 
     def encode(self, waveforms: torch.Tensor) -> torch.Tensor:
-        spec = torch.stft(waveforms, self.n_fft, self.hop_length, window=self.window, center=True, return_complex=True)
+        spec = torch.stft(
+            waveforms,
+            self.n_fft,
+            self.hop_length,
+            window=self.window,  # pyright: ignore[reportArgumentType]
+            center=True,
+            return_complex=True
+        )
         spec = spec.abs().clamp(min=1e-8).pow(self.alpha) * torch.exp(1j * spec.angle())
         return torch.cat([spec.real, spec.imag], dim=1) * self.scale
 
@@ -98,6 +106,13 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
             d_inner=config.d_inner,
             n_layers=config.n_layers
         )
+        self.init_weights()
+
+    @torch.no_grad()
+    def init_weights(self) -> None:
+        WeightInitializer("trunc_normal", 0.02).apply(self)
+        nn.init.zeros_(self.backbone.out.weight)
+        nn.init.zeros_(self.backbone.out.bias)
 
     def forward(self, spec: torch.Tensor, mels: torch.Tensor, mel_lengths: torch.Tensor) -> LarryFlowMatchingOutput:
         mask = make_non_pad_mask(mel_lengths, spec.shape[-1]).to(spec.dtype)

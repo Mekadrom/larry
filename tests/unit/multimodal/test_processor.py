@@ -128,7 +128,7 @@ def test_image_delimiters_are_text_around_an_image_placeholder(processor: LarryM
     image = out.input_placeholders[1]
     assert isinstance(image, ImagePlaceholder)
     assert image.size == (6, 4)
-    assert image.payload.shape == (4, 6, 3)
+    assert image.payload.shape == (3, 4, 6)
     assert out.text_token_ids[image.text_idx] == _special(processor, P.IPH)
     assert out.modality_ids[image.text_idx - 1:image.text_idx + 2] == [0, ImagePlaceholder.modality_id, 0]
 
@@ -254,7 +254,11 @@ def test_saving_bundles_the_tokenizer_and_a_relative_config(processor: LarryMult
 
     saved = (tmp_path / P.TOKENIZER_FILE).read_bytes()
     assert saved == Path(processor.config.text_tokenizer_model_file_path).read_bytes()
-    assert json.loads((tmp_path / "config.json").read_text()) == {"text_tokenizer_model_file_path": P.TOKENIZER_FILE}
+    assert json.loads((tmp_path / "config.json").read_text()) == {
+        "text_tokenizer_model_file_path": P.TOKENIZER_FILE,
+        "image_patch_size": 2,
+        "voice_units_per_position": 1,
+    }
 
 
 @pytest.mark.parametrize("cls", [LarryMultimodalProcessor, LarryMultimodalPretrainProcessor])
@@ -298,3 +302,56 @@ def test_loading_from_the_hub_downloads_the_tokenizer_named_in_the_config(
 
     assert requested == [("someone/larry-processor", "config.json"), ("someone/larry-processor", P.TOKENIZER_FILE)]
     assert loaded.config.text_tokenizer_model_file_path == str(tmp_path / P.TOKENIZER_FILE)
+
+
+def test_image_latents_keep_their_layout_and_size_in_latent_cells(processor: LarryMultimodalProcessor) -> None:
+    latents = np.random.default_rng(0).standard_normal((16, 4, 6)).astype(np.float64)
+
+    out = processor.encode(f"look {IMAGE} here", image_examples=[latents])
+
+    image = out.input_placeholders[1]
+    assert image.size == (6, 4)
+    assert image.payload.dtype == np.float32
+    assert np.allclose(image.payload, latents)
+
+
+def test_image_latents_must_be_channel_first_three_dimensional(processor: LarryMultimodalProcessor) -> None:
+    with pytest.raises(ValueError, match=r"\(C, H, W\)"):
+        processor.encode(f"look {IMAGE} here", image_examples=[np.zeros((4, 6))])
+
+
+def test_an_inference_prompt_can_continue_or_open_a_modality(processor: LarryMultimodalProcessor) -> None:
+    tokens = processor.text_tokenizer.encode("say this")
+
+    assert processor.encode("say this", add_eos=False).text_token_ids == tokens
+    opened = processor.encode("say this", open_modality="voice")
+    assert opened.text_token_ids == [*tokens, _special(processor, P.BOV)]
+    assert opened.modality_ids[-1] == TextSpan.modality_id
+    assert processor.encode("say this", open_modality="image").text_token_ids[-1] == _special(processor, P.BOI)
+
+
+def test_stretching_repeats_each_slot_and_keeps_payloads_in_order(processor: LarryMultimodalProcessor) -> None:
+    latents = np.zeros((3, 4, 6), dtype=np.float32)
+    encoded = processor.encode(
+        f"{VOICE} look {IMAGE} say {VOICE}", image_examples=[latents], voice_examples=[_units(1, 2, 3), _units(7)]
+    )
+
+    stretched = processor.stretch(encoded)
+
+    ids = stretched.input_ids
+    assert ids.count(_special(processor, P.VPH)) == 4
+    assert ids.count(_special(processor, P.IPH)) == (6 // 2) * (4 // 2)
+    assert len(stretched.modality_ids) == len(ids)
+    assert [v.tolist() for v in stretched.voices] == [[1, 2, 3], [7]]
+    assert stretched.image_sizes == [(6, 4)]
+    assert stretched.loss_mask is None
+
+
+def test_grouped_voice_stretches_to_one_slot_per_group(processor: LarryMultimodalProcessor) -> None:
+    import dataclasses
+
+    grouped = LarryMultimodalProcessor(dataclasses.replace(processor.config, voice_units_per_position=2))
+
+    stretched = grouped.stretch(grouped.encode(VOICE, voice_examples=[_units(1, 2, 3)]))
+
+    assert stretched.input_ids.count(_special(processor, P.VPH)) == 2

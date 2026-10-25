@@ -1,10 +1,11 @@
 import dataclasses
 import json
+import math
 import shutil
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Literal, Self, cast
 
 import numpy as np
 import torch
@@ -16,6 +17,7 @@ from larry.multimodal.config.processor_configs import LarryProcessorConfig
 from larry.text.tokenizer.text_tokenizer import SentencePieceTokenizer
 
 type NPImage = np.ndarray[tuple[int, int, int], np.dtype[np.float32]]
+type ImageInput = Image.Image | np.ndarray | torch.Tensor
 type NPAudio = np.ndarray[tuple[int], np.dtype[np.int32]]
 
 TOKENIZER_FILE = "tokenizer.model"
@@ -131,6 +133,19 @@ class LarryMultimodalPretrainingInput(LarryMultimodalInput):
     loss_mask: list[bool]
 
 
+@dataclasses.dataclass(kw_only=True)
+class LarryStretchedInput:
+    input_ids: list[int]
+    modality_ids: list[int]
+    loss_mask: list[bool] | None = None
+    voices: list[np.ndarray] = dataclasses.field(default_factory=list)
+    images: list[np.ndarray] = dataclasses.field(default_factory=list)
+    image_sizes: list[tuple[int, int]] = dataclasses.field(default_factory=list)
+
+
+OPENING_OFFSETS = {"voice": BOV, "image": BOI}
+
+
 def _process_audio(audio_example: list[int] | NPAudio | torch.Tensor) -> VoicePlaceholder:
     unit_ids: NPAudio
     if isinstance(audio_example, np.ndarray):
@@ -139,6 +154,7 @@ def _process_audio(audio_example: list[int] | NPAudio | torch.Tensor) -> VoicePl
         elif audio_example.ndim == 2:
             if audio_example.shape[0] != 1:
                 raise ValueError(f"Batch of audio passed to _process_audio; don't do this.")
+
             unit_ids = audio_example[0]
         else:
             raise ValueError(f"Unsupported audio shape for np.ndarray audio input: {audio_example.shape}")
@@ -148,6 +164,7 @@ def _process_audio(audio_example: list[int] | NPAudio | torch.Tensor) -> VoicePl
         elif audio_example.ndim == 2:
             if audio_example.shape[0] != 1:
                 raise ValueError(f"Batch of audio passed to _process_audio; don't do this.")
+
             unit_ids = audio_example[0].long().cpu().numpy()
         else:
             raise ValueError(f"Unsupported audio shape for torch.Tensor audio input: {audio_example.shape}")
@@ -156,16 +173,24 @@ def _process_audio(audio_example: list[int] | NPAudio | torch.Tensor) -> VoicePl
     else:
         raise ValueError(f"Unsupported input audio type={type(audio_example).__name__}")
 
-    return VoicePlaceholder(payload=unit_ids.astype(np.long), size=len(unit_ids))
+    return VoicePlaceholder(payload=unit_ids.astype(np.int32), size=len(unit_ids))
 
 
-def _process_image(image: Image.Image) -> ImagePlaceholder:
+def _process_image(image: ImageInput) -> ImagePlaceholder:
+    if isinstance(image, torch.Tensor):
+        image = image.detach().cpu().numpy()
+
+    if isinstance(image, np.ndarray):
+        if image.ndim != 3:
+            raise ValueError(f"Expected image latents to have shape (C, H, W), got {image.shape}")
+
+        # (C, H, W) latents; width, height in latent cells
+        return ImagePlaceholder(payload=image.astype(np.float32), size=(image.shape[2], image.shape[1]))
+
     image = image.convert("RGB")
     # width, height
     image_size = image.size
-    np_image = TVF.pil_to_tensor(image).permute(1, 2, 0).numpy()
-    assert np_image.ndim == 3, f"Expected image to have shape (H, W, 3), got {np_image.shape}"
-    assert np_image.shape[2] == 3, f"Expected image to have shape (H, W, 3), got {np_image.shape}"
+    np_image = TVF.pil_to_tensor(image).numpy()  # (3, H, W)
     return ImagePlaceholder(payload=np_image.astype(np.float32) / 255.0, size=image_size)
 
 
@@ -204,6 +229,8 @@ def _process_sequence(
         text: str,
         image_examples: list[ImagePlaceholder],
         voice_examples: list[VoicePlaceholder],
+        add_eos: bool = True,
+        open_modality: Literal["voice", "image"] | None = None,
 ) -> tuple[list[Segment], list[int], list[int]]:
     raw_segments = _split_segments(ImagePlaceholder, [text], image_examples)
     raw_segments = _split_segments(VoicePlaceholder, raw_segments, voice_examples)
@@ -228,8 +255,14 @@ def _process_sequence(
             ]
             modality_ids += [TextSpan.modality_id, raw_segment.modality_id, raw_segment.eos_modality_id]
 
-    text_token_ids.append(base + EOS)
-    modality_ids.append(TextSpan.modality_id)
+    # an inference prompt can end on an opener to request that modality next, instead of being finished
+    if open_modality is not None:
+        text_token_ids.append(base + OPENING_OFFSETS[open_modality])
+        modality_ids.append(TextSpan.modality_id)
+    elif add_eos:
+        text_token_ids.append(base + EOS)
+        modality_ids.append(TextSpan.modality_id)
+
     return segments, text_token_ids, modality_ids
 
 
@@ -276,12 +309,42 @@ class LarryProcessorBase(ModelHubMixin):
 
         return cls(dataclasses.replace(config, text_tokenizer_model_file_path=tokenizer_file), **kwargs)
 
+    def n_positions(self, segment: ModalitySegment) -> int:
+        if isinstance(segment, ImagePlaceholder):
+            width, height = cast(tuple, segment.size)
+            return (width // self.config.image_patch_size) * (height // self.config.image_patch_size)
+
+        return math.ceil(float(cast(int, segment.size)) / self.config.voice_units_per_position)
+
+    def stretch(self, encoded: LarryMultimodalInput) -> LarryStretchedInput:
+        input_ids = encoded.text_token_ids[:]
+        modality_ids = encoded.modality_ids[:]
+        loss_mask = encoded.loss_mask[:] if isinstance(encoded, LarryMultimodalPretrainingInput) else None
+        stretched = LarryStretchedInput(input_ids=input_ids, modality_ids=modality_ids, loss_mask=loss_mask)
+
+        segments = [s for s in encoded.input_placeholders if isinstance(s, ModalitySegment)]
+        # last segment first so the earlier segments' text_idx stay valid
+        for segment in reversed(segments):
+            i, n = segment.text_idx, self.n_positions(segment)
+            input_ids[i:i + 1] = [input_ids[i]] * n
+            modality_ids[i:i + 1] = [modality_ids[i]] * n
+            if loss_mask is not None:
+                loss_mask[i:i + 1] = [loss_mask[i]] * n
+
+            if isinstance(segment, VoicePlaceholder):
+                stretched.voices.insert(0, segment.payload)
+            else:
+                stretched.images.insert(0, segment.payload)
+                stretched.image_sizes.insert(0, cast(tuple, segment.size))
+
+        return stretched
+
 
 class LarryMultimodalProcessor(LarryProcessorBase):
     def encode_batch(
             self,
             text_batch: list[str],
-            image_batch_examples: list[list[Image.Image] | None],
+            image_batch_examples: list[list[ImageInput] | None],
             voice_batch_examples: list[list[list[int] | NPAudio | torch.Tensor] | None],
     ) -> list[LarryMultimodalInput]:
         assert len(text_batch) == len(voice_batch_examples) == len(image_batch_examples)
@@ -295,8 +358,10 @@ class LarryMultimodalProcessor(LarryProcessorBase):
     def encode(
             self,
             text: str,
-            image_examples: list[Image.Image] | None = None,
+            image_examples: list[ImageInput] | None = None,
             voice_examples: list[list[int] | NPAudio | torch.Tensor] | None = None,
+            add_eos: bool = True,
+            open_modality: Literal["voice", "image"] | None = None,
     ) -> LarryMultimodalInput:
         processed_images: list[ImagePlaceholder] = []
         if image_examples:
@@ -313,6 +378,8 @@ class LarryMultimodalProcessor(LarryProcessorBase):
             text,
             processed_images,
             processed_voices,
+            add_eos=add_eos,
+            open_modality=open_modality,
         )
 
         return LarryMultimodalInput(
@@ -327,7 +394,7 @@ class LarryMultimodalPretrainProcessor(LarryProcessorBase):
             self,
             text_batch: list[str],
             is_synthesis_batch: list[bool],
-            image_batch_examples: list[Image.Image | None],
+            image_batch_examples: list[ImageInput | None],
             voice_batch_examples: list[list[int] | NPAudio | torch.Tensor | None],
     ) -> list[LarryMultimodalPretrainingInput]:
         assert len(text_batch) == len(is_synthesis_batch) == len(voice_batch_examples) == len(image_batch_examples)
@@ -341,7 +408,7 @@ class LarryMultimodalPretrainProcessor(LarryProcessorBase):
     def encode(
             self,
             text: str,
-            image_example: Image.Image | None = None,
+            image_example: ImageInput | None = None,
             voice_example: list[int] | NPAudio | torch.Tensor | None = None,
             is_modal_synthesis: bool = True,
     ) -> LarryMultimodalPretrainingInput:

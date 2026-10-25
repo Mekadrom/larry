@@ -30,6 +30,13 @@ class KVCache:
         self.key_cache = None
         self.value_cache = None
 
+    def extend_mask(self, mask: torch.Tensor | None) -> torch.Tensor | None:
+        if mask is None or self.seq_len == 0:
+            return mask
+
+        ones = torch.ones(*mask.shape[:-1], self.seq_len, device=mask.device, dtype=mask.dtype)
+        return torch.cat([ones, mask], dim=-1)
+
     def prefix(self, length: int) -> KVCache:
         if self.key_cache is None or self.value_cache is None:
             return KVCache()
@@ -109,6 +116,15 @@ class RecurrentKVCache:
         self.slots[(self.slot(iteration), layer_idx)] = cache
         self.latest[layer_idx] = cache
 
+    def copy(self) -> RecurrentKVCache:
+        copied = RecurrentKVCache(
+            strategy=self.strategy, cache_budget=self.cache_budget, max_iterations=self.max_iterations
+        )
+        # writes replace entries rather than mutating cached tensors, so a shallow copy is a snapshot
+        copied.slots = dict(self.slots)
+        copied.latest = dict(self.latest)
+        return copied
+
     @property
     def seq_len(self) -> int:
         return max((cache.seq_len for cache in self.latest.values()), default=0)
@@ -120,11 +136,13 @@ class RecurrentKVCache:
 
 @dataclasses.dataclass(kw_only=True)
 class LarryMultimodalModelKVCache:
-    recurrent_kv_cache_strategy: Literal["huginn", "per_iteration", "shared"] = "huginn"
-    text_prelude_cache: KVCache | None = None
-    image_prelude_cache: KVCache | None = None
-    voice_prelude_cache: KVCache | None = None
+    text_prelude_cache: list[KVCache | None] | None = None
+    voice_prelude_cache: list[KVCache | None] | None = None
+    voice_prelude_conv_state: torch.Tensor | None = None
     recurrent_cache: RecurrentKVCache | None = None
-    text_coda_cache: KVCache | None = None
-    image_coda_cache: KVCache | None = None
-    voice_coda_cache: KVCache | None = None
+    text_coda_cache: list[KVCache | None] | None = None
+    voice_coda_cache: list[KVCache | None] | None = None
+
+    def copy(self) -> LarryMultimodalModelKVCache:
+        recurrent_cache = self.recurrent_cache.copy() if self.recurrent_cache is not None else None
+        return dataclasses.replace(self, recurrent_cache=recurrent_cache)

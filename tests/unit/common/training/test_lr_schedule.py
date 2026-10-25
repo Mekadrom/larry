@@ -5,10 +5,9 @@ from typing import Any
 
 import pytest
 import torch
-from accelerate import debug_launcher
 
 from larry.common.metrics.metrics import MetricDict
-from tests.helpers.common import reset_accelerate_state
+from tests.helpers.common import reset_accelerate_state, spawn_launcher
 from tests.unit.common.training.toy_training import ToyTrainer, train_toy
 
 WARMUP = 4
@@ -51,7 +50,7 @@ def test_warmup_counts_optimizer_steps_in_one_process(gradient_accumulation: int
 
 @pytest.mark.parametrize("gradient_accumulation", [1, 2])
 def test_warmup_counts_optimizer_steps_not_processes(gradient_accumulation: int) -> None:
-    debug_launcher(lambda: _train_and_check_lr(gradient_accumulation), num_processes=2)
+    spawn_launcher(_train_and_check_lr, args=(gradient_accumulation,), num_processes=2)
 
 
 def _cosine(step: int, start: int, end: int, min_lr: float) -> float:

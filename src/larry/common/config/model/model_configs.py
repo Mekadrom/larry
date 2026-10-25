@@ -31,6 +31,7 @@ class AttentionModuleConfig(ModelConfig):
     positional_encoding_name: Literal["rotary"] = "rotary"
 
     use_split_rope: bool = False
+    split_rope_local_axes: Literal[1, 2] = 1
     split_rope_scale: float = 7.5
     rotary_embedding_dim: int = 64
 

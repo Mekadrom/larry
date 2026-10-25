@@ -42,13 +42,21 @@ class LarryAttention(nn.Module, QKModule):
         self.n_rep = self.n_heads // self.n_query_groups
 
         self.rotary_embedding = None
-        self.rotary_global = self.rotary_local = None
+        self.rotary_global = self.rotary_local = self.rotary_local_2 = None
         if config.positional_encoding_name == "rotary":
             self.rotary_embedding = RotaryEmbedding(dim=config.rotary_embedding_dim)
             if self.config.use_split_rope:
                 self._split_rope_half = config.rotary_embedding_dim // 2
                 self.rotary_global = RotaryEmbedding(dim=self._split_rope_half)
-                self.rotary_local = RotaryEmbedding(dim=self._split_rope_half)
+                if config.split_rope_local_axes == 2:
+                    if self._split_rope_half % 4 != 0 or self._split_rope_half < 8:
+                        raise ValueError("two local RoPE axes need rotary_embedding_dim divisible by 8 and at least 16")
+
+                    self._split_rope_quarter = self._split_rope_half // 2
+                    self.rotary_local = RotaryEmbedding(dim=self._split_rope_quarter)
+                    self.rotary_local_2 = RotaryEmbedding(dim=self._split_rope_quarter)
+                else:
+                    self.rotary_local = RotaryEmbedding(dim=self._split_rope_half)
 
         self.o_proj = nn.Linear(self.n_heads * self.d_values, config.d_model)
 
@@ -78,10 +86,11 @@ class LarryAttention(nn.Module, QKModule):
         TODO: support 3-axis or n-axis m-rope (for image RoPE; global position dims, and row/column position dims)
         """
         if self.config.use_split_rope and self.rotary_global and self.rotary_local:
-            if position_ids is None:
-                raise ValueError("split RoPE requires position_ids of shape (N, t, 2)")
+            n_axes = 1 + self.config.split_rope_local_axes
+            if position_ids is None or position_ids.shape[-1] < n_axes:
+                raise ValueError(f"split RoPE requires position_ids of shape (N, t, {n_axes}) or wider")
 
-            # (N, t, 2) = [:, :, 0] global, [:, :, 1] local (local may be fractional)
+            # (N, t, >=2) = [:, :, 0] global, [:, :, 1] local (local may be fractional), [:, :, 2] second local axis
             global_pids = position_ids[..., 0].to(queries.device).float() + position_offset
             local_pids = position_ids[..., 1].to(queries.device).float()
 
@@ -92,6 +101,13 @@ class LarryAttention(nn.Module, QKModule):
             keys = apply_rotary_emb(fg, keys, start_index=0)
             queries = apply_rotary_emb(fl, queries, start_index=self._split_rope_half)
             keys = apply_rotary_emb(fl, keys, start_index=self._split_rope_half)
+
+            if self.rotary_local_2 is not None:
+                local_2_pids = position_ids[..., 2].to(queries.device).float()
+                fl2 = self.rotary_local_2(local_2_pids).unsqueeze(1)
+                start = self._split_rope_half + self._split_rope_quarter
+                queries = apply_rotary_emb(fl2, queries, start_index=start)
+                keys = apply_rotary_emb(fl2, keys, start_index=start)
         elif self.rotary_embedding:
             # rotate_queries_or_keys supports offset parameter for cached generation
             queries = self.rotary_embedding.rotate_queries_or_keys(queries, offset=position_offset)
@@ -125,7 +141,7 @@ class LarryAttention(nn.Module, QKModule):
                 raise RuntimeError(
                     f"Causal mask buffer too small: required_size={required_size} > "
                     f"self.causal_mask.shape[-1]={self.causal_mask.shape[-1]}. "
-                    f"Increase MegaTransformerBlockConfig.max_position_embeddings to "
+                    f"Increase max_seq_len to "
                     f"at least {required_size}. Or fix your batch collation."
                 )
 
@@ -198,10 +214,10 @@ class LarryAttention(nn.Module, QKModule):
         queries = queries.view(batch_size, -1, self.n_heads, self.d_queries).permute(0, 2, 1, 3).contiguous()
 
         cached_cross = (
-            is_cross_attention
-            and kv_cache is not None
-            and kv_cache.key_cache is not None
-            and kv_cache.value_cache is not None
+                is_cross_attention
+                and kv_cache is not None
+                and kv_cache.key_cache is not None
+                and kv_cache.value_cache is not None
         )
         if cached_cross:
             assert kv_cache is not None and kv_cache.key_cache is not None and kv_cache.value_cache is not None
@@ -240,10 +256,12 @@ class LarryAttention(nn.Module, QKModule):
             active_mask = attention_mask
 
         attn_mask = None
-        if causal_mask is not None and not (active_mask is None and q_seq_len == k_seq_len):
+        if active_mask is not None and active_mask.dim() == 4:
+            attn_mask = active_mask != 0
+        elif causal_mask is not None and not (active_mask is None and q_seq_len == k_seq_len):
             attn_mask = causal_mask != 0
 
-        if active_mask is not None:
+        if active_mask is not None and active_mask.dim() != 4:
             pad_bool = active_mask.unsqueeze(1).unsqueeze(2) != 0
             if attn_mask is None:
                 attn_mask = pad_bool

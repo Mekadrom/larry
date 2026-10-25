@@ -1,4 +1,5 @@
 import dataclasses
+import math
 
 import torch
 import torch.nn.functional as F
@@ -7,6 +8,7 @@ from torch import nn
 
 from larry.common.config.model.model_configs import FSMNAttentionConfig
 from larry.common.model.attention import FSMNAttention
+from larry.common.model.init import WeightInitializer
 from larry.common.model.llm import LarrySimpleEncoderBlock
 from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
 from larry.voice.model.fsq import FSQ
@@ -141,6 +143,30 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         self.encoder2_norm = nn.RMSNorm(config.d_model)
 
         self.ctc_head = nn.Linear(config.d_model, config.vocab_size + 1)
+
+        if config.weight_init == "scaled_normal":
+            self.init_weights()
+
+    @torch.no_grad()
+    def init_weights(self) -> None:
+        initializer = WeightInitializer("normal", self.config.init_std)
+        initializer.apply(self)
+
+        # the subsampler feeds GELUs straight from log-mels; He init keeps the activation scale through both convs
+        for conv in (self.encoder1.conv1, self.encoder1.conv2):
+            nn.init.kaiming_normal_(conv.weight, nonlinearity="relu")
+
+        # the FSQ bottleneck separates two residual streams
+        initializer.scale_residuals(self.encoder1.blocks, len(self.encoder1.blocks))
+        initializer.scale_residuals(self.encoder2, len(self.encoder2))
+
+        # unit-variance pre-tanh activations, so FSQ starts out using every level instead of rounding most dims to 0
+        nn.init.normal_(self.fsq.down.weight, std=1 / math.sqrt(self.config.d_model))
+
+        # CTC heads start uniform over tokens and blank
+        for head in (self.ctc_head, self.fsq_ctc_head):
+            if head is not None:
+                nn.init.zeros_(head.weight)
 
     @staticmethod
     def _spec_augment(
