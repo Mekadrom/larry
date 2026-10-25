@@ -1,0 +1,33 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: DefaultDatasetConfig
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/nyuuzyou_clevelandmuseum-art-normalized/
+pipeline:
+  prune_by_license:
+    type: LicenseColumnValuesPrunerConfig
+    input_column: share_license_status
+  extract_image_url:
+    type: NestedExtractionPreprocessorConfig
+    input_column: images
+    json_path_mappings:
+      - jsonpath: "$.print.url"
+        output_column: "print_url"
+  download_image:
+    type: UrlImageMapperConfig
+    busy_wait: 1.0
+    num_proc: 1
+    batch_size: 8
+    writer_batch_size: 8
+    input_column: print_url
+    filter_null_outputs: true
+  resize_images:
+    type: ImageResizingMapperConfig
+    batch_size: 64
+    filter_null_outputs: true
+    width: 512
+    height: 512
+    pad_to_equal: false
+    center_crop: false

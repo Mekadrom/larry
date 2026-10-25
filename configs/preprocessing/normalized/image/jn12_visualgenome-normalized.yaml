@@ -6,8 +6,6 @@ dataset:
   type: DefaultDatasetConfig
   cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/jn12_visualgenome-normalized/
 pipeline:
-  extract_zip_files:
-    type: VisualGenomeExtractingPreprocessorConfig
   rename_columns:
     type: ColumnRenamingPreprocessorConfig
     column_name_mappings:

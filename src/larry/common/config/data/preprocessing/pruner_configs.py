@@ -83,5 +83,6 @@ class LicenseColumnValuesPrunerConfig(ColumnValuesPrunerConfig):
     op_config: MatchOpConfig | RangeOpConfig | None = dataclasses.field(
         default_factory=lambda: MatchOpConfig(values=[
             "Attribution License",
+            "CC0"
         ])
     )
