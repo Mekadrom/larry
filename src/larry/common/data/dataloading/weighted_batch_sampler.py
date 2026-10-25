@@ -161,3 +161,50 @@ class FixedSizeWeightedBatchSampler(WeightedBatchSampler):
     def make_batches(self, pool: torch.Tensor) -> list[list[int]]:
         rows = pool.tolist()
         return [rows[start:start + self.batch_size] for start in range(0, len(rows), self.batch_size)]
+
+
+class LengthBucketingWeightedBatchSampler(WeightedBatchSampler):
+    def __init__(
+            self,
+            source_ids: torch.Tensor,
+            lengths: torch.Tensor,
+            weights: list[float],
+            max_batch_length: float,
+            pool_size: int,
+            seed: int,
+    ) -> None:
+        self.lengths = lengths
+        self.max_batch_length = max_batch_length
+        super().__init__(source_ids, weights, pool_size, seed)
+
+    def recalculate_source_probs(self) -> torch.Tensor:
+        # weights are shares of length; sources of short rows need more draws for the same share
+        per_draw = []
+        for s, weight in enumerate(self.weights):
+            mean_length = float(self.lengths[self.rows_by_source[s]].double().mean())
+            per_draw.append(weight / mean_length)
+
+        return torch.tensor(per_draw, dtype=torch.float64)
+
+    def sort_pool(self, pool: torch.Tensor, generator: torch.Generator) -> torch.Tensor:
+        return pool[torch.argsort(self.lengths[pool])]
+
+    def make_batches(self, pool: torch.Tensor) -> list[list[int]]:
+        return self.padded_batches(pool.tolist(), self.lengths, self.max_batch_length)
+
+    @staticmethod
+    def padded_batches(rows: list[int], lengths: torch.Tensor, max_batch_length: float) -> list[list[int]]:
+        # rows ascend by length, so each new row is the longest so far and sets the padded size
+        batches: list[list[int]] = []
+        batch: list[int] = []
+        for row in rows:
+            if batch and (len(batch) + 1) * float(lengths[row]) > max_batch_length:
+                batches.append(batch)
+                batch = []
+
+            batch.append(row)
+
+        if batch:
+            batches.append(batch)
+
+        return batches

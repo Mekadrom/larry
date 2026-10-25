@@ -13,6 +13,7 @@ class QKModule:
     q_proj: nn.Linear
     k_proj: nn.Linear
     d_queries: int
+    n_heads: int
     qk_probe_active: bool = False
     qk_max_logit: torch.Tensor | None = None
 
@@ -84,12 +85,18 @@ class QKClipHandler:
         min_eta = 1.0
 
         for _, m in self.modules:
+            # a module that didn't run on this rank (e.g. a modality absent from its batch) still joins the reduce,
+            # or ranks would issue different numbers of collectives and deadlock
             if m.qk_max_logit is None:
-                continue
+                qk = torch.full((m.n_heads,), float("-inf"), device=m.q_proj.weight.device)
+            else:
+                qk = m.qk_max_logit.float()
 
-            qk = m.qk_max_logit.float()
             if torch.distributed.is_initialized():
                 torch.distributed.all_reduce(qk, op=torch.distributed.ReduceOp.MAX)
+
+            if not bool(torch.isfinite(qk).any()):
+                continue
 
             # recordkeeping
             n_heads_total += qk.numel()

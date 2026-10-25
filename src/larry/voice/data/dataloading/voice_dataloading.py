@@ -1,17 +1,18 @@
-import random
 from typing import Any
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import get_worker_info
 
-from larry.common.data.dataloading.weighted_batch_sampler import WeightedBatchSampler
+from larry.common.data.dataloading.weighted_batch_sampler import (
+    LengthBucketingWeightedBatchSampler,
+    WeightedBatchSampler,
+)
+from larry.common.data.dataloading.worker_random import WorkerRandom
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 
 
-class AudioDurationBucketingWeightedBatchSampler(WeightedBatchSampler):
+class AudioDurationBucketingWeightedBatchSampler(LengthBucketingWeightedBatchSampler):
     """Implementation of ``ResumableBatchSampler`` that allows configuration of weights per dataset source."""
 
     def __init__(
@@ -24,37 +25,9 @@ class AudioDurationBucketingWeightedBatchSampler(WeightedBatchSampler):
             seed: int,
     ) -> None:
         """Parses the configuration into weights per dataset source and initializes the sampler."""
+        super().__init__(source_ids, durations, weights, max_batch_seconds, pool_size, seed)
         self.durations = durations
         self.max_batch_seconds = max_batch_seconds
-        super().__init__(source_ids, weights, pool_size, seed)
-
-    def recalculate_source_probs(self) -> torch.Tensor:
-        """Time shares -> per-draw probabilities: short-clip sources need more draws per hour."""
-        per_draw = []
-        for s, weight in enumerate(self.weights):
-            mean_duration = float(self.durations[self.rows_by_source[s]].mean())
-            per_draw.append(weight / mean_duration)
-        return torch.tensor(per_draw, dtype=torch.float64)
-
-    def sort_pool(self, pool: torch.Tensor, generator: torch.Generator) -> torch.Tensor:
-        return pool[torch.argsort(self.durations[pool])]
-
-    def make_batches(self, pool: torch.Tensor) -> list[list[int]]:
-        batches: list[list[int]] = []
-        batch: list[int] = []
-        for row in pool.tolist():
-            # ascending durations: this row is the longest so far, so this is the padded size
-            padded_seconds = (len(batch) + 1) * float(self.durations[row])
-            if len(batch) > 0 and padded_seconds > self.max_batch_seconds:
-                batches.append(batch)
-                batch = []
-
-            batch.append(row)
-
-        if len(batch) > 0:
-            batches.append(batch)
-
-        return batches
 
 
 class ClipCropWeightedBatchSampler(WeightedBatchSampler):
@@ -98,16 +71,7 @@ class RandomCropCollator:
         self.crops_per_clip = crops_per_clip
         self.seed = seed
         self.process_index = process_index
-        self._rng: tuple[int, random.Random] | None = None
-
-    def rng(self) -> random.Random:
-        worker = get_worker_info()
-        worker_key = 0 if worker is None else worker.id + 1
-        if self._rng is None or self._rng[0] != worker_key:
-            entropy = [self.seed, self.process_index, worker_key]
-            self._rng = worker_key, random.Random(int(np.random.SeedSequence(entropy).generate_state(1)[0]))
-
-        return self._rng[1]
+        self.random = WorkerRandom(seed, process_index)
 
     def crop_starts(self, n_samples: int) -> list[int]:
         if n_samples <= self.crop_samples:
@@ -115,7 +79,7 @@ class RandomCropCollator:
 
         n_crops = min(self.crops_per_clip, n_samples // self.crop_samples)
         segment = n_samples // n_crops
-        return [i * segment + self.rng().randint(0, segment - self.crop_samples) for i in range(n_crops)]
+        return [i * segment + self.random.get().randint(0, segment - self.crop_samples) for i in range(n_crops)]
 
     def __call__(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         waveforms = []

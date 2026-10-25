@@ -1,18 +1,13 @@
 import json
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pytest
 import torch
-from datasets import Dataset as HFDataset
 
 from larry.common.config.training.definition import TrainingDefinition, TrainingRunConfig
 from larry.common.config.training.training_config import TrainingRunState
-from larry.common.data.dataloading.indexed_dataset import IndexedDataset
-from larry.common.data.dataloading.weighted_batch_sampler import FixedSizeWeightedBatchSampler
-from larry.multimodal.config.data.data_configs import MultimodalMixtureConfig, MultimodalSourceConfig
+from larry.multimodal.config.data.data_configs import MultimodalMixtureConfig
 from larry.multimodal.config.training.trainer_configs import LarryMultimodalTrainerConfig
 from larry.multimodal.data.dataloading.dataloading import PretrainingMultimodalCollator
 from larry.multimodal.model.multimodal_model import PROCESSOR_DIR, LarryMultimodalModel
@@ -20,54 +15,24 @@ from larry.multimodal.processor.processor import LarryMultimodalProcessor
 from larry.multimodal.training.trainers import EXPORT_DIR, LarryMultimodalTrainer
 from tests.helpers.common import provenance, reset_accelerate_state, spawn_launcher
 from tests.helpers.metrics import RecordingMetrics
+from tests.unit.multimodal.test_indexed_multimodal_dataset import source_configs, write_sources
 from tests.unit.multimodal.test_multimodal_generation import _image, _vocab, _voice
 from tests.unit.multimodal.test_multimodal_model import _config
 
-ROWS = {
-    "voice_text": [{"text": "say this", "unit_ids": [4, 5, 6]}, {"text": "hello there", "unit_ids": [1, 2]}],
-    "text_voice": [{"text": "say this", "unit_ids": [7, 8]}, {"text": "a cat", "unit_ids": [3, 4, 5]}],
-    "text_image": [{"text": "a cat", "latents": np.ones((3, 2, 4), dtype=np.float32).tolist()}],
-    "image_text": [{"text": "a mat", "latents": np.zeros((3, 4, 2), dtype=np.float32).tolist()}],
-    "text_only": [{"text": "hello there friend"}, {"text": "say this out loud"}],
-}
 
-
-class ToyMultimodalDataset(IndexedDataset[MultimodalSourceConfig]):
-    def get_data(self, source_idx: int, entry: dict[Any, Any]) -> Any:
-        return None
-
-    def format_example_dict(self, source_idx: int, entry: dict[Any, Any], data: Any) -> dict[str, Any]:
-        config = self.configs[source_idx]
-        item = {"text": entry["text"], "is_modal_synthesis": config.is_modal_synthesis, "source": source_idx}
-        if entry.get("unit_ids") is not None:
-            item["voice"] = np.array(entry["unit_ids"])
-        if entry.get("latents") is not None:
-            item["image"] = np.array(entry["latents"], dtype=np.float32)
-        return item
-
-
-class ToyMultimodalTrainer(LarryMultimodalTrainer, register=False):
-    def make_dataset_dict(self) -> Mapping[str, ToyMultimodalDataset]:
-        mixture = self.config.mixture_config
-        return {
-            "train": self.toy_dataset(mixture.train_sources),
-            "validation": self.toy_dataset(mixture.eval_sources),
-        }
-
-    @staticmethod
-    def toy_dataset(sources: list[MultimodalSourceConfig]) -> ToyMultimodalDataset:
-        indexes = [HFDataset.from_list([{"id": str(i), **row} for i, row in enumerate(ROWS[s.task])]) for s in sources]
-        return ToyMultimodalDataset(sources, indexes, [None] * len(sources))
-
-
-def _sources(*tasks: str) -> list[MultimodalSourceConfig]:
-    return [MultimodalSourceConfig(name=task, index_path=task, task=task) for task in tasks]
-
-
-def _trainer_config(collator: PretrainingMultimodalCollator, tasks: list[str], **overrides: Any) -> Any:
+def _trainer_config(
+        collator: PretrainingMultimodalCollator,
+        root: Path,
+        tasks: list[str],
+        max_batch_tokens: int = 48,
+        written: bool = False,
+        **overrides: Any,
+) -> Any:
+    # spawned ranks share data the parent already wrote; rewriting it would race the other rank's reads
+    sources = source_configs(root / "data", tasks) if written else write_sources(root / "data", tasks)
     return LarryMultimodalTrainerConfig(**{
         "mixture_config": MultimodalMixtureConfig(
-            train_sources=_sources(*tasks), eval_sources=_sources(*tasks), pool_size=16
+            train_sources=sources, eval_sources=sources, pool_size=16, max_batch_tokens=max_batch_tokens
         ),
         "processor_model_path": collator.config.processor_model_path,
         "image_latent_channels": 3,
@@ -93,12 +58,13 @@ def _template(collator: PretrainingMultimodalCollator, tasks: list[str]) -> Any:
 
 def _trainer(
         collator: PretrainingMultimodalCollator, tmp_path: Path, tasks: list[str], **overrides: Any,
-) -> ToyMultimodalTrainer:
+) -> LarryMultimodalTrainer:
     reset_accelerate_state()
-    config = _trainer_config(collator, tasks, **overrides)
-    model_config = ToyMultimodalTrainer.prepare_model_config(_template(collator, tasks), config)
+    config = _trainer_config(collator, tmp_path, tasks, **overrides)
+    model_config = LarryMultimodalTrainer.prepare_model_config(_template(collator, tasks), config)
     torch.manual_seed(0)
-    return ToyMultimodalTrainer(provenance(), LarryMultimodalModel(model_config), config, RecordingMetrics(str(tmp_path)))
+    model = LarryMultimodalModel(model_config)
+    return LarryMultimodalTrainer(provenance(), model, config, RecordingMetrics(str(tmp_path / "run")))
 
 
 ALL_TASKS = ["voice_text", "text_voice", "text_image", "image_text", "text_only"]
@@ -118,11 +84,11 @@ def test_a_mixed_task_run_trains_every_head_and_exports_a_loadable_model(
     for module in ("text_prelude", "voice_prelude", "voice_coda", "image_prelude", "image_coda", "recurrent_block"):
         assert any(name.startswith(module) for name in changed), module
 
-    export = tmp_path / "checkpoint-3" / EXPORT_DIR
+    export = tmp_path / "run" / "checkpoint-3" / EXPORT_DIR
     loaded = LarryMultimodalModel.from_pretrained(export)
     loaded.check_processor(LarryMultimodalProcessor.from_pretrained(export / PROCESSOR_DIR))
     assert loaded.config == model.config
-    assert json.loads((tmp_path / "config.json").read_text())["include_tasks"] == ALL_TASKS
+    assert json.loads((tmp_path / "run" / "config.json").read_text())["include_tasks"] == ALL_TASKS
     assert trainer.train_state.global_step == 3
 
 
@@ -158,15 +124,15 @@ def test_the_trainer_builds_only_the_modules_its_tasks_use(
 
 
 def test_every_task_needs_a_train_source_and_sources_must_be_configured_tasks(
-        collator: PretrainingMultimodalCollator,
+        collator: PretrainingMultimodalCollator, tmp_path: Path,
 ) -> None:
     template = _template(collator, ["voice_text", "text_voice"])
 
     with pytest.raises(ValueError, match="without a train source"):
-        LarryMultimodalTrainer.prepare_model_config(template, _trainer_config(collator, ["voice_text"]))
+        LarryMultimodalTrainer.prepare_model_config(template, _trainer_config(collator, tmp_path, ["voice_text"]))
     with pytest.raises(ValueError, match="outside include_tasks"):
         LarryMultimodalTrainer.prepare_model_config(
-            template, _trainer_config(collator, ["voice_text", "text_voice", "text_only"])
+            template, _trainer_config(collator, tmp_path, ["voice_text", "text_voice", "text_only"])
         )
 
 
@@ -174,47 +140,24 @@ def test_the_voice_vocab_comes_from_the_speech_encoders_config(
         collator: PretrainingMultimodalCollator, tmp_path: Path,
 ) -> None:
     (tmp_path / "config.json").write_text(json.dumps({"fsq_dims": 2, "fsq_levels": 5}))
-    config = _trainer_config(collator, ["text_voice"], speech_encoder_model_path=str(tmp_path))
+    config = _trainer_config(collator, tmp_path, ["text_voice"], speech_encoder_model_path=str(tmp_path))
 
     built = LarryMultimodalTrainer.prepare_model_config(_template(collator, ["text_voice"]), config)
 
     assert (built.voice_prelude_config.vocab_size, built.voice_coda_config.vocab_size) == (25, 26)
 
 
-def test_the_sampler_mixes_sources_by_weight_and_resumes() -> None:
-    source_ids = torch.tensor([0] * 50 + [1] * 50)
-    sampler = FixedSizeWeightedBatchSampler(source_ids, [3.0, 1.0], batch_size=4, pool_size=400, seed=1)
-
-    batches = [batch for batch, _ in zip(sampler, range(100), strict=False)]
-    resumed = FixedSizeWeightedBatchSampler(source_ids, [3.0, 1.0], batch_size=4, pool_size=400, seed=1)
-    resumed.start_at(40)
-
-    rows = torch.tensor([row for batch in batches for row in batch])
-    assert all(len(batch) == 4 for batch in batches)
-    assert float((rows < 50).float().mean()) == pytest.approx(0.75, abs=0.06)
-    assert any(len({row < 50 for row in batch}) == 2 for batch in batches)
-    assert [batch for batch, _ in zip(resumed, range(10), strict=False)] == batches[40:50]
-
-
 def test_the_run_state_builds_the_model_from_the_trainers_derived_config(
-        collator: PretrainingMultimodalCollator, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        collator: PretrainingMultimodalCollator, tmp_path: Path,
 ) -> None:
     reset_accelerate_state()
-    def toy_datasets(trainer: LarryMultimodalTrainer) -> Mapping[str, ToyMultimodalDataset]:
-        mixture = trainer.config.mixture_config
-        return {
-            "train": ToyMultimodalTrainer.toy_dataset(mixture.train_sources),
-            "validation": ToyMultimodalTrainer.toy_dataset(mixture.eval_sources),
-        }
-
-    monkeypatch.setattr(LarryMultimodalTrainer, "make_dataset_dict", toy_datasets)
     definition = TrainingDefinition(
         training=TrainingRunConfig(metrics_backend="tensorboard"),
-        trainer=_trainer_config(collator, ["voice_text"]),
+        trainer=_trainer_config(collator, tmp_path, ["voice_text"]),
         model=_template(collator, ["voice_text"]),
     )
 
-    state = TrainingRunState(definition, tmp_path)
+    state = TrainingRunState(definition, tmp_path / "run")
 
     model = state.trainer.accelerator.unwrap_model(state.trainer.model)
     assert type(state.trainer) is LarryMultimodalTrainer
@@ -226,7 +169,10 @@ def _train_on_two_processes(processor_model_path: str, log_dir: str) -> None:
 
     config = PretrainingMultimodalCollatorConfig(processor_model_path=processor_model_path)
     collator = PretrainingMultimodalCollator(config)
-    trainer = _trainer(collator, Path(log_dir), ["text_voice", "text_only"], train_batch_size=1, max_steps=4)
+    # a budget of about one row per batch, so some ranks' batches have no voice
+    trainer = _trainer(
+        collator, Path(log_dir), ["text_voice", "text_only"], max_steps=4, max_batch_tokens=12, written=True
+    )
     trainer.run()
     assert trainer.train_state.global_step == 4
 
@@ -234,4 +180,6 @@ def _train_on_two_processes(processor_model_path: str, log_dir: str) -> None:
 def test_ranks_whose_batches_skip_a_modality_still_train_together(
         collator: PretrainingMultimodalCollator, tmp_path: Path,
 ) -> None:
+    write_sources(tmp_path / "data", ["text_voice", "text_only"])
+
     spawn_launcher(_train_on_two_processes, args=(collator.config.processor_model_path, str(tmp_path)))

@@ -13,8 +13,10 @@ from torch import nn
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.model.model_configs import ModelConfig
 from larry.common.criteria.criterion import Criterion
-from larry.common.data.dataloading.indexed_dataset import IndexedDataset
-from larry.common.data.dataloading.weighted_batch_sampler import FixedSizeWeightedBatchSampler
+from larry.common.data.dataloading.weighted_batch_sampler import (
+    LengthBucketingWeightedBatchSampler,
+    WeightedBatchSampler,
+)
 from larry.common.metrics.metrics import MetricDict
 from larry.common.training.trainers import MODEL_CONFIG_FILE, LarryTrainer, StepOutput
 from larry.common.training.viz_callbacks import VizCallback
@@ -25,6 +27,7 @@ from larry.multimodal.config.model.model_configs import LarryMultimodalModelConf
 from larry.multimodal.config.training.trainer_configs import LarryMultimodalTrainerConfig
 from larry.multimodal.criteria.multimodal_criterion import LarryMultimodalCriterion
 from larry.multimodal.data.dataloading.dataloading import PretrainingMultimodalCollator
+from larry.multimodal.data.dataloading.indexed_multimodal_dataset import IndexedMultimodalDataset
 from larry.multimodal.model.multimodal_model import LarryMultimodalModel, LarryMultimodalModelOutput
 from larry.multimodal.processor.processor import LarryMultimodalPretrainProcessor
 
@@ -39,7 +42,7 @@ class LarryMultimodalTrainer(
         LarryMultimodalModel,
         LarryMultimodalTrainerConfig,
         MultimodalSourceConfig,
-        IndexedDataset[MultimodalSourceConfig],
+        IndexedMultimodalDataset,
     ]
 ):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -109,30 +112,36 @@ class LarryMultimodalTrainer(
             indexes: list[HFDataset],
             sources: list[HFDataset | None],
             is_eval: bool = False,
-    ) -> IndexedDataset[MultimodalSourceConfig]:
-        raise NotImplementedError("the multimodal indexed dataset isn't implemented yet")
+    ) -> IndexedMultimodalDataset:
+        return IndexedMultimodalDataset(
+            configs,
+            indexes,
+            sources,
+            chars_per_token=self.config.mixture_config.chars_per_token,
+            image_patch_size=self.processor.config.image_patch_size,
+            voice_units_per_position=self.processor.config.voice_units_per_position,
+        )
 
-    @staticmethod
-    def source_ids(dataset: IndexedDataset[Any]) -> torch.Tensor:
-        sizes = torch.tensor(dataset.offsets).diff()
-        return torch.repeat_interleave(torch.arange(len(sizes)), sizes)
-
-    def make_train_sampler(
-            self,
-            dataset: IndexedDataset[MultimodalSourceConfig],
-            weights: list[float],
-    ) -> FixedSizeWeightedBatchSampler:
-        return FixedSizeWeightedBatchSampler(
-            self.source_ids(dataset),
+    def make_train_sampler(self, dataset: IndexedMultimodalDataset, weights: list[float]) -> WeightedBatchSampler:
+        source_ids, lengths = dataset.source_ids_and_lengths()
+        return LengthBucketingWeightedBatchSampler(
+            source_ids,
+            lengths,
             weights,
-            batch_size=self.config.train_batch_size,
+            max_batch_length=self.config.mixture_config.max_batch_tokens,
             pool_size=self.config.mixture_config.pool_size,
             seed=self.config.mixture_config.seed,
         )
 
-    def make_eval_sampler(self, dataset: IndexedDataset[MultimodalSourceConfig]) -> Iterable[list[int]]:
-        size = self.config.eval_batch_size
-        return [list(range(start, min(start + size, len(dataset)))) for start in range(0, len(dataset), size)]
+    def make_eval_sampler(self, dataset: IndexedMultimodalDataset) -> Iterable[list[int]]:
+        # shortest first, under the same padded token budget as training
+        _, lengths = dataset.source_ids_and_lengths()
+        rows = torch.argsort(lengths).tolist()
+        return LengthBucketingWeightedBatchSampler.padded_batches(
+            rows,
+            lengths,
+            self.config.mixture_config.max_batch_tokens,
+        )
 
     def make_collate_fn(self) -> Callable[..., dict[str, Any]] | None:
         return PretrainingMultimodalCollator(

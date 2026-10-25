@@ -5,8 +5,12 @@ import pyarrow as pa
 import pytest
 from datasets import Dataset, DatasetDict, Features, Value, load_from_disk
 
-from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, ValueOverride, \
-    ValueOverrideMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import (
+    MapperConfig,
+    SingleColumnMapperConfig,
+    ValueOverride,
+    ValueOverrideMapperConfig,
+)
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import Mapper, SingleColumnMapper, ValueOverrideMapper
 from tests.helpers.common import provenance

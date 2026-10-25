@@ -1,13 +1,11 @@
-import random
 from typing import Any
 
-import numpy as np
 import torch
 from datasets import Dataset as HFDataset
-from torch.utils.data import get_worker_info
 from torchaudio import functional as AF
 
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset
+from larry.common.data.dataloading.worker_random import WorkerRandom
 from larry.voice.config.data.voice_data_configs import ASRSourceConfig, SpeechSourceConfig, TTSSourceConfig
 from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
 from larry.voice.utils import bytes_to_waveforms
@@ -79,26 +77,13 @@ class IndexedASRDataset(IndexedSpeechDataset[ASRSourceConfig]):
         self.speed_factors = speed_factors
         self.seed = seed
         self.process_index = process_index
-        self._speed_rng: tuple[int, random.Random] | None = None
-
-    def speed_rng(self) -> random.Random:
-        """A generator for speed factors unique to (seed, process, dataloader worker), independent of global RNGs.
-
-        Rebuilt when the dataset is first used in a new worker, so forked workers never share one copied state.
-        """
-        worker = get_worker_info()
-        worker_key = 0 if worker is None else worker.id + 1
-        if self._speed_rng is None or self._speed_rng[0] != worker_key:
-            entropy = [self.seed, self.process_index, worker_key]
-            self._speed_rng = worker_key, random.Random(int(np.random.SeedSequence(entropy).generate_state(1)[0]))
-
-        return self._speed_rng[1]
+        self.random = WorkerRandom(seed, process_index)
 
     def format_example_dict(self, source_idx: int, entry: dict[Any, Any], data: Any) -> dict[str, Any]:
         config = self.configs[source_idx]
 
         waveform = bytes_to_waveforms(data["bytes"], self.sample_rate)[0]
-        factor = self.speed_rng().choice(self.speed_factors)
+        factor = self.random.get().choice(self.speed_factors)
         if factor != 1.0:
             waveform = AF.resample(waveform, int(self.sample_rate * factor), self.sample_rate)
 
