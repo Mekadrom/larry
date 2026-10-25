@@ -18,7 +18,7 @@ from larry.common.data.preprocessing.mappers import SingleColumnMapper
 _SESSIONS: dict[str, requests.Session] = {}
 
 
-class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str, O | None, C], ABC):
+class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str | None, O | None, C], ABC):
     """Superclass for all ``SingleColumnMapper`` implementations that download data from the web."""
 
     def __init__(self, provenance: Provenance, config: C) -> None:
@@ -30,12 +30,15 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str,
         else:
             self.download_cache_dir = None
 
-    def preprocess_example(self, example: str) -> O | None:
+    def preprocess_example(self, example: str | None) -> O | None:
         """For a given example (URL string), download the data at the given URL and store it using overridden logic.
 
         Has error handling to protect the overall pipeline from crapping out if a download fails, and supports both
         connection pooling/sharing via a ``Session`` and a configurable busy wait sleep timer for throttling scraping.
         """
+        if example is None:
+            return None
+
         url_hash = str(hashlib.sha256(example.encode('utf-8')).hexdigest())
         cache_file_path = self.download_cache_dir / url_hash if self.download_cache_dir is not None else None
 

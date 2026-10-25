@@ -4,25 +4,29 @@ preprocessor:
       - id
 dataset:
   type: DefaultDatasetConfig
+  path: nyuuzyou/ClevelandMuseumArt
+  split: ~
   cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/nyuuzyou_clevelandmuseum-art-normalized/
 pipeline:
   prune_by_license:
     type: LicenseColumnValuesPrunerConfig
-    input_column: share_license_status
+    input_columns:
+      - share_license_status
   extract_image_url:
     type: NestedExtractionPreprocessorConfig
     input_column: images
     json_path_mappings:
-      - jsonpath: "$.print.url"
-        output_column: "print_url"
+      - json_path: "$.print.url"
+        output_column: print_url
   download_image:
     type: UrlImageMapperConfig
-    busy_wait: 1.0
+    input_column: print_url
+    busy_wait: 0.1
     num_proc: 1
     batch_size: 8
     writer_batch_size: 8
-    input_column: print_url
     filter_null_outputs: true
+    download_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/nyuuzyou_clevelandmuseum-art-normalized/print/
   resize_images:
     type: ImageResizingMapperConfig
     batch_size: 64
