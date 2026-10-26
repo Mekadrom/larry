@@ -95,3 +95,62 @@ def test_multi_file_downloader_reports_no_download_when_everything_is_cached(
     (tmp_path / "b.html").write_bytes(b"cached")
 
     assert not _multi_downloader(tmp_path, monkeypatch).ensure_downloaded()
+
+
+class _Raw:
+    def __init__(self, encoded: bytes) -> None:
+        self.encoded = encoded
+
+    def stream(self, size: int, decode_content: bool = True) -> list[bytes]:
+        assert decode_content is False
+        return [self.encoded]
+
+
+class _Response:
+    def __init__(self, body: bytes, headers: dict[str, str]) -> None:
+        self.headers = headers
+        self.raw = _Raw(body)
+        self.body = body
+
+    def __enter__(self) -> "_Response":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def iter_content(self, chunk_size: int) -> list[bytes]:
+        import gzip
+        return [gzip.decompress(self.body) if "Content-Encoding" in self.headers else self.body]
+
+
+@pytest.mark.parametrize(("name", "kept_compressed"), [("photos.csv.gz", True), ("page.html", False)])
+def test_gzip_encoded_downloads_keep_their_bytes_only_for_gz_files(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, kept_compressed: bool,
+) -> None:
+    import gzip
+    body = gzip.compress(b"photo_id\tlicense\n1\tCC0\n")
+    response = _Response(body, {"Content-Encoding": "gzip", "Content-Length": str(len(body))})
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: response)
+    downloader = SingleFileDownloader(
+        SingleFileDownloaderConfig(download_base_url="https://example.test", output_file_name=name), tmp_path
+    )
+
+    downloader.ensure_downloaded()
+
+    written = (tmp_path / name).read_bytes()
+    assert written == (body if kept_compressed else gzip.decompress(body))
+
+
+def test_a_truncated_download_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    response = _Response(b"partial", {"Content-Length": "100"})
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: response)
+    downloader = SingleFileDownloader(
+        SingleFileDownloaderConfig(download_base_url="https://example.test", output_file_name="f.bin"), tmp_path
+    )
+
+    with pytest.raises(ValueError, match="Could not download"):
+        downloader.ensure_downloaded()
+    assert not (tmp_path / "f.bin").exists()

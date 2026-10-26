@@ -91,7 +91,8 @@ All image data will be filtered by per-image licenses where necessary.
 - ~~COCO 2017~~
 - Cleveland CC0 print images
 - Localized Narratives
-- iNaturalist
+- ~~iNaturalist~~ - while the images are CC0 or CC-BY, the distribution prohibits commercial and non-open source 
+derivatives
 - ~~PD12M (images only; descriptions were produced with a poisoned model)~~ - rows filtered by clip, which is excluded 
 for now
 - ~~Megalith-10M (images only; descriptions were produced with a poisoned model)~~ - rows filtered by clip, which is 

@@ -109,12 +109,16 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
         while attempt <= self.config.max_retries:
             attempt += 1
             temp_file_path = self.output_file_path.with_name(f"{self.output_file_path.name}.part")
+            validates = self.config.validate_content_contains is not None
             try:
-                content = self._download_file(self.url, temp_file_path, return_contents=True)
+                content = self._download_file(self.url, temp_file_path, return_contents=validates)
             except Exception as e:
                 self.log.critical(f"Error downloading file_name={self.output_file_path} from download_path={self.url}")
                 last = e
                 content = None
+            else:
+                if not validates:
+                    content = b""
 
             if content is not None and self._validate(content):
                 temp_file_path.move(self.output_file_path)
@@ -136,6 +140,12 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
         with requests.get(url, stream=True, timeout=self.download_timeout, headers={"User-Agent": UA}) as response:
             response.raise_for_status()
             total = int(response.headers.get("Content-Length", 0)) or None
+            encoding = response.headers.get("Content-Encoding")
+            keep_encoded = encoding == "gzip" and file_path.name.removesuffix(".part").endswith(".gz")
+            chunks = (
+                response.raw.stream(1024 * 1024, decode_content=False)
+                if keep_encoded else response.iter_content(chunk_size=1024 * 1024)
+            )
             with open(file_path, 'wb') as stream, tqdm(
                     total=total,
                     unit="B",
@@ -143,9 +153,12 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
                     unit_divisor=1024,
                     desc=str(file_path.name)
             ) as pbar:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                for chunk in chunks:
                     stream.write(chunk)
                     pbar.update(len(chunk))
+
+        if total is not None and (encoding is None or keep_encoded) and file_path.stat().st_size != total:
+            raise ValueError(f"downloaded {file_path.stat().st_size} bytes of {total} from {url}")
 
         if return_contents:
             return file_path.read_bytes()
