@@ -1,0 +1,18 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: DefaultDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/normalized/image/srishti-kaushik_coco-2017-normalized/
+  name: ~
+  split: ~
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/image/vae/srishti-kaushik_coco-2017-index-vae/
+pipeline:
+  assign_row_index:
+    type: RowIndexAssigningPreprocessorConfig
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id

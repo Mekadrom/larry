@@ -88,19 +88,22 @@ All image data was filtered by per-image licenses where possible.
 - Wikimedia Commons
 - Open Images
 - VizWiz
-- COCO 2017
+- ~~COCO 2017~~
 - Cleveland CC0 print images
 - Localized Narratives
 - iNaturalist
-- PD12M (images only; descriptions were produced with a poisoned model)
-- Megalith-10M (images only; descriptions were produced with a poisoned model)
+- ~~PD12M (images only; descriptions were produced with a poisoned model)~~ - rows filtered by clip, which is excluded 
+for now
+- ~~Megalith-10M (images only; descriptions were produced with a poisoned model)~~ - rows filtered by clip, which is 
+excluded for now
 - Art institute of Chicago dump
-- TextCaps, Crossmodal-3600
+- ~~TextCaps~~ - 
+- Crossmodal-3600
 - CommonCatalog
 - Te Papa
 - NASA Image Library
 - Rijkmuseum
-- Dollar Street (images only; no descriptions exist)
+- ~~Dollar Street (images only; no descriptions exist)~~
 - VisualGenome
 - Museums Victoria of Melbourne
 - The Met Open Access

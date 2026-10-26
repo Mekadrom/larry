@@ -102,6 +102,7 @@ class HuggingFaceDatasetProvider[C: DatasetConfig = DatasetConfig](DatasetProvid
         return dict(
             path=self.path,
             name=self.name,
+            revision=self.config.revision,
             data_dir=self.data_dir,
             data_files=self.data_files,
             split=self.split,

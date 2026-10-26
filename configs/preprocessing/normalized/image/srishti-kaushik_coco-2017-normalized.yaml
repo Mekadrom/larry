@@ -1,0 +1,44 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: DefaultDatasetConfig
+  path: srishti-kaushik/COCO-2017
+  revision: 3e3628d52b78d7e18860087b297efeb282b5a6a1
+  split: ~
+  data_files:
+    train: data/images/train2017/*.parquet
+    validation: data/images/val2017/*.parquet
+    unlabeled: data/images/unlabeled2017/*.parquet
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/srishti-kaushik_coco-2017-normalized/
+pipeline:
+  prune_by_license:
+    type: ColumnValuesPrunerConfig
+    input_columns:
+      - license
+    op: matches
+    op_config:
+      values:
+        - 4
+        - 7
+        - 8
+#  prune_do_not_train:
+#    type: DoNotTrainPrunerConfig
+#    input_columns:
+#      - flickr_url
+  join_captions:
+    type: LookupJoiningMapperConfig
+    key_column: image_id
+    lookup_columns:
+      - captions
+    lookup_path: srishti-kaushik/COCO-2017
+    lookup_revision: 3e3628d52b78d7e18860087b297efeb282b5a6a1
+    lookup_data_files:
+      - data/captions/train2017/*.parquet
+      - data/captions/val2017/*.parquet
+    num_proc: 4
+  rename_columns:
+    type: ColumnRenamingPreprocessorConfig
+    column_name_mappings:
+      image_id: id

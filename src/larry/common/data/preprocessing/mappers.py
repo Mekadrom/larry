@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+import datasets
 import torch.cuda
 from datasets import Dataset, DatasetDict, Features, concatenate_datasets
 from datasets.features.features import FeatureType
 
 from larry.common.config.data.preprocessing.mapper_configs import (
     CompositeIDMapperConfig,
+    LookupJoiningMapperConfig,
     MapperConfig,
     SingleColumnMapperConfig,
     ValueOverrideMapperConfig,
@@ -262,3 +264,51 @@ class CompositeIDMapper(Mapper[CompositeIDMapperConfig]):
                 for example_inputs in zip(*input_columns, strict=True)
             ]
         }
+
+
+class Lookup:
+    def __init__(self, config: LookupJoiningMapperConfig) -> None:
+        key = config.resolved_lookup_key_column
+        table = datasets.load_dataset(
+            config.lookup_path,
+            name=config.lookup_name,
+            revision=config.lookup_revision,
+            data_files=config.lookup_data_files,
+            split=config.lookup_split,
+        )
+        if not isinstance(table, Dataset):
+            raise TypeError(f"lookup {config.lookup_path} split {config.lookup_split} did not load as one Dataset")
+
+        self.table = table.select_columns([key, *config.lookup_columns])
+        self.rows = {value: row for row, value in enumerate(self.table[key])}
+        if len(self.rows) != len(self.table):
+            raise ValueError(f"lookup {config.lookup_path} has duplicate values in {key}")
+
+
+_LOOKUPS: dict[str, Lookup] = {}
+
+
+def _lazy_get_lookup(config: LookupJoiningMapperConfig) -> Lookup:
+    key = repr(config)
+    if key not in _LOOKUPS:
+        _LOOKUPS[key] = Lookup(config)
+    return _LOOKUPS[key]
+
+
+class LookupJoiningMapper(Mapper[LookupJoiningMapperConfig]):
+    def mutate_provenance(self) -> None:
+        self.provenance.ancestry.datasets.add(self.config.lookup_path)
+
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        lookup = _lazy_get_lookup(self.config)
+        rows = [lookup.rows.get(value) for value in batch[self.config.key_column]]
+        found = lookup.table.select([row for row in rows if row is not None])
+        columns = {name: iter(found[name]) for name in self.config.lookup_columns}
+        return {
+            name: [next(values) if row is not None else None for row in rows]
+            for name, values in columns.items()
+        }
+
+    def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        features = _lazy_get_lookup(self.config).table.features
+        return Features({name: features[name] for name in self.config.lookup_columns})

@@ -1,6 +1,6 @@
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +17,9 @@ class DatasetConfig(TaggedConfig):
 
     path: str
     name: str | None = None
+    revision: str | None = None
     data_dir: str | None = None
-    data_files: str | Sequence[str] | Mapping[str, str | Sequence[str]] | None = None
+    data_files: str | dict[str, str | list[str]] | list[str] | None = None
     split: str | list[str] | None = "train"
     cache_dir: str | Path | None = None
     keep_in_memory: bool | None = None

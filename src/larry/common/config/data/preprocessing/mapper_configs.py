@@ -127,3 +127,25 @@ class CompositeIDMapperConfig(MapperConfig):
     def required_output_columns(self) -> list[str]:
         """Returns the single id output column."""
         return [self.id_output_column]
+
+
+@dataclasses.dataclass(kw_only=True)
+class LookupJoiningMapperConfig(MapperConfig):
+    key_column: str
+    lookup_columns: list[str]
+    lookup_path: str
+    lookup_name: str | None = None
+    lookup_revision: str | None = None
+    lookup_data_files: str | list[str] | None = None
+    lookup_split: str = "train"
+    lookup_key_column: str | None = None
+
+    @property
+    def resolved_lookup_key_column(self) -> str:
+        return self.lookup_key_column or self.key_column
+
+    def required_input_columns(self) -> list[str]:
+        return [self.key_column]
+
+    def required_output_columns(self) -> list[str]:
+        return self.lookup_columns
