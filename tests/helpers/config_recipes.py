@@ -20,6 +20,10 @@ TRAINING_RECIPES: dict[str, list[str]] = {
         f"larry-speech-encoder+{overlay.stem}": [*ENCODER, str(overlay.relative_to(CONFIG_ROOT))]
         for overlay in sorted((CONFIG_ROOT / "training/voice/ctc/overlays").glob("*.yaml"))
     },
+    **{
+        f"larry-speech-encoder+{overlay.stem}": [*ENCODER, str(overlay.relative_to(CONFIG_ROOT))]
+        for overlay in sorted((CONFIG_ROOT / "training/common/overlays").glob("*.yaml"))
+    },
     "larry-speech-decoder": DECODER,
     **{
         f"larry-speech-decoder+{overlay.stem}": [*DECODER, str(overlay.relative_to(CONFIG_ROOT))]

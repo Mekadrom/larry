@@ -1,0 +1,9 @@
+trainer:
+  mixture_config:
+    train_sources:
+      scotus:
+        weight: 0.287
+      cv27:
+        weight: 0.287
+      libriheavy-large-index:
+        weight: 0.366
