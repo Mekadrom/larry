@@ -103,6 +103,10 @@ All image data was filtered by per-image licenses where possible.
 - Dollar Street (images only; no descriptions exist)
 - VisualGenome
 - Museums Victoria of Melbourne
+- The Met Open Access
+- Library of Congress "Free to Use"
+- Wikimedia Commons, filtered to PD/CC0
+- NOAA, USGS, etc. (government image data)
 
 # larry Models
 ## Foundational/metric/backbone encoder/decoder models:

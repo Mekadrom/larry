@@ -1,3 +1,4 @@
+import os
 from functools import partial
 from typing import Any, assert_never
 
@@ -6,6 +7,7 @@ from datasets import Dataset, DatasetDict
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.config.data.preprocessing.pruner_configs import (
     ColumnValuesPrunerConfig,
+    DoNotTrainPrunerConfig,
     MatchOpConfig,
     PrunerConfig,
     RangeOpConfig,
@@ -163,3 +165,41 @@ class ColumnValuesPruner(Pruner[ColumnValuesPrunerConfig]):
         if example is None:
             return False
         return not cls.op_in_range(op_config, example)
+
+
+class DoNotTrainPruner(Pruner[DoNotTrainPrunerConfig]):
+    def preprocess_dataset(self, dataset: Dataset | DatasetDict) -> Dataset | DatasetDict:
+        self.require_api_key()
+        return super().preprocess_dataset(dataset)
+
+    def require_api_key(self) -> None:
+        if not os.environ.get(self.config.api_key_env_var):
+            raise ValueError(
+                f"{type(self).__name__} needs a Spawning API key in ${self.config.api_key_env_var}; without one, "
+                f"datadiligence treats every url as allowed"
+            )
+
+    def allowed_urls(self, urls: list[str]) -> set[str]:
+        from datadiligence.rules import SpawningAPI
+
+        if not urls:
+            return set()
+
+        api = SpawningAPI(user_agent=self.config.user_agent)
+        api.api_key = os.environ[self.config.api_key_env_var]
+        return set(api.filter_allowed(urls=urls))
+
+    def keep_batched(self, *columns: list[Any]) -> list[bool]:
+        urls = sorted({url for column in columns for url in column if url is not None})
+        allowed = self.allowed_urls(urls)
+        keep = []
+        for values in zip(*columns, strict=True):
+            if any(value is None for value in values):
+                keep.append(not self.config.prune_nulls and all(v in allowed for v in values if v is not None))
+            else:
+                keep.append(all(value in allowed for value in values))
+
+        pruned = keep.count(False)
+        if pruned:
+            self.log.info(f"pruned {pruned} of {len(keep)} rows opted out of training or without urls")
+        return keep

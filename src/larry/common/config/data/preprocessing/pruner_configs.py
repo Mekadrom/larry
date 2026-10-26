@@ -86,3 +86,12 @@ class LicenseColumnValuesPrunerConfig(ColumnValuesPrunerConfig):
             "CC0"
         ])
     )
+
+
+@dataclasses.dataclass(kw_only=True)
+class DoNotTrainPrunerConfig(PrunerConfig):
+    input_columns: list[str] = dataclasses.field(default_factory=lambda: ["url"])
+    api_key_env_var: str = "SPAWNING_OPTS_KEY"
+    user_agent: str | None = None
+    batch_size: int = 10000
+    num_proc: int = 1

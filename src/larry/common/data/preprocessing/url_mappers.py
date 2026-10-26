@@ -97,6 +97,10 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str 
                         self.log.warning(f"validation error (attempt {attempt + 1}) for {example}", exc_info=True)
                         continue
 
+                    if self.config.respect_opt_out_headers and not self.opt_out_headers_allow(response):
+                        self.log.info(f"{example} opts out of AI training in its response headers; dropping it")
+                        return None
+
                     content = response.content
 
                     if cache_file_path is not None:
@@ -147,6 +151,12 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str 
             session.headers["User-Agent"] = self.user_agent()
             _SESSIONS[key] = session
         return _SESSIONS[key]
+
+    def opt_out_headers_allow(self, response: requests.Response) -> bool:
+        from datadiligence.rules import TDMRepHeader, XRobotsTagHeader
+
+        rules = (XRobotsTagHeader(user_agent=self.user_agent()), TDMRepHeader())
+        return all(rule.is_allowed(response=response) for rule in rules)
 
     def _validate_response(self, example: str, response: requests.Response) -> None:
         """Initial validation for just the content-length for all download responses, but also delegates to subclass."""
