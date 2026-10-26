@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 import jsonpath_ng
 import numpy as np
 import pyarrow as pa
-from datasets import Audio, Dataset, DatasetDict, Features, Value, concatenate_datasets
+from datasets import Audio, Dataset, DatasetDict, Features, Image, Value, concatenate_datasets
 from datasets.fingerprint import Hasher
 from datasets.table import InMemoryTable
 from jsonpath_ng import JSONPath
@@ -191,6 +191,10 @@ class ColumnCastingPreprocessor(Preprocessor[ColumnCastingPreprocessorConfig]):
                 dataset = dataset.cast_column(k, Audio(decode=False))
             elif v == "audio_decode":
                 dataset = dataset.cast_column(k, Audio(decode=True))
+            elif v == "image_no_decode":
+                dataset = dataset.cast_column(k, Image(decode=False))
+            elif v == "image_decode":
+                dataset = dataset.cast_column(k, Image(decode=True))
             elif v is None:
                 dataset = dataset.remove_columns(k)
             else:
