@@ -99,6 +99,7 @@ class UrlMapperConfig(SingleColumnMapperConfig):
     retry_backoff: float = 1.0
     max_retries: int = 2
     respect_opt_out_headers: bool = True
+    max_bytes_per_second: float | None = None
 
     download_cache_dir: str = "/tmp/larry/url_mapper"
 

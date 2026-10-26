@@ -10,20 +10,18 @@ from torchvision.io import ImageReadMode, decode_image, encode_jpeg
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
+from larry.common.data.utils import bot_user_agent
 from larry.common.utils.types import EncodedImage
 from larry.image.config.preprocessing.image_mapper_configs import ImageResizingMapperConfig, UrlImageMapperConfig
 from larry.image.data.preprocessing import image_transforms as larry_image_transforms
 
 
-class UrlImageMapper(
-    UrlMapper[EncodedImage, UrlImageMapperConfig],
-    SingleColumnMapper[str, EncodedImage | None, UrlImageMapperConfig]
-):
+class UrlImageMapper(UrlMapper[EncodedImage, UrlImageMapperConfig]):
     """Implementation of ``UrlMapper`` meant for downloading images, maps to an undecoded image feature type column."""
 
     def user_agent(self) -> str:
         """Overrides the user agent to uniquely identify pipelines using this mapper from this project."""
-        return "larry-image-downloader/1.0 (dataset research; contact via github.com/Mekadrom)"
+        return bot_user_agent("larry-image-downloader")
 
     def validate_content(self, example: str, content: bytes) -> None:
         """Validates that the content defines a real image without actually decoding it. Will raise if not."""

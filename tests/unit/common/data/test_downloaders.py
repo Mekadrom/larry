@@ -107,10 +107,11 @@ class _Raw:
 
 
 class _Response:
-    def __init__(self, body: bytes, headers: dict[str, str]) -> None:
+    def __init__(self, body: bytes, headers: dict[str, str], status_code: int = 200) -> None:
         self.headers = headers
         self.raw = _Raw(body)
         self.body = body
+        self.status_code = status_code
 
     def __enter__(self) -> "_Response":
         return self
@@ -154,3 +155,37 @@ def test_a_truncated_download_is_rejected(tmp_path: Path, monkeypatch: pytest.Mo
     with pytest.raises(ValueError, match="Could not download"):
         downloader.ensure_downloaded()
     assert not (tmp_path / "f.bin").exists()
+
+
+def test_an_interrupted_download_resumes_from_its_partial_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = b"0123456789abcdef"
+    (tmp_path / "dump.bin.part").write_bytes(body[:6])
+    requested: list[dict[str, str]] = []
+
+    def get(url: str, headers: dict[str, str], **kwargs: object) -> _Response:
+        requested.append(headers)
+        start = int(headers["Range"].removeprefix("bytes=").removesuffix("-"))
+        return _Response(body[start:], {"Content-Length": str(len(body) - start)}, status_code=206)
+
+    monkeypatch.setattr(requests, "get", get)
+    downloader = SingleFileDownloader(
+        SingleFileDownloaderConfig(download_base_url="https://example.test", output_file_name="dump.bin"), tmp_path
+    )
+
+    downloader.ensure_downloaded()
+
+    assert requested[0]["Range"] == "bytes=6-"
+    assert (tmp_path / "dump.bin").read_bytes() == body
+
+
+def test_a_server_ignoring_the_range_restarts_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = b"0123456789abcdef"
+    (tmp_path / "dump.bin.part").write_bytes(b"stale")
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: _Response(body, {"Content-Length": str(len(body))}))
+    downloader = SingleFileDownloader(
+        SingleFileDownloaderConfig(download_base_url="https://example.test", output_file_name="dump.bin"), tmp_path
+    )
+
+    downloader.ensure_downloaded()
+
+    assert (tmp_path / "dump.bin").read_bytes() == body

@@ -17,7 +17,7 @@ from larry.common.config.data.preprocessing.mapper_configs import MapperConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import Mapper, SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
-from larry.common.data.utils import features_of
+from larry.common.data.utils import bot_user_agent, features_of
 from larry.common.utils.types import EncodedAudio
 from larry.text.tokenizer.text_tokenizer import SentencePieceTokenizer, TextTokenizer
 from larry.voice.config.preprocessing.voice_configs import AlignerConfig
@@ -89,7 +89,7 @@ class UrlAudioMapper(UrlMapper[EncodedAudio, UrlAudioMapperConfig]):
 
     def user_agent(self) -> str:
         """Sets the user agent to something that points to pipelines using this mapper in this project."""
-        return "larry-audio-downloader/1.0 (dataset research; contact via github.com/Mekadrom)"
+        return bot_user_agent("larry-audio-downloader")
 
     def extract_content(self, example: str, content: bytes) -> EncodedAudio:
         """Wraps content in a typed dict for audio as bytes and a local file path."""

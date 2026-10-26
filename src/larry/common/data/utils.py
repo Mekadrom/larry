@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import requests
 from datasets import Dataset, DatasetDict, Features
 from tqdm import tqdm
 
@@ -57,3 +58,7 @@ def features_of(dataset: Dataset | DatasetDict) -> Features:
         if feats != first:
             raise ValueError(f"split {name!r} features differ from {first_name!r}: {feats} vs {first}")
     return first
+
+
+def bot_user_agent(name: str) -> str:
+    return f"{name}-bot/1.0 (https://github.com/Mekadrom; dataset research) python-requests/{requests.__version__}"

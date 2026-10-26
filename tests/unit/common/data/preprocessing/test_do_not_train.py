@@ -100,3 +100,33 @@ def test_header_checks_can_be_disabled(tmp_path: Path, monkeypatch: pytest.Monke
     monkeypatch.setattr(mapper, "_lazy_get_session", lambda: session)
 
     assert mapper.preprocess_example("https://a.example/1.jpg") is not None
+
+
+def test_the_byte_rate_limit_spaces_downloads_out(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import larry.common.data.preprocessing.url_mappers as url_mappers
+
+    clock = {"now": 0.0}
+    slept: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(url_mappers.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(url_mappers.time, "sleep", sleep)
+    config = UrlBytesMapperConfig(download_cache_dir=str(tmp_path / "cache"), max_bytes_per_second=1000.0)
+    mapper = UrlBytesMapper(provenance(), config)
+
+    for size in (600, 600, 600):
+        mapper.throttle(size)
+
+    assert slept == pytest.approx([0.2, 0.6])
+
+
+def test_no_rate_limit_means_no_waiting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import larry.common.data.preprocessing.url_mappers as url_mappers
+
+    monkeypatch.setattr(url_mappers.time, "sleep", lambda seconds: pytest.fail("slept without a limit"))
+    mapper = UrlBytesMapper(provenance(), UrlBytesMapperConfig(download_cache_dir=str(tmp_path / "cache")))
+
+    mapper.throttle(10 ** 9)

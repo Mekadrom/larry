@@ -1,0 +1,41 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: WikimediaCommonsCachedDatasetConfig
+  download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/wikimedia_commons-normalized/
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/wikimedia_commons-normalized/
+  dump_date: "20261019"
+  licenses:
+    - Q6938433
+  copyright_statuses:
+    - Q19652
+  mime_types:
+    - image/jpeg
+    - image/png
+    - image/webp
+  thumbnail_width: 960
+pipeline:
+#  prune_do_not_train:
+#    type: DoNotTrainPrunerConfig
+#    input_columns:
+#      - image_url
+  download_image:
+    type: UrlImageMapperConfig
+    input_column: image_url
+    num_proc: 2
+    batch_size: 64
+    writer_batch_size: 64
+    busy_wait: 0.0
+    max_bytes_per_second: 1500000
+    filter_null_outputs: true
+    download_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/wikimedia_commons-normalized/images/
+  resize_images:
+    type: ImageResizingMapperConfig
+    batch_size: 64
+    filter_null_outputs: true
+    width: 512
+    height: 512
+    pad_to_equal: false
+    center_crop: false

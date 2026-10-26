@@ -18,6 +18,7 @@ from larry.common.config.data.downloader_configs import (
     SingleFileBackupDownloaderConfig,
     SingleFileDownloaderConfig,
 )
+from larry.common.data.utils import bot_user_agent
 from larry.common.utils.registrable import Registrable
 from larry.common.utils.types import TypeRegistry
 
@@ -52,7 +53,7 @@ class Downloader[C: DownloaderConfig = DownloaderConfig](Registrable, ABC, root=
         ...
 
 
-UA = "larry-scotus-dataset-provider/1.0 (dataset research; contact via github.com/Mekadrom)"
+UA = bot_user_agent("larry-dataset-downloader")
 
 _SAFE = "/%!$&'()*+,;=:@-._~"
 
@@ -125,6 +126,9 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
                 downloaded = True
                 break
 
+            if content is not None:
+                temp_file_path.unlink(missing_ok=True)
+
             time.sleep(self.config.busy_wait)
 
         if not downloaded:
@@ -137,17 +141,26 @@ class SingleFileDownloader[C: SingleFileDownloaderConfig = SingleFileDownloaderC
 
     def _download_file(self, url: str, file_path: Path, return_contents: bool = False) -> bytes | None:
         """Actually performs the download, using tqdm to track progress against the total expected content length."""
-        with requests.get(url, stream=True, timeout=self.download_timeout, headers={"User-Agent": UA}) as response:
+        existing = file_path.stat().st_size if file_path.exists() else 0
+        headers = {"User-Agent": UA}
+        if existing:
+            headers["Range"] = f"bytes={existing}-"
+
+        with requests.get(url, stream=True, timeout=self.download_timeout, headers=headers) as response:
             response.raise_for_status()
-            total = int(response.headers.get("Content-Length", 0)) or None
+            resumed = existing > 0 and response.status_code == 206
+            offset = existing if resumed else 0
+            length = int(response.headers.get("Content-Length", 0)) or None
+            total = offset + length if length is not None else None
             encoding = response.headers.get("Content-Encoding")
             keep_encoded = encoding == "gzip" and file_path.name.removesuffix(".part").endswith(".gz")
             chunks = (
                 response.raw.stream(1024 * 1024, decode_content=False)
                 if keep_encoded else response.iter_content(chunk_size=1024 * 1024)
             )
-            with open(file_path, 'wb') as stream, tqdm(
+            with open(file_path, "ab" if resumed else "wb") as stream, tqdm(
                     total=total,
+                    initial=offset,
                     unit="B",
                     unit_scale=True,
                     unit_divisor=1024,

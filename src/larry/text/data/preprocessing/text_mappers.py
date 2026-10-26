@@ -8,15 +8,16 @@ from transformers import AutoTokenizer
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
+from larry.common.data.utils import bot_user_agent
 from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, UrlTextMapperConfig
 
 
-class UrlTextMapper(UrlMapper[str, UrlTextMapperConfig], SingleColumnMapper[str, str | None, UrlTextMapperConfig]):
+class UrlTextMapper(UrlMapper[str, UrlTextMapperConfig]):
     """Implementation of ``UrlTextMapper`` that processes native text content."""
 
     def user_agent(self) -> str:
         """Overrides the user agent to point to pipelines using this mapper in this project."""
-        return "larry-text-downloader/1.0 (dataset research; contact via github.com/Mekadrom)"
+        return bot_user_agent("larry-text-downloader")
 
     def validate_content(self, example: str, content: bytes) -> None:
         """No validation can be done or is required in addition to the superclass'."""

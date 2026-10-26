@@ -14,6 +14,7 @@ from datasets.features.features import FeatureType
 from larry.common.config.data.preprocessing.mapper_configs import UrlBytesMapperConfig, UrlMapperConfig
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
 from larry.common.data.preprocessing.mappers import SingleColumnMapper
+from larry.common.data.utils import bot_user_agent
 
 _SESSIONS: dict[str, requests.Session] = {}
 
@@ -29,6 +30,28 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str 
             os.makedirs(self.download_cache_dir, exist_ok=True)
         else:
             self.download_cache_dir = None
+
+        self.throttle_tokens = 0.0
+        self.throttle_checked: float | None = None
+
+    def throttle(self, size: int) -> None:
+        """For throttling based on download speed; required by wikimedia and probably some other servers."""
+        rate = self.config.max_bytes_per_second
+        if rate is None:
+            return
+
+        now = time.monotonic()
+        if self.throttle_checked is None:
+            self.throttle_tokens = rate
+        else:
+            self.throttle_tokens = min(rate, self.throttle_tokens + (now - self.throttle_checked) * rate)
+
+        self.throttle_tokens -= size
+        if self.throttle_tokens < 0:
+            time.sleep(-self.throttle_tokens / rate)
+            self.throttle_tokens = 0.0
+
+        self.throttle_checked = time.monotonic()
 
     def preprocess_example(self, example: str | None) -> O | None:
         """For a given example (URL string), download the data at the given URL and store it using overridden logic.
@@ -102,6 +125,7 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str 
                         return None
 
                     content = response.content
+                    self.throttle(len(content))
 
                     if cache_file_path is not None:
                         tmp = cache_file_path.with_suffix(".part")
@@ -190,7 +214,7 @@ class UrlBytesMapper(UrlMapper[bytes, UrlBytesMapperConfig]):
 
     def user_agent(self) -> str:
         """Generic bytes-downloader user-agent tell, traces uniquely back to this project but not to the individual."""
-        return "larry-bytes-downloader/1.0 (dataset research; contact via github.com/Mekadrom)"
+        return bot_user_agent("larry-bytes-downloader")
 
     def validate_content(self, example: str, content: bytes) -> None:
         """Validates conditionally that the bytes in the response start with some expected content prefix."""
