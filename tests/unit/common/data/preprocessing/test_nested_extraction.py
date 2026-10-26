@@ -51,3 +51,22 @@ def test_nested_extraction_extracts(
 
     assert Counter(dataset["text_original"]) == Counter([expected_text_original])
     assert Counter(dataset["exif_copyright"]) == Counter([expected_copyright])
+
+
+@pytest.mark.parametrize("num_proc", [1, 2])
+def test_struct_inputs_are_removed_from_the_output_schema(num_proc: int) -> None:
+    images = [
+        {"print": {"url": f"https://cdn.example/{i}_print.jpg", "width": "3400"}, "web": None} for i in range(4)
+    ]
+    dataset = Dataset.from_dict({"id": [0, 1, 2, 3], "images": images})
+    config = NestedExtractionPreprocessorConfig(
+        input_column="images",
+        json_path_mappings=[JsonPathMapping(json_path="$.print.url", output_column="print_url")],
+        num_proc=num_proc,
+        batch_size=2,
+    )
+
+    extracted = NestedExtractionPreprocessor(provenance(), config).preprocess_dataset(dataset)
+
+    assert set(extracted.column_names) == {"id", "print_url"}
+    assert extracted["print_url"] == [f"https://cdn.example/{i}_print.jpg" for i in range(4)]

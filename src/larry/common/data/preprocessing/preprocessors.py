@@ -136,6 +136,8 @@ class NestedExtractionPreprocessor(Preprocessor[NestedExtractionPreprocessorConf
     def preprocessing_features(self, dataset: Dataset | DatasetDict) -> Features | None:
         """All outputs are effectively strings; use ``ColumnCastingMapper`` to cast to different types afterwards."""
         features = features_of(dataset).copy()
+        for column in self.remove_columns:
+            features.pop(column, None)
         for mapping in self.config.json_path_mappings:
             features[mapping.output_column] = Value("string")
 
