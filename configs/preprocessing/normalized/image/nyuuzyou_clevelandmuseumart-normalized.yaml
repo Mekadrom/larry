@@ -18,10 +18,10 @@ pipeline:
     json_path_mappings:
       - json_path: "$.print.url"
         output_column: print_url
-  prune_do_not_train:
-    type: DoNotTrainPrunerConfig
-    input_columns:
-      - print_url
+#  prune_do_not_train:
+#    type: DoNotTrainPrunerConfig
+#    input_columns:
+#      - print_url
   download_image:
     type: UrlImageMapperConfig
     input_column: print_url
