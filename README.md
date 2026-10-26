@@ -84,7 +84,7 @@ All voice data as redistributed (again, where applicable) or trained on is filte
   - 289.8 hours for training
   - 0.6 hours for val
 ## Image
-All image data was filtered by per-image licenses where possible.
+All image data will be filtered by per-image licenses where necessary.
 - Wikimedia Commons
 - Open Images
 - VizWiz
@@ -99,12 +99,12 @@ excluded for now
 - Art institute of Chicago dump
 - ~~TextCaps~~ - 
 - Crossmodal-3600
-- CommonCatalog
+- ~~CommonCatalog~~ - CC-BY on row-level; difficult to attribute
 - Te Papa
 - NASA Image Library
 - Rijkmuseum
-- ~~Dollar Street (images only; no descriptions exist)~~
-- VisualGenome
+- ~~Dollar Street (images only; no descriptions exist)~~ - CC-BY-SA
+- ~~VisualGenome~~ - YFCC100M derivative
 - Museums Victoria of Melbourne
 - The Met Open Access
 - Library of Congress "Free to Use"

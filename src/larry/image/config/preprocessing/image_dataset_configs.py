@@ -39,11 +39,11 @@ class GoogleDOCCIMediaCachedDatasetConfig(MediaCachedDatasetConfig, ImageDataset
         return [
             ("MultiFileDownloader", MultiFileDownloaderConfig(
                 configs=[
-                    ("SingleFileDownloaderConfig", SingleFileDownloaderConfig(
+                    ("SingleFileDownloader", SingleFileDownloaderConfig(
                         download_base_url=self.download_url,
                         output_file_name=self.descriptions_file,
                     )),
-                    ("SingleFileDownloaderConfig", SingleFileDownloaderConfig(
+                    ("SingleFileDownloader", SingleFileDownloaderConfig(
                         download_base_url=self.download_url,
                         output_file_name=self.images_file,
                     )),
