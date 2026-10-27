@@ -20,6 +20,15 @@ class LarryAttentionOutput[KV](LarryModelOutput):
 class LarryAttention(nn.Module, QKModule):
     """Generic attention module. Supports KV cache."""
 
+    @staticmethod
+    def make_rotary(dim: int) -> RotaryEmbedding:
+        rotary = RotaryEmbedding(dim=dim)
+        length = rotary.cache_max_seq_len
+        with torch.no_grad():
+            rotary.forward(torch.arange(length), seq_len=length)
+
+        return rotary
+
     def __init__(self, config: AttentionModuleConfig) -> None:
         """Initializes all modules required for the provided configuration."""
         super().__init__()
@@ -44,19 +53,19 @@ class LarryAttention(nn.Module, QKModule):
         self.rotary_embedding = None
         self.rotary_global = self.rotary_local = self.rotary_local_2 = None
         if config.positional_encoding_name == "rotary":
-            self.rotary_embedding = RotaryEmbedding(dim=config.rotary_embedding_dim)
+            self.rotary_embedding = self.make_rotary(config.rotary_embedding_dim)
             if self.config.use_split_rope:
                 self._split_rope_half = config.rotary_embedding_dim // 2
-                self.rotary_global = RotaryEmbedding(dim=self._split_rope_half)
+                self.rotary_global = self.make_rotary(self._split_rope_half)
                 if config.split_rope_local_axes == 2:
                     if self._split_rope_half % 4 != 0 or self._split_rope_half < 8:
                         raise ValueError("two local RoPE axes need rotary_embedding_dim divisible by 8 and at least 16")
 
                     self._split_rope_quarter = self._split_rope_half // 2
-                    self.rotary_local = RotaryEmbedding(dim=self._split_rope_quarter)
-                    self.rotary_local_2 = RotaryEmbedding(dim=self._split_rope_quarter)
+                    self.rotary_local = self.make_rotary(self._split_rope_quarter)
+                    self.rotary_local_2 = self.make_rotary(self._split_rope_quarter)
                 else:
-                    self.rotary_local = RotaryEmbedding(dim=self._split_rope_half)
+                    self.rotary_local = self.make_rotary(self._split_rope_half)
 
         self.o_proj = nn.Linear(self.n_heads * self.d_values, config.d_model)
 

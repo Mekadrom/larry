@@ -67,6 +67,9 @@ class BenchmarkOptions:
     smi_interval_ms: int = 200
     ddp_comm_hook: str = "no"
     compile: str = "none"
+    cudnn_benchmark: bool = False
+    cudnn_deterministic: bool = True
+    float32_matmul_precision: str = "highest"
     cache_dir: Path = dataclasses.field(default_factory=lambda: Path("~/.cache/larry/benchmark").expanduser())
 
 
@@ -439,6 +442,9 @@ class TrainingBenchmark:
         case = cases[name]()
         case.trainer_config.ddp_comm_hook = self.options.ddp_comm_hook
         case.trainer_config.compile = dataclasses.replace(case.trainer_config.compile, mode=self.options.compile)
+        case.trainer_config.cudnn_benchmark = self.options.cudnn_benchmark
+        case.trainer_config.cudnn_deterministic = self.options.cudnn_deterministic
+        case.trainer_config.float32_matmul_precision = self.options.float32_matmul_precision
         return case
 
     def visible_indices(self) -> list[int]:
@@ -561,6 +567,7 @@ class TrainingBenchmark:
         accelerator = Accelerator(mixed_precision="bf16", kwargs_handlers=case.kwargs_handlers())
         device = accelerator.device
         torch.manual_seed(options.seed)
+        case.trainer_stub().configure_backends()
         model = case.build_model()
         case.trainer_stub().compile_model(model)
         n_parameters = sum(p.numel() for p in model.parameters())
@@ -649,6 +656,9 @@ class TrainingBenchmark:
             "batch_scale": scale,
             "ddp_comm_hook": case.trainer_config.ddp_comm_hook,
             "compile": case.trainer_config.compile.mode,
+            "cudnn_benchmark": case.trainer_config.cudnn_benchmark,
+            "cudnn_deterministic": case.trainer_config.cudnn_deterministic,
+            "float32_matmul_precision": case.trainer_config.float32_matmul_precision,
             "steps_timed": len(times),
             "step_seconds_median": median_step,
             "step_seconds_mean": mean_step,
@@ -715,6 +725,9 @@ def main() -> None:
         "--ddp_comm_hook", default="no", choices=["no", "fp16", "bf16", "power_sgd", "batched_power_sgd"]
     )
     parser.add_argument("--compile", default="none", choices=["none", "blocks", "model"])
+    parser.add_argument("--cudnn_benchmark", action="store_true")
+    parser.add_argument("--no_cudnn_deterministic", action="store_true")
+    parser.add_argument("--float32_matmul_precision", default="highest", choices=["highest", "high", "medium"])
     parser.add_argument("--cache_dir", type=Path, default=Path("~/.cache/larry/benchmark").expanduser())
     args = parser.parse_args()
 
@@ -727,6 +740,9 @@ def main() -> None:
         cache_dir=args.cache_dir.expanduser(),
         ddp_comm_hook=args.ddp_comm_hook,
         compile=args.compile,
+        cudnn_benchmark=args.cudnn_benchmark,
+        cudnn_deterministic=not args.no_cudnn_deterministic,
+        float32_matmul_precision=args.float32_matmul_precision,
     )
     TrainingBenchmark(options, args.models).run()
 

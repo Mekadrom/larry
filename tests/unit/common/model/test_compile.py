@@ -114,8 +114,7 @@ def test_a_compiled_trunk_matches_eager_through_truncated_backprop(checkpointing
             torch.allclose(a, b, atol=1e-5) for a, b in zip(grads, eager_grads, strict=True)
         )
 
-    assert counters["stats"]["unique_graphs"] >= 1
-    assert sum(counters["recompiles"].values()) <= 4
+    assert 1 <= counters["stats"]["unique_graphs"] <= 4 * len(compiled_trunk.blocks)
 
 
 def test_the_multimodal_trainer_refuses_whole_model_compilation() -> None:
@@ -128,3 +127,20 @@ def test_the_multimodal_trainer_refuses_whole_model_compilation() -> None:
 def test_the_overlay_turns_on_block_compilation() -> None:
     assert load_training("larry-speech-encoder+compile_blocks").trainer.compile.mode == "blocks"
     assert load_training("larry-speech-encoder").trainer.compile.mode == "none"
+
+
+@pytest.mark.parametrize("training", [False, True])
+def test_growing_sequence_lengths_do_not_recompile_compiled_blocks(training: bool) -> None:
+    from torch._dynamo.utils import counters
+
+    torch._dynamo.reset()
+    counters.clear()
+    trunk = _trunk(mean_thinking_steps=2, backprop_depth=1)
+    ModelCompiler(CompileConfig(mode="blocks", backend="aot_eager")).apply(trunk)
+    trunk.train(training)
+
+    with torch.set_grad_enabled(training):
+        for seq_len in range(4, 40, 3):
+            trunk(torch.randn(2, seq_len, 32)).logits.sum()
+
+    assert counters["stats"]["unique_graphs"] <= 2 * len(trunk.blocks)

@@ -121,6 +121,7 @@ D: Dataset = Dataset,
 
         self.provenance = provenance
         self._config = config
+        self.configure_backends()
         self.unwrapped_model = model
         self.model_config = model.config
 
@@ -200,6 +201,11 @@ D: Dataset = Dataset,
 
     def accelerator_kwargs_handlers(self) -> list[KwargsHandler]:
         return []
+
+    def configure_backends(self) -> None:
+        torch.backends.cudnn.benchmark = self.config.cudnn_benchmark
+        torch.backends.cudnn.deterministic = self.config.cudnn_deterministic
+        torch.set_float32_matmul_precision(self.config.float32_matmul_precision)
 
     def compile_model(self, model: nn.Module) -> int:
         return ModelCompiler(self.config.compile).apply(model)

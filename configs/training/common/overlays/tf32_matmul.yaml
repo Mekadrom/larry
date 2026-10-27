@@ -1,0 +1,2 @@
+trainer:
+  float32_matmul_precision: high

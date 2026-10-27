@@ -29,6 +29,9 @@ class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](Ta
     ddp_comm_hook: Literal["no", "fp16", "bf16", "power_sgd", "batched_power_sgd"] = "no"
     ddp_comm_state_option: dict[str, Any] = dataclasses.field(default_factory=dict)
     compile: CompileConfig = dataclasses.field(default_factory=CompileConfig)
+    cudnn_benchmark: bool = False
+    cudnn_deterministic: bool = True
+    float32_matmul_precision: Literal["highest", "high", "medium"] = "highest"
 
     train_batch_size: int = 64
     eval_batch_size: int = 64

@@ -1,0 +1,2 @@
+trainer:
+  cudnn_deterministic: false
