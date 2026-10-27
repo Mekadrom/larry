@@ -144,3 +144,47 @@ def test_growing_sequence_lengths_do_not_recompile_compiled_blocks(training: boo
             trunk(torch.randn(2, seq_len, 32)).logits.sum()
 
     assert counters["stats"]["unique_graphs"] <= 2 * len(trunk.blocks)
+
+
+def _fsmn_block(d_model: int = 16) -> nn.Module:
+    from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
+    from larry.voice.model.speech_encoder import SpeechEncoderEncoderBlock
+
+    torch.manual_seed(0)
+    config = SpeechEncoderModelConfig(
+        d_model=d_model, n_heads=2, n_query_groups=2, rotary_embedding_dim=8, vocab_size=8,
+    )
+    return SpeechEncoderEncoderBlock(config)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_the_compiled_fsmn_memory_matches_the_depthwise_conv(dtype: torch.dtype) -> None:
+    attention = _fsmn_block().attn
+    x = torch.randn(2, 16, 37).to(dtype)
+
+    expected = attention.fsmn.to(dtype)(x)
+    shifted = attention._shifted_depthwise(x)
+
+    assert shifted.shape == expected.shape and shifted.dtype == expected.dtype
+    tolerance = 1e-5 if dtype == torch.float32 else 3e-2
+    assert torch.allclose(shifted.float(), expected.float(), atol=tolerance, rtol=tolerance)
+
+
+def test_an_inductor_compiled_fsmn_block_trains_on_new_lengths_without_recompiling() -> None:
+    from torch._dynamo.utils import counters
+
+    torch._dynamo.reset()
+    counters.clear()
+    block = _fsmn_block().train()
+    eager = _fsmn_block().train()
+    ModelCompiler(CompileConfig(mode="model")).apply(block)
+
+    for seq_len in (26, 41, 66):
+        x = torch.randn(3, seq_len, 16)
+        mask = torch.ones(3, seq_len, dtype=torch.bool)
+        mask[1, seq_len - 5:] = False
+        out = block(x, mask)
+        out.sum().backward()
+        assert torch.allclose(out, eager(x, mask), atol=1e-4)
+
+    assert counters["stats"]["unique_graphs"] <= 2

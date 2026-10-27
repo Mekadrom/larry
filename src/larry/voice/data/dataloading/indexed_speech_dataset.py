@@ -38,7 +38,7 @@ class IndexedSpeechDataset[C: SpeechSourceConfig = SpeechSourceConfig](IndexedDa
         durations = []
         for s, config in enumerate(self.configs):
             column = self.column(s, config.duration_column).to_numpy()
-            durations.append(torch.from_numpy(column).double())
+            durations.append(torch.tensor(column, dtype=torch.float64))
             source_ids.append(torch.full((len(column),), s, dtype=torch.long))
 
         return torch.cat(source_ids), torch.cat(durations)

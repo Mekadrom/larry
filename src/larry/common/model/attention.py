@@ -338,6 +338,16 @@ class FSMNAttention(LarryAttention):
 
         return output
 
+    def _shifted_depthwise(self, x: torch.Tensor) -> torch.Tensor:
+        weight = self.fsmn.weight[:, 0, :].to(x.dtype)
+        kernel_size = weight.shape[-1]
+        length = x.shape[-1] - kernel_size + 1
+        out = x[..., :length] * weight[:, :1]
+        for offset in range(1, kernel_size):
+            out = out + x[..., offset:offset + length] * weight[:, offset:offset + 1]
+
+        return out
+
     def _memory(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor | None) -> torch.Tensor:
         """Applies a memory projection as a linear convolution."""
         memory_in = self.memory_proj(hidden_states)  # [B, T, D]
@@ -350,7 +360,8 @@ class FSMNAttention(LarryAttention):
             memory_in = memory_in * keep
 
         x = F.pad(memory_in.transpose(1, 2), self.fsmn_padding)  # [B, D, T + k - 1]
-        memory = self.fsmn(x).transpose(1, 2) + memory_in
+        convolved = self._shifted_depthwise(x) if torch.compiler.is_compiling() else self.fsmn(x)
+        memory = convolved.transpose(1, 2) + memory_in
 
         if keep is not None:
             memory = memory * keep
