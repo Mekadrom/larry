@@ -1,0 +1,3 @@
+trainer:
+  compile:
+    mode: model

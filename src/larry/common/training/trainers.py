@@ -32,6 +32,7 @@ from larry.common.criteria.criterion import LossTerm, weighted_total
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset, load_index, load_source
 from larry.common.data.dataloading.samplers import ResumableBatchSampler
 from larry.common.metrics.metrics import MetricDict, Metrics, ScalarMetricEntry
+from larry.common.model.compile import ModelCompiler
 from larry.common.model.flow import ConditionalFlowMatching
 from larry.common.model.model import LarryModelOutput
 from larry.common.training.callbacks import ModelInitLoggingCallback, TrainingCallback, TrainLossByTokens
@@ -138,6 +139,10 @@ D: Dataset = Dataset,
 
         self.total_steps = self.config.max_steps
 
+        compiled = self.compile_model(model)
+        if compiled:
+            self.log.info(f"compiled {compiled} module forward(s) with {self.config.compile}")
+
         optimizers = self.make_optimizers(model)  # e.g. [muon, adamw]
         schedulers = [self.make_lr_scheduler(o) for o in optimizers]
 
@@ -191,6 +196,9 @@ D: Dataset = Dataset,
 
     def accelerator_kwargs_handlers(self) -> list[KwargsHandler]:
         return []
+
+    def compile_model(self, model: nn.Module) -> int:
+        return ModelCompiler(self.config.compile).apply(model)
 
     def kwargs_handlers(self) -> list[KwargsHandler]:
         handlers = self.accelerator_kwargs_handlers()

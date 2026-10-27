@@ -9,6 +9,15 @@ from larry.common.config.model.model_configs import ModelConfig, VocabularyConfi
 
 
 @dataclasses.dataclass(kw_only=True)
+class CompileConfig(Config):
+    mode: Literal["none", "blocks", "model"] = "none"
+    backend: str = "inductor"
+    compile_mode: str | None = None
+    dynamic: bool | None = True
+    recompile_limit: int = 64
+
+
+@dataclasses.dataclass(kw_only=True)
 class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](TaggedConfig, ABC):
     """Superclass config for all ``TrainerBase`` and ``LarryTrainer`` implementations."""
 
@@ -19,6 +28,7 @@ class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](Ta
     max_grad_norm: float = 1.0
     ddp_comm_hook: Literal["no", "fp16", "bf16", "power_sgd", "batched_power_sgd"] = "no"
     ddp_comm_state_option: dict[str, Any] = dataclasses.field(default_factory=dict)
+    compile: CompileConfig = dataclasses.field(default_factory=CompileConfig)
 
     train_batch_size: int = 64
     eval_batch_size: int = 64

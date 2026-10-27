@@ -66,6 +66,7 @@ class BenchmarkOptions:
     seed: int = 0
     smi_interval_ms: int = 200
     ddp_comm_hook: str = "no"
+    compile: str = "none"
     cache_dir: Path = dataclasses.field(default_factory=lambda: Path("~/.cache/larry/benchmark").expanduser())
 
 
@@ -437,6 +438,7 @@ class TrainingBenchmark:
         }
         case = cases[name]()
         case.trainer_config.ddp_comm_hook = self.options.ddp_comm_hook
+        case.trainer_config.compile = dataclasses.replace(case.trainer_config.compile, mode=self.options.compile)
         return case
 
     def visible_indices(self) -> list[int]:
@@ -512,7 +514,7 @@ class TrainingBenchmark:
     def count_flops(self, accelerator: Accelerator, model: nn.Module, optimizers: list[Optimizer],
                     case: BenchmarkCase[Any, Any], batch: Mapping[str, Any]) -> float:
         counter = FlopCounterMode(display=False)
-        with counter:
+        with torch.compiler.set_stance("force_eager"), counter:
             with accelerator.autocast():
                 loss = case.loss(model, accelerator.unwrap_model(model), batch)
             accelerator.backward(loss)
@@ -531,6 +533,7 @@ class TrainingBenchmark:
         device = accelerator.device
         torch.manual_seed(options.seed)
         model = case.build_model()
+        case.trainer_stub().compile_model(model)
         n_parameters = sum(p.numel() for p in model.parameters())
         optimizers = case.optimizers(model)
         prepared = accelerator.prepare(model, *optimizers)
@@ -616,6 +619,7 @@ class TrainingBenchmark:
             "num_processes": int(gathered.shape[0]),
             "batch_scale": scale,
             "ddp_comm_hook": case.trainer_config.ddp_comm_hook,
+            "compile": case.trainer_config.compile.mode,
             "steps_timed": len(times),
             "step_seconds_median": median_step,
             "step_seconds_mean": mean_step,
@@ -681,6 +685,7 @@ def main() -> None:
     parser.add_argument(
         "--ddp_comm_hook", default="no", choices=["no", "fp16", "bf16", "power_sgd", "batched_power_sgd"]
     )
+    parser.add_argument("--compile", default="none", choices=["none", "blocks", "model"])
     parser.add_argument("--cache_dir", type=Path, default=Path("~/.cache/larry/benchmark").expanduser())
     args = parser.parse_args()
 
@@ -692,6 +697,7 @@ def main() -> None:
         seed=args.seed,
         cache_dir=args.cache_dir.expanduser(),
         ddp_comm_hook=args.ddp_comm_hook,
+        compile=args.compile,
     )
     TrainingBenchmark(options, args.models).run()
 

@@ -119,6 +119,14 @@ class LarryMultimodalTrainer(
     def processor(self) -> LarryMultimodalPretrainProcessor:
         return LarryMultimodalPretrainProcessor.from_pretrained(self.config.processor_model_path)
 
+    def compile_model(self, model: nn.Module) -> int:
+        if self.config.compile.mode == "model":
+            raise ValueError(
+                "compile.mode=model would trace the recurrent trunk's data-dependent iteration loop and routing; "
+                "use compile.mode=blocks, which compiles each repeated block and keeps the loop eager"
+            )
+        return super().compile_model(model)
+
     def accelerator_kwargs_handlers(self) -> list[KwargsHandler]:
         # a batch without voice or image rows never runs those modules; plain DDP errors on parameters with no grad
         return [DistributedDataParallelKwargs(find_unused_parameters=True)]
