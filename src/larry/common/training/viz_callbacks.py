@@ -28,6 +28,8 @@ class VizCallback(callbacks.TrainingCallback, ABC):
     Does visualization every ``viz_steps`` steps, at the end of those steps (after optimizer backward/step).
     """
 
+    counts_as_training = False
+
     def __init__(self, trainer: trainers.TrainerBase[Any, Any, Any], viz_steps: int) -> None:
         """Common initializer for all subclasses."""
         super().__init__(trainer)

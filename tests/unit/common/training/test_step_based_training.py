@@ -228,3 +228,45 @@ def test_a_run_writes_its_model_config_once_and_keeps_an_existing_one(tmp_path: 
     start()
 
     assert json.loads((tmp_path / MODEL_CONFIG_FILE).read_text()) == {"kept": True}
+
+
+class ClockedToyTrainer(ToyTrainer):
+    clock = [0.0]
+
+    def train_forward_pass(self, batch: Any) -> Any:
+        ClockedToyTrainer.clock[0] += 1.0
+        return super().train_forward_pass(batch)
+
+    def evaluate(self) -> Any:
+        ClockedToyTrainer.clock[0] += 100.0
+        return super().evaluate()
+
+    def save(self, step: int) -> None:
+        ClockedToyTrainer.clock[0] += 1000.0
+        super().save(step)
+
+
+@pytest.fixture
+def fake_clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    import larry.common.training.trainers as trainers_module
+
+    ClockedToyTrainer.clock = [0.0]
+    monkeypatch.setattr(trainers_module.time, "monotonic", lambda: ClockedToyTrainer.clock[0])
+    return ClockedToyTrainer.clock
+
+
+def test_training_time_counts_steps_and_excludes_evaluation_and_saves(tmp_path: Path, fake_clock: list[float]) -> None:
+    trainer = train_toy(tmp_path, ClockedToyTrainer, max_steps=6, eval_steps=2, save_steps=3)
+
+    assert trainer.train_state.train_seconds == pytest.approx(6.0)
+
+
+def test_training_time_resumes_from_the_checkpoint_and_skips_the_pause(tmp_path: Path, fake_clock: list[float]) -> None:
+    train_toy(tmp_path / "part", ClockedToyTrainer, max_steps=4, save_steps=4)
+    fake_clock[0] += 5000.0
+    reset_accelerate_state()
+
+    resumed = train_toy(tmp_path / "rest", ClockedToyTrainer, resume_dir=str(tmp_path / "part" / "checkpoint-4"),
+                        max_steps=9, save_steps=4)
+
+    assert resumed.train_state.train_seconds == pytest.approx(9.0)

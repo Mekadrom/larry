@@ -11,6 +11,8 @@ from larry.common.training import trainers
 class TrainingCallback:
     """Superclass for all callbacks for doing stuff before and after a given training step."""
 
+    counts_as_training: bool = True
+
     def __init__(self, trainer: trainers.TrainerBase[Any, Any, Any]) -> None:
         """Simple init."""
         self.log = logging.getLogger(type(self).__name__)

@@ -4,6 +4,7 @@ import functools
 import json
 import logging
 import math
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
@@ -69,6 +70,7 @@ class TrainState:
         """Simple init."""
         self.global_step = 0
         self.tokens_seen = 0
+        self.train_seconds = 0.0
 
     def state_dict(self) -> dict[str, Any]:
         """Converts to dict for saving."""
@@ -172,6 +174,8 @@ D: Dataset = Dataset,
         self.log.info(f"self.schedulers={self.schedulers}")
 
         self.train_state = TrainState()
+        self._clock = time.monotonic()
+        self._untimed = 0.0
         self._pending_tokens = 0
         self.load(resume_dir)
         self.train_batch_sampler.start_at(
@@ -384,6 +388,8 @@ D: Dataset = Dataset,
         The train dataloader yields batches infinitely, so the step count ends training before the next batch is fetched.
         """
         self.model.train()
+        self._clock = time.monotonic()
+        self._untimed = 0.0
 
         batches = iter(self.train_loader)
         window_losses: list[torch.Tensor] = []
@@ -428,6 +434,20 @@ D: Dataset = Dataset,
 
             self.metrics.batch_metrics(step_metrics, metrics_step)
 
+    @contextlib.contextmanager
+    def untimed(self) -> Iterator[None]:
+        start = time.monotonic()
+        try:
+            yield
+        finally:
+            self._untimed += time.monotonic() - start
+
+    def tick_train_clock(self) -> None:
+        now = time.monotonic()
+        self.train_state.train_seconds += max(0.0, now - self._clock - self._untimed)
+        self._clock = now
+        self._untimed = 0.0
+
     def after_optimizer_step(self, loss: torch.Tensor, step: int) -> MetricDict | None:
         """Handles callbacks, metrics, and recordkeeping."""
         step_metrics = MetricDict()
@@ -441,19 +461,24 @@ D: Dataset = Dataset,
             else:
                 step_metrics.add_metric(
                     ScalarMetricEntry(tag="train/lr", scalar=float(self.schedulers[0].get_last_lr()[0])))
+            step_metrics.add_metric(
+                ScalarMetricEntry(tag="time/train_hours", scalar=self.train_state.train_seconds / 3600))
 
         self._step_open = False
         step_metrics.update(self.on_step_end(loss, step))
 
         self.train_state.global_step += 1
         completed = self.train_state.global_step
+        self.tick_train_clock()
 
         if completed % self.config.save_steps == 0:
-            self.save(completed)
+            with self.untimed():
+                self.save(completed)
 
         if self.config.eval_steps is not None and completed % self.config.eval_steps == 0:
-            self.evaluate()
-            self.model.train()
+            with self.untimed():
+                self.evaluate()
+                self.model.train()
 
         return step_metrics
 
@@ -636,7 +661,8 @@ D: Dataset = Dataset,
         """Calls all training callbacks through their on_step_end entrypoint."""
         step_metrics = MetricDict()
         for training_callback in self.training_callbacks:
-            stats = training_callback.on_step_end(train_loss, step)
+            with contextlib.nullcontext() if training_callback.counts_as_training else self.untimed():
+                stats = training_callback.on_step_end(train_loss, step)
             if stats is not None:
                 step_metrics.update(stats)
         return step_metrics

@@ -115,6 +115,8 @@ class ProbeResult:
 class SpeakerLeakageProbesCallback(TrainingCallback):
     """Trains a linear and non-linear probe on speaker identification on the specified modules' activations."""
 
+    counts_as_training = False
+
     def __init__(self, trainer: trainers.TrainerBase[Any, Any, Any], config: SpeakerLeakageProbesConfig) -> None:
         """Initializes several tensors for caching train and eval input data."""
         super().__init__(trainer)
