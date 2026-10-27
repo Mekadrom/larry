@@ -70,6 +70,7 @@ class BenchmarkOptions:
     cudnn_benchmark: bool = False
     cudnn_deterministic: bool = True
     float32_matmul_precision: str = "highest"
+    overlays: list[Path] = dataclasses.field(default_factory=list)
     cache_dir: Path = dataclasses.field(default_factory=lambda: Path("~/.cache/larry/benchmark").expanduser())
 
 
@@ -78,8 +79,9 @@ class BenchmarkCase[M: ModelConfig, T: LarryTrainerConfig[Any]](ABC):
     config_files: list[str]
     work_unit: str
 
-    def __init__(self) -> None:
-        self.definition = ConfigValues([CONFIG_ROOT / f for f in self.config_files]).load(TrainingDefinition)
+    def __init__(self, overlays: list[Path] | None = None) -> None:
+        files = [CONFIG_ROOT / f for f in self.config_files] + list(overlays or [])
+        self.definition = ConfigValues(files).load(TrainingDefinition)
         self.template = cast(M, self.definition.model)
         self.trainer_config = cast(T, self.definition.trainer)
         self.trainer_type = trainers.TrainerBase.REGISTRY.for_config(self.trainer_config)
@@ -123,8 +125,8 @@ class SpeechEncoderCase(BenchmarkCase[SpeechEncoderModelConfig, SpeechEncoderTra
     work_unit = "audio_seconds"
     clip_seconds = 14.0
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, overlays: list[Path] | None = None) -> None:
+        super().__init__(overlays)
         from larry.voice.config.criterion.voice_criterion_configs import CTCCriterionConfig
         from larry.voice.criteria.ctc import CTCCriterion
 
@@ -163,8 +165,8 @@ class SpeechDecoderCase(BenchmarkCase[SpeechDecoderModelConfig, SpeechDecoderTra
     work_unit = "audio_seconds"
     clip_seconds = 14.0
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, overlays: list[Path] | None = None) -> None:
+        super().__init__(overlays)
         from larry.voice.criteria.flow_matching import SpeechDecoderCriterion
 
         self.criterion = SpeechDecoderCriterion(self.trainer_config.criterion)
@@ -201,8 +203,8 @@ class VocoderCase(BenchmarkCase[LarryVocoderConfig, VocoderTrainerConfig]):
     config_files = ["voice/mixtures/vocoder.yaml", "voice/vocoder/larry-vocoder.yaml"]
     work_unit = "audio_seconds"
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, overlays: list[Path] | None = None) -> None:
+        super().__init__(overlays)
         from larry.voice.criteria.flow_matching import VocoderCriterion
         from larry.voice.model.voice_modules import MelAugmenter
 
@@ -238,8 +240,8 @@ class ImageVAECase(BenchmarkCase[ImageVAEConfig, ImageVAETrainerConfig]):
     config_files = ["image/mixtures/vae.yaml", "image/vae/larry-image-vae.yaml"]
     work_unit = "images"
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, overlays: list[Path] | None = None) -> None:
+        super().__init__(overlays)
         from larry.image.criteria.vae import ImageVAECriterion
 
         self.criterion = ImageVAECriterion(self.trainer_config.criterion)
@@ -279,8 +281,8 @@ class MultimodalCase(BenchmarkCase[LarryMultimodalModelConfig, LarryMultimodalTr
     row_tokens = 512
     words = 4096
 
-    def __init__(self, cache_dir: Path) -> None:
-        super().__init__()
+    def __init__(self, cache_dir: Path, overlays: list[Path] | None = None) -> None:
+        super().__init__(overlays)
         from larry.multimodal.criteria.multimodal_criterion import LarryMultimodalCriterion
 
         self.criterion = LarryMultimodalCriterion(self.trainer_config.criterion)
@@ -433,11 +435,11 @@ class TrainingBenchmark:
 
     def make_case(self, name: str) -> BenchmarkCase[Any, Any]:
         cases: dict[str, Callable[[], BenchmarkCase[Any, Any]]] = {
-            "speech_encoder": SpeechEncoderCase,
-            "speech_decoder": SpeechDecoderCase,
-            "vocoder": VocoderCase,
-            "image_vae": ImageVAECase,
-            "multimodal": lambda: MultimodalCase(self.options.cache_dir),
+            "speech_encoder": lambda: SpeechEncoderCase(self.options.overlays),
+            "speech_decoder": lambda: SpeechDecoderCase(self.options.overlays),
+            "vocoder": lambda: VocoderCase(self.options.overlays),
+            "image_vae": lambda: ImageVAECase(self.options.overlays),
+            "multimodal": lambda: MultimodalCase(self.options.cache_dir, self.options.overlays),
         }
         case = cases[name]()
         case.trainer_config.ddp_comm_hook = self.options.ddp_comm_hook
@@ -656,6 +658,7 @@ class TrainingBenchmark:
             "batch_scale": scale,
             "ddp_comm_hook": case.trainer_config.ddp_comm_hook,
             "compile": case.trainer_config.compile.mode,
+            "overlays": [str(o) for o in self.options.overlays],
             "cudnn_benchmark": case.trainer_config.cudnn_benchmark,
             "cudnn_deterministic": case.trainer_config.cudnn_deterministic,
             "float32_matmul_precision": case.trainer_config.float32_matmul_precision,
@@ -728,6 +731,7 @@ def main() -> None:
     parser.add_argument("--cudnn_benchmark", action="store_true")
     parser.add_argument("--no_cudnn_deterministic", action="store_true")
     parser.add_argument("--float32_matmul_precision", default="highest", choices=["highest", "high", "medium"])
+    parser.add_argument("--overlays", nargs="*", type=Path, default=[])
     parser.add_argument("--cache_dir", type=Path, default=Path("~/.cache/larry/benchmark").expanduser())
     args = parser.parse_args()
 
@@ -738,6 +742,7 @@ def main() -> None:
         profile_steps=args.profile_steps,
         seed=args.seed,
         cache_dir=args.cache_dir.expanduser(),
+        overlays=[o.expanduser().resolve() for o in args.overlays],
         ddp_comm_hook=args.ddp_comm_hook,
         compile=args.compile,
         cudnn_benchmark=args.cudnn_benchmark,

@@ -310,6 +310,7 @@ class FSMNAttention(LarryAttention):
         d_model = config.d_model
         kernel_size = config.fsmn_kernel_size
 
+        self.fsmn_compiled_conv = config.fsmn_compiled_conv
         self.memory_proj = nn.Linear(d_model, d_model, bias=config.use_qkv_bias)
         self.fsmn = nn.Conv1d(d_model, d_model, kernel_size, groups=d_model, bias=False)
 
@@ -340,6 +341,10 @@ class FSMNAttention(LarryAttention):
 
         return output
 
+    @torch.compiler.disable(recursive=True)
+    def _depthwise_conv(self, x: torch.Tensor) -> torch.Tensor:
+        return self.fsmn(x)
+
     def _shifted_depthwise(self, x: torch.Tensor) -> torch.Tensor:
         weight = self.fsmn.weight[:, 0, :].to(x.dtype)
         kernel_size = weight.shape[-1]
@@ -362,7 +367,10 @@ class FSMNAttention(LarryAttention):
             memory_in = memory_in * keep
 
         x = F.pad(memory_in.transpose(1, 2), self.fsmn_padding)  # [B, D, T + k - 1]
-        convolved = self._shifted_depthwise(x) if torch.compiler.is_compiling() else self.fsmn(x)
+        if torch.compiler.is_compiling() and self.fsmn_compiled_conv == "shifted":
+            convolved = self._shifted_depthwise(x)
+        else:
+            convolved = self._depthwise_conv(x)
         memory = convolved.transpose(1, 2) + memory_in
 
         if keep is not None:

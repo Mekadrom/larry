@@ -146,13 +146,14 @@ def test_growing_sequence_lengths_do_not_recompile_compiled_blocks(training: boo
     assert counters["stats"]["unique_graphs"] <= 2 * len(trunk.blocks)
 
 
-def _fsmn_block(d_model: int = 16) -> nn.Module:
+def _fsmn_block(d_model: int = 16, fsmn_compiled_conv: str = "eager") -> nn.Module:
     from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
     from larry.voice.model.speech_encoder import SpeechEncoderEncoderBlock
 
     torch.manual_seed(0)
     config = SpeechEncoderModelConfig(
         d_model=d_model, n_heads=2, n_query_groups=2, rotary_embedding_dim=8, vocab_size=8,
+        fsmn_compiled_conv=fsmn_compiled_conv,
     )
     return SpeechEncoderEncoderBlock(config)
 
@@ -170,24 +171,31 @@ def test_the_compiled_fsmn_memory_matches_the_depthwise_conv(dtype: torch.dtype)
     assert torch.allclose(shifted.float(), expected.float(), atol=tolerance, rtol=tolerance)
 
 
-def test_an_inductor_compiled_fsmn_block_trains_on_new_lengths_without_recompiling() -> None:
+@pytest.mark.parametrize("fsmn_compiled_conv", ["eager", "shifted"])
+def test_an_inductor_compiled_fsmn_block_trains_on_new_lengths_without_recompiling(fsmn_compiled_conv: str) -> None:
     from torch._dynamo.utils import counters
 
     torch._dynamo.reset()
     counters.clear()
-    block = _fsmn_block().train()
-    eager = _fsmn_block().train()
+    block = _fsmn_block(fsmn_compiled_conv=fsmn_compiled_conv).train()
+    eager = _fsmn_block(fsmn_compiled_conv=fsmn_compiled_conv).train()
     ModelCompiler(CompileConfig(mode="model")).apply(block)
 
-    for seq_len in (26, 41, 66):
-        x = torch.randn(3, seq_len, 16)
-        mask = torch.ones(3, seq_len, dtype=torch.bool)
-        mask[1, seq_len - 5:] = False
-        out = block(x, mask)
-        out.sum().backward()
-        assert torch.allclose(out, eager(x, mask), atol=1e-4)
+    def train_on(lengths: tuple[int, ...]) -> None:
+        for seq_len in lengths:
+            x = torch.randn(3, seq_len, 16)
+            mask = torch.ones(3, seq_len, dtype=torch.bool)
+            mask[1, seq_len - 5:] = False
+            out = block(x, mask)
+            out.sum().backward()
+            assert torch.allclose(out, eager(x, mask), atol=1e-4)
 
-    assert counters["stats"]["unique_graphs"] <= 2
+    train_on((26, 41, 66))
+    warmed = counters["stats"]["unique_graphs"]
+    train_on((31, 52, 90))
+
+    assert counters["stats"]["unique_graphs"] == warmed
+    assert warmed <= (2 if fsmn_compiled_conv == "shifted" else 8)
 
 
 def test_toggling_the_qk_probe_needs_only_one_extra_compiled_version() -> None:
@@ -197,7 +205,7 @@ def test_toggling_the_qk_probe_needs_only_one_extra_compiled_version() -> None:
 
     torch._dynamo.reset()
     counters.clear()
-    block = _fsmn_block().train()
+    block = _fsmn_block(fsmn_compiled_conv="shifted").train()
     assert "qk_probe_active" in block.attn.__dict__
     ModelCompiler(CompileConfig(mode="model", backend="aot_eager")).apply(block)
     handler = QKClipHandler(block, tau=100.0, probe_every=2)
