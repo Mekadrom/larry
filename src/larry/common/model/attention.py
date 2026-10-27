@@ -32,6 +32,8 @@ class LarryAttention(nn.Module, QKModule):
     def __init__(self, config: AttentionModuleConfig) -> None:
         """Initializes all modules required for the provided configuration."""
         super().__init__()
+        self.qk_probe_active = False
+        self.qk_max_logit = None
         self.config = config
 
         self.n_query_groups = config.n_query_groups

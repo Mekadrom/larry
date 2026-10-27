@@ -188,3 +188,22 @@ def test_an_inductor_compiled_fsmn_block_trains_on_new_lengths_without_recompili
         assert torch.allclose(out, eager(x, mask), atol=1e-4)
 
     assert counters["stats"]["unique_graphs"] <= 2
+
+
+def test_toggling_the_qk_probe_needs_only_one_extra_compiled_version() -> None:
+    from torch._dynamo.utils import counters
+
+    from larry.common.training.qk_clip import QKClipHandler
+
+    torch._dynamo.reset()
+    counters.clear()
+    block = _fsmn_block().train()
+    assert "qk_probe_active" in block.attn.__dict__
+    ModelCompiler(CompileConfig(mode="model", backend="aot_eager")).apply(block)
+    handler = QKClipHandler(block, tau=100.0, probe_every=2)
+
+    for step in range(6):
+        handler.maybe_arm(step)
+        block(torch.randn(2, 12, 16), None).sum().backward()
+
+    assert counters["stats"]["unique_graphs"] <= 2
