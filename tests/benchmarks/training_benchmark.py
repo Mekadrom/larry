@@ -511,16 +511,45 @@ class TrainingBenchmark:
                 print(f"{case.name}: out of memory at batch scale {scale}; halving", flush=True)
             scale /= 2
 
+    @staticmethod
+    def batch_rows(batch: Mapping[str, Any]) -> int:
+        return next(v.shape[0] for v in batch.values() if isinstance(v, torch.Tensor) and v.dim() > 0)
+
+    @staticmethod
+    def first_rows(batch: Mapping[str, Any], rows: int) -> dict[str, Any]:
+        total = TrainingBenchmark.batch_rows(batch)
+        return {
+            k: v[:rows] if isinstance(v, torch.Tensor) and v.dim() > 0 and v.shape[0] == total else v
+            for k, v in batch.items()
+        }
+
     def count_flops(self, accelerator: Accelerator, model: nn.Module, optimizers: list[Optimizer],
                     case: BenchmarkCase[Any, Any], batch: Mapping[str, Any]) -> float:
-        counter = FlopCounterMode(display=False)
-        with torch.compiler.set_stance("force_eager"), counter:
-            with accelerator.autocast():
-                loss = case.loss(model, accelerator.unwrap_model(model), batch)
-            accelerator.backward(loss)
-        for optimizer in optimizers:
-            optimizer.zero_grad(set_to_none=True)
-        return float(counter.get_total_flops())
+        total = self.batch_rows(batch)
+        rows = total
+        while True:
+            counter = FlopCounterMode(display=False)
+            failed = torch.zeros(1, device=accelerator.device)
+            try:
+                with torch.compiler.set_stance("force_eager"), counter:
+                    with accelerator.autocast():
+                        loss = case.loss(model, accelerator.unwrap_model(model), self.first_rows(batch, rows))
+                    accelerator.backward(loss)
+            except torch.OutOfMemoryError:
+                failed += 1
+
+            for optimizer in optimizers:
+                optimizer.zero_grad(set_to_none=True)
+            loss = None
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            if float(cast(torch.Tensor, accelerator.reduce(failed, reduction="sum"))) == 0:
+                return float(counter.get_total_flops()) * total / rows
+
+            if rows == 1:
+                raise torch.OutOfMemoryError(f"{case.name}: a single row does not fit in eager mode for FLOP counting")
+            rows = max(1, rows // 2)
 
     def run_case(self, name: str) -> dict[str, Any]:
         options = self.options
