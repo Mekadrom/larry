@@ -65,6 +65,7 @@ class BenchmarkOptions:
     profile_steps: int = 4
     seed: int = 0
     smi_interval_ms: int = 200
+    ddp_comm_hook: str = "no"
     cache_dir: Path = dataclasses.field(default_factory=lambda: Path("~/.cache/larry/benchmark").expanduser())
 
 
@@ -95,7 +96,7 @@ class BenchmarkCase[M: ModelConfig, T: LarryTrainerConfig[Any]](ABC):
         return self.trainer_stub().make_optimizers(model)
 
     def kwargs_handlers(self) -> list[KwargsHandler]:
-        return self.trainer_stub().accelerator_kwargs_handlers()
+        return self.trainer_stub().kwargs_handlers()
 
     @abstractmethod
     def batch(
@@ -434,7 +435,9 @@ class TrainingBenchmark:
             "image_vae": ImageVAECase,
             "multimodal": lambda: MultimodalCase(self.options.cache_dir),
         }
-        return cases[name]()
+        case = cases[name]()
+        case.trainer_config.ddp_comm_hook = self.options.ddp_comm_hook
+        return case
 
     def visible_indices(self) -> list[int]:
         visible = os.environ.get("CUDA_VISIBLE_DEVICES")
@@ -612,6 +615,7 @@ class TrainingBenchmark:
             "parameters": n_parameters,
             "num_processes": int(gathered.shape[0]),
             "batch_scale": scale,
+            "ddp_comm_hook": case.trainer_config.ddp_comm_hook,
             "steps_timed": len(times),
             "step_seconds_median": median_step,
             "step_seconds_mean": mean_step,
@@ -674,6 +678,9 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--profile_steps", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--ddp_comm_hook", default="no", choices=["no", "fp16", "bf16", "power_sgd", "batched_power_sgd"]
+    )
     parser.add_argument("--cache_dir", type=Path, default=Path("~/.cache/larry/benchmark").expanduser())
     args = parser.parse_args()
 
@@ -684,6 +691,7 @@ def main() -> None:
         profile_steps=args.profile_steps,
         seed=args.seed,
         cache_dir=args.cache_dir.expanduser(),
+        ddp_comm_hook=args.ddp_comm_hook,
     )
     TrainingBenchmark(options, args.models).run()
 

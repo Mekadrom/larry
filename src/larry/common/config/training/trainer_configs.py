@@ -17,6 +17,8 @@ class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](Ta
     mixed_precision: Literal["bf16", "fp16", "no"] = "bf16"
     gradient_accumulation: int = 1
     max_grad_norm: float = 1.0
+    ddp_comm_hook: Literal["no", "fp16", "bf16", "power_sgd", "batched_power_sgd"] = "no"
+    ddp_comm_state_option: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     train_batch_size: int = 64
     eval_batch_size: int = 64

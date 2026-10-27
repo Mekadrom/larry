@@ -14,7 +14,7 @@ from accelerate import Accelerator
 from accelerate.data_loader import DataLoaderShard
 from accelerate.optimizer import AcceleratedOptimizer
 from accelerate.scheduler import AcceleratedScheduler
-from accelerate.utils import KwargsHandler
+from accelerate.utils import DDPCommunicationHookType, DistributedDataParallelKwargs, KwargsHandler
 from datasets import Dataset as HFDataset
 from torch import nn
 from torch.optim import AdamW, Muon, Optimizer
@@ -145,7 +145,7 @@ D: Dataset = Dataset,
             mixed_precision=self.config.mixed_precision,
             gradient_accumulation_steps=self.config.gradient_accumulation,
             step_scheduler_with_optimizer=False,
-            kwargs_handlers=self.accelerator_kwargs_handlers(),
+            kwargs_handlers=self.kwargs_handlers(),
         )
         self._model, self.train_loader, self.eval_loader, *rest = self.accelerator.prepare(
             model,
@@ -191,6 +191,20 @@ D: Dataset = Dataset,
 
     def accelerator_kwargs_handlers(self) -> list[KwargsHandler]:
         return []
+
+    def kwargs_handlers(self) -> list[KwargsHandler]:
+        handlers = self.accelerator_kwargs_handlers()
+        if self.config.ddp_comm_hook == "no":
+            return handlers
+
+        hook = {
+            "comm_hook": DDPCommunicationHookType(self.config.ddp_comm_hook),
+            "comm_state_option": dict(self.config.ddp_comm_state_option),
+        }
+        others = [h for h in handlers if not isinstance(h, DistributedDataParallelKwargs)]
+        ddp = [h for h in handlers if isinstance(h, DistributedDataParallelKwargs)]
+        merged = dataclasses.replace(ddp[0], **hook) if ddp else DistributedDataParallelKwargs(**hook)
+        return [*others, merged]
 
     def muon_excluded_names(self, model: nn.Module) -> list[str]:
         return self.config.muon_first_layer_names + self.config.muon_last_layer_names

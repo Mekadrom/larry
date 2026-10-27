@@ -1,0 +1,2 @@
+trainer:
+  ddp_comm_hook: bf16

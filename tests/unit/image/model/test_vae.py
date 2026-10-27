@@ -99,3 +99,13 @@ def test_equivariance_gradients_reach_the_encoder_when_weighted() -> None:
     terms["equivariance"].value.backward()
 
     assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.encoder.parameters())
+
+
+def test_attention_weight_gradients_keep_the_parameter_layout() -> None:
+    from larry.image.model.vae import SpatialAttention
+
+    attention = SpatialAttention(16, 4)
+    attention(torch.randn(2, 16, 4, 6)).sum().backward()
+
+    for parameter in (attention.qkv.weight, attention.out.weight):
+        assert parameter.grad is not None and parameter.grad.stride() == parameter.stride()

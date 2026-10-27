@@ -77,8 +77,8 @@ class SpatialAttention(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, channels, height, width = x.shape
         q, k, v = self.qkv(self.norm(x)).flatten(2).transpose(1, 2).unsqueeze(1).chunk(3, dim=-1)
-        h = F.scaled_dot_product_attention(q, k, v).squeeze(1).transpose(1, 2)
-        return x + self.out(h.reshape(batch_size, channels, height, width))
+        h = F.scaled_dot_product_attention(q, k, v).squeeze(1).transpose(1, 2).contiguous()
+        return x + self.out(h.view(batch_size, channels, height, width))
 
 
 class Downsample(nn.Module):
