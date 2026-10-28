@@ -85,32 +85,61 @@ All voice data as redistributed (again, where applicable) or trained on is filte
   - 0.6 hours for val
 ## Image
 All image data will be filtered by per-image licenses where necessary.
-- Wikimedia Commons
-- Open Images
-- VizWiz
-- ~~COCO 2017~~
+
+Pretrain:
+- Custom Flickr crawl for PD/CC0 images, unfiltered
 - Cleveland CC0 print images
-- Localized Narratives
+- Art institute of Chicago dump
+- Te Papa
+- NASA Image Library
+- Rijkmuseum
+- Museums Victoria of Melbourne
+- The Met Open Access
+- Library of Congress "Free to Use"
+- NOAA, USGS, etc. (government image data)
+- Smithsonian Open Access (CC0 subset)
+- National Gallery of Art Open Data
+- NYPL Public Domain Collections
+- Paris Musées (CC0 subset)
+- Statens Museum for Kunst
+- Nationalmuseum Sweden
+- Finnish National Gallery (CC0 subset)
+- Walters Art Museum
+- Yale Center for British Art / Yale University Art Gallery
+- Princeton University Art Museum
+- Getty Museum Open Content
+- Nationaal Archief (CC0 subset)
+- Europeana (PD/CC0 rights subset)
+- US National Archives (NARA)
+- DVIDS (public domain subset)
+- NPS NPGallery, USFWS National Digital Library, USDA
+- Landsat (USGS EarthExplorer)
+- CDC PHIL (public domain subset)
+- ~~Open Images~~ - rows filtered by proprietary image models, which is excluded for now
+- ~~COCO 2017~~
+- ~~Localized Narratives~~ - flickr crawl, individual images can be filtered
 - ~~iNaturalist~~ - while the images are CC0 or CC-BY, the distribution prohibits commercial and non-open source 
 derivatives
 - ~~PD12M (images only; descriptions were produced with a poisoned model)~~ - rows filtered by clip, which is excluded 
 for now
 - ~~Megalith-10M (images only; descriptions were produced with a poisoned model)~~ - rows filtered by clip, which is 
 excluded for now
-- Art institute of Chicago dump
-- ~~TextCaps~~ - 
-- Crossmodal-3600
+- ~~TextCaps~~ - includes at least iNaturalist, excluded on that basis alone
 - ~~CommonCatalog~~ - CC-BY on row-level; difficult to attribute
-- Te Papa
-- NASA Image Library
-- Rijkmuseum
 - ~~Dollar Street (images only; no descriptions exist)~~ - CC-BY-SA
 - ~~VisualGenome~~ - YFCC100M derivative
-- Museums Victoria of Melbourne
-- The Met Open Access
-- Library of Congress "Free to Use"
-- Wikimedia Commons, filtered to PD/CC0
-- NOAA, USGS, etc. (government image data)
+- ~~Wikimedia Commons, filtered to PD/CC0~~ - got rate limited, pending communications
+- ~~Bundesarchiv~~ - CC-BY-SA
+- ~~ESA~~ - CC-BY-SA 3.0 IGO
+- ~~Science Museum Group~~ - images are CC-BY-NC-SA
+- ~~Harvard Art Museums~~ - images are not openly licensed
+- ~~Brooklyn Museum~~ - mostly not CC0
+
+Validation:
+- Crossmodal-3600
+
+Instruct:
+- VizWiz
 
 # larry Models
 ## Foundational/metric/backbone encoder/decoder models:

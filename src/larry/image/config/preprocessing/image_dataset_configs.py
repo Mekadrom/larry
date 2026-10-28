@@ -113,3 +113,41 @@ class WikimediaCommonsCachedDatasetConfig(CachedDatasetConfig, ImageDatasetConfi
 
     def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
         return []
+
+
+@dataclasses.dataclass(kw_only=True)
+class SmithsonianOpenAccessCachedDatasetConfig(CachedDatasetConfig, ImageDatasetConfig):
+    bucket_url: str = "https://smithsonian-open-access.s3-us-west-2.amazonaws.com"
+    metadata_prefix: str = "metadata/edan"
+    ids_url: str = "https://ids.si.edu/ids/deliveryService"
+    metadata_file: str = "smithsonian-open-access-filtered.parquet"
+
+    units: list[str] | None = None
+    excluded_units: list[str] = dataclasses.field(default_factory=list)
+    media_types: list[str] = dataclasses.field(default_factory=lambda: ["Images"])
+    usages: list[str] = dataclasses.field(default_factory=lambda: ["CC0"])
+    max_size: int = 960
+    keep_raw_metadata: bool = False
+    write_batch_rows: int = 50000
+
+    download_extract_file_type: str = "parquet"
+
+    @property
+    def index_file(self) -> str:
+        return f"{self.metadata_prefix}/index.txt"
+
+    def file_downloader_config(self, path: str) -> SingleFileDownloaderConfig:
+        return SingleFileDownloaderConfig(
+            download_base_url=self.bucket_url,
+            download_path=path,
+            output_file_name=path,
+            download_timeout=60,
+            max_retries=5,
+            busy_wait=5.0,
+        )
+
+    def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
+        return [("SingleFileDownloader", self.file_downloader_config(self.index_file))]
+
+    def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
+        return []
