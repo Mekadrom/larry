@@ -206,6 +206,9 @@ class SmithsonianOpenAccessCachedDatasetProvider(
         pa.field("media_type", pa.string()),
         pa.field("media_caption", pa.string()),
         pa.field("object_types", pa.list_(pa.string())),
+        pa.field("texts", pa.list_(pa.struct([
+            ("field", pa.string()), ("label", pa.string()), ("content", pa.string()),
+        ]))),
         pa.field("freetext", pa.string()),
         pa.field("indexed_structured", pa.string()),
     ]
@@ -279,6 +282,16 @@ class SmithsonianOpenAccessCachedDatasetProvider(
         notes = [n for n in notes if n]
         return "\n\n".join(notes) if notes else None
 
+    def texts(self, freetext: dict[str, Any]) -> list[dict[str, str | None]]:
+        found = []
+        for field, entries in freetext.items():
+            for entry in entries if isinstance(entries, list) else []:
+                content = self.clean_text(entry.get("content")) if isinstance(entry, dict) else None
+                if content:
+                    found.append({"field": field, "label": self.clean_text(entry.get("label")), "content": content})
+
+        return found
+
     @staticmethod
     def creator(freetext: dict[str, Any]) -> str | None:
         names = [f"{n['label']}: {n['content']}" for n in freetext.get("name", []) if n.get("content")]
@@ -314,6 +327,7 @@ class SmithsonianOpenAccessCachedDatasetProvider(
                 "media_type": media["type"],
                 "media_caption": media.get("caption"),
                 "object_types": indexed.get("object_type", []),
+                "texts": self.texts(freetext),
                 "freetext": json.dumps(freetext, ensure_ascii=False) if freetext else None,
                 "indexed_structured": json.dumps(indexed, ensure_ascii=False) if indexed else None,
             }
@@ -345,16 +359,20 @@ class SmithsonianOpenAccessCachedDatasetProvider(
             yield from super().shard_tables(unit)
             return
 
-        yield duckdb.sql(query).to_arrow_table().select(self.schema.names).cast(self.schema)
+        yield self.conform(duckdb.sql(query).to_arrow_table())
 
     def with_text(self, table: pa.Table) -> pa.Table:
-        freetexts = table.column("freetext").to_pylist()
-        descriptions = [self.description(json.loads(f)) if f else None for f in freetexts]
-        titles = [self.clean_text(t) for t in table.column("title").to_pylist()]
-        table = table.set_column(self.schema.get_field_index("title"), "title", pa.array(titles, pa.string()))
-        return table.set_column(
-            self.schema.get_field_index("description"), "description", pa.array(descriptions, pa.string()),
-        )
+        freetexts = [json.loads(f) if f else {} for f in table.column("freetext").to_pylist()]
+        columns = {
+            "title": [self.clean_text(t) for t in table.column("title").to_pylist()],
+            "description": [self.description(f) for f in freetexts],
+            "texts": [self.texts(f) for f in freetexts],
+        }
+        for name, values in columns.items():
+            field = self.schema.field(name)
+            table = table.set_column(self.schema.get_field_index(name), field, pa.array(values, field.type))
+
+        return table
 
     def shard_tables(self, unit: str) -> Iterator[pa.Table]:
         for table in self.filtered_shard_tables(unit):

@@ -192,3 +192,24 @@ def test_descriptions_are_rebuilt_from_stored_text_when_merging(tmp_path: Path) 
     ))
 
     assert _rows(relabeled)[0]["description"] == "About nmah_1"
+
+
+def test_every_freetext_entry_is_kept_as_a_cleaned_labelled_text(tmp_path: Path) -> None:
+    first = _rows(_provider(tmp_path))[0]
+
+    assert first["texts"] == [
+        {"field": "notes", "label": "Description", "content": "About nmah_1"},
+        {"field": "notes", "label": "Location", "content": "Currently not on view"},
+        {"field": "notes", "label": "Summary", "content": "Summary"},
+        {"field": "name", "label": "maker", "content": "Jane Doe"},
+    ]
+
+
+def test_shards_written_before_a_column_existed_still_merge(tmp_path: Path) -> None:
+    provider = _provider(tmp_path)
+    _rows(provider)
+    provider.metadata_path.unlink()
+    for shard in (tmp_path / "shards").rglob("*.parquet"):
+        pq.write_table(pq.read_table(shard).drop_columns(["texts"]), shard)
+
+    assert _rows(provider)[0]["texts"][0]["content"] == "About nmah_1"

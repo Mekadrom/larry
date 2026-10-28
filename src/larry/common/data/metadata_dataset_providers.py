@@ -103,9 +103,16 @@ class FilteredMetadataCachedDatasetProvider[C: FilteredMetadataCachedDatasetConf
         self.after_shard(unit)
         return kept
 
+    def conform(self, table: pa.Table) -> pa.Table:
+        for field in self.schema:
+            if field.name not in table.column_names:
+                table = table.append_column(field, pa.nulls(table.num_rows, field.type))
+
+        return table.select(self.schema.names).cast(self.schema)
+
     def shard_tables(self, unit: str) -> Iterator[pa.Table]:
         for batch in pq.ParquetFile(self.shard_path(unit)).iter_batches(self.config.write_batch_rows):
-            yield pa.Table.from_batches([batch], schema=self.schema)
+            yield self.conform(pa.Table.from_batches([batch]))
 
     def merge(self, units: list[str]) -> int:
         partial = self.metadata_path.with_name(f"{self.metadata_path.name}.part")
