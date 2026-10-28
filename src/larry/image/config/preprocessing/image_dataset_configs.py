@@ -125,8 +125,10 @@ class SmithsonianOpenAccessCachedDatasetConfig(FilteredMetadataCachedDatasetConf
     media_types: list[str] = dataclasses.field(default_factory=lambda: ["Images"])
     usages: list[str] = dataclasses.field(default_factory=lambda: ["CC0"])
     description_labels: list[str] = dataclasses.field(default_factory=lambda: [
-        "Description (Brief)", "Description", "Summary", "Gallery Label",
+        "Description (Brief)", "Description", "Long Description", "Summary", "Gallery Label", "Luce Center Label",
+        "Exhibition Label", "Label", "Caption", "Physical Description",
     ])
+    unit_filters: dict[str, str] = dataclasses.field(default_factory=dict)
     max_size: int = 960
     keep_raw_metadata: bool = False
 

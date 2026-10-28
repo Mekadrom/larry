@@ -3,7 +3,7 @@ the larry initiative is a project focused on producing as ethical AI as possible
 possible.
 
 Data used, redistributed, and/or produced for the larry initiative follow the following guidelines:
-- Open license (PD, CC0-1.0, CC-BY)
+- Open license (PD, CC0-1.0, occasionally CC-BY)
   - Not SA, NC, or ND
 - Not explicitly consent-revoked for redistribution or training (implicitly covered by licensing, but explicit consent
 revocation is respected)
@@ -30,6 +30,15 @@ sites, and data otherwise collected without the human-generator's knowledge is p
 "Scraping" in the form of treating web pages as a stand-in for a non-existent API is acceptable where that website and 
 its data provably falls under the above criteria. Typically, this is only done for government data, as that is always 
 Public Domain.
+
+Basically, if something is labeled as Public Domain by either aging into it (enough time having passed since its 
+creation) or by the creator intentionally submitting it to the Public Domain (CC0 license), then this project treats 
+that data as belonging to humanity. As such, the generative and descriptive models produced by this project are for 
+humanity, with a request to attribute usages of those models to this project for awareness. CC-BY (attribution license) 
+is allowed when the sources are easily attributable, such as entire datasets or models, when very few rows require 
+attribution, or when very many rows are attributable to a single licensee. This project would not be feasible without 
+large open source projects on top of Public Domain data that require attribution such as redistributions of librivox/
+librilight, HiFi-TTS, VCTK, etc.
 
 The intent is to:
 1. Produce data and classifier, alignment, metric/rating, and generative models entirely from data that 

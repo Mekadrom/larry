@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any
@@ -141,3 +142,53 @@ def test_raw_metadata_can_be_kept(tmp_path: Path) -> None:
     _rows(provider)
 
     assert (tmp_path / provider.config.metadata_prefix / "nmah/00.txt").exists()
+
+
+def test_unit_filters_keep_only_matching_rows_of_that_unit(tmp_path: Path) -> None:
+    rows = _rows(_provider(tmp_path, unit_filters={"nmah": "record_media_count > 1"}))
+
+    assert [r["id"] for r in rows] == ["NMAH-1", "NMAH-2", "ark:/65665/m3abc", "ark:/65665/m3def"]
+    assert rows[0]["license"] == "CC0" and rows[0]["object_types"] == ["fire mark"]
+
+
+def test_unit_filters_can_match_on_any_column(tmp_path: Path) -> None:
+    rows = _rows(_provider(tmp_path, unit_filters={"nmnhbotany": "width IS NOT NULL"}))
+
+    assert [r["id"] for r in rows] == ["NMAH-1", "NMAH-2", "ark:/65665/m3abc"]
+
+
+def test_changing_filters_only_needs_a_new_merge(tmp_path: Path) -> None:
+    provider = _provider(tmp_path)
+    _rows(provider)
+    provider.metadata_path.unlink()
+    filtered = SmithsonianOpenAccessCachedDatasetProvider(dataclasses.replace(
+        provider.config, unit_filters={"nmnhbotany": "false"},
+    ))
+
+    assert {r["unit_code"] for r in _rows(filtered)} == {"NMAH"}
+
+
+def test_text_is_cleaned_of_markup_and_gathered_from_every_label(tmp_path: Path) -> None:
+    provider = _provider(tmp_path)
+    freetext = {"notes": [
+        {"label": "Luce Center Label", "content": "A <i>fine</i>\n  jar &amp; lid."},
+        {"label": "Location", "content": "Currently not on view"},
+        {"label": "Physical Description", "content": "<em></em>"},
+        {"label": "Caption", "content": "Front view."},
+    ]}
+
+    assert provider.description(freetext) == "A fine jar & lid.\n\nFront view."
+    assert provider.clean_text("<I>The Nation's Prayer Call</I>") == "The Nation's Prayer Call"
+    assert provider.clean_text("(Catlin, &lt;i&gt;Letters&lt;/i&gt;)") == "(Catlin, Letters)"
+    assert provider.clean_text("the letters <>IS in black") == "the letters <>IS in black"
+
+
+def test_descriptions_are_rebuilt_from_stored_text_when_merging(tmp_path: Path) -> None:
+    provider = _provider(tmp_path, description_labels=["Summary"])
+    _rows(provider)
+    provider.metadata_path.unlink()
+    relabeled = SmithsonianOpenAccessCachedDatasetProvider(dataclasses.replace(
+        provider.config, description_labels=["Description"],
+    ))
+
+    assert _rows(relabeled)[0]["description"] == "About nmah_1"

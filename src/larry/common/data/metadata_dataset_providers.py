@@ -103,14 +103,17 @@ class FilteredMetadataCachedDatasetProvider[C: FilteredMetadataCachedDatasetConf
         self.after_shard(unit)
         return kept
 
+    def shard_tables(self, unit: str) -> Iterator[pa.Table]:
+        for batch in pq.ParquetFile(self.shard_path(unit)).iter_batches(self.config.write_batch_rows):
+            yield pa.Table.from_batches([batch], schema=self.schema)
+
     def merge(self, units: list[str]) -> int:
         partial = self.metadata_path.with_name(f"{self.metadata_path.name}.part")
         seen: set[str | None] = set()
         merged = 0
         with pq.ParquetWriter(partial, self.schema) as writer:
             for unit in units:
-                for batch in pq.ParquetFile(self.shard_path(unit)).iter_batches(self.config.write_batch_rows):
-                    table = pa.Table.from_batches([batch], schema=self.schema)
+                for table in self.shard_tables(unit):
                     if self.config.deduplicate_ids:
                         keep = []
                         for row_id in table.column("id").to_pylist():

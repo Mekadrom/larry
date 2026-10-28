@@ -7,6 +7,18 @@ dataset:
   download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/smithsonian_open_access-normalized/
   cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/smithsonian_open_access-normalized/
   max_size: 960
+  excluded_units:
+    - nmnhanthro
+    - nmnhbirds
+    - nmnhbotany
+    - nmnheducation
+    - nmnhento
+    - nmnhfishes
+    - nmnhherps
+    - nmnhinv
+    - nmnhmammals
+    - nmnhminsci
+    - nmnhpaleo
 pipeline:
 #  prune_do_not_train:
 #    type: DoNotTrainPrunerConfig

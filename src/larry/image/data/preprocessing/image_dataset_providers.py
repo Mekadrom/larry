@@ -1,5 +1,7 @@
 import gzip
+import html
 import json
+import re
 import shutil
 import subprocess
 from collections.abc import Iterable, Iterator, Mapping
@@ -7,6 +9,7 @@ from pathlib import Path
 from typing import IO, Any, ClassVar
 from urllib.parse import quote
 
+import duckdb
 import pyarrow as pa
 
 from larry.common.data.cached_dataset_providers import MediaCachedDatasetProvider
@@ -193,6 +196,7 @@ class SmithsonianOpenAccessCachedDatasetProvider(
     FilteredMetadataCachedDatasetProvider[SmithsonianOpenAccessCachedDatasetConfig]
 ):
     USAGES: ClassVar[dict[str, License]] = {"CC0": License.CC0}
+    TAG = re.compile(r"<[^>]+>")
     EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
         *IMAGE_FIELDS,
         pa.field("record_id", pa.string()),
@@ -258,8 +262,21 @@ class SmithsonianOpenAccessCachedDatasetProvider(
 
         return None, None
 
+    @staticmethod
+    def clean_text(text: str | None) -> str | None:
+        if text is None:
+            return None
+
+        cleaned = " ".join(SmithsonianOpenAccessCachedDatasetProvider.TAG.sub("", html.unescape(text)).split())
+        return cleaned or None
+
     def description(self, freetext: dict[str, Any]) -> str | None:
-        notes = [n["content"] for n in freetext.get("notes", []) if n.get("label") in self.config.description_labels]
+        notes = [
+            self.clean_text(n.get("content"))
+            for n in freetext.get("notes", [])
+            if n.get("label") in self.config.description_labels
+        ]
+        notes = [n for n in notes if n]
         return "\n\n".join(notes) if notes else None
 
     @staticmethod
@@ -285,7 +302,7 @@ class SmithsonianOpenAccessCachedDatasetProvider(
                 "license_raw": usage,
                 "creator": self.creator(freetext),
                 "source_url": descriptive.get("guid"),
-                "title": descriptive.get("title", {}).get("content"),
+                "title": self.clean_text(descriptive.get("title", {}).get("content")),
                 "description": self.description(freetext),
                 "image_url": self.urls.url(ids_id, width, height),
                 "width": width,
@@ -308,6 +325,40 @@ class SmithsonianOpenAccessCachedDatasetProvider(
             for line in f:
                 if line.strip():
                     yield from self.records(json.loads(line))
+
+    def shard_query(self, unit: str) -> str | None:
+        where = self.config.unit_filters.get(unit.split("/")[0])
+        if where is None:
+            return None
+
+        path = str(self.shard_path(unit)).replace("'", "''")
+        return f"""
+            SELECT * EXCLUDE (record_media_count) FROM (
+                SELECT *, count(*) OVER (PARTITION BY record_id) AS record_media_count
+                FROM read_parquet('{path}')
+            ) WHERE {where}
+        """
+
+    def filtered_shard_tables(self, unit: str) -> Iterator[pa.Table]:
+        query = self.shard_query(unit)
+        if query is None:
+            yield from super().shard_tables(unit)
+            return
+
+        yield duckdb.sql(query).to_arrow_table().select(self.schema.names).cast(self.schema)
+
+    def with_text(self, table: pa.Table) -> pa.Table:
+        freetexts = table.column("freetext").to_pylist()
+        descriptions = [self.description(json.loads(f)) if f else None for f in freetexts]
+        titles = [self.clean_text(t) for t in table.column("title").to_pylist()]
+        table = table.set_column(self.schema.get_field_index("title"), "title", pa.array(titles, pa.string()))
+        return table.set_column(
+            self.schema.get_field_index("description"), "description", pa.array(descriptions, pa.string()),
+        )
+
+    def shard_tables(self, unit: str) -> Iterator[pa.Table]:
+        for table in self.filtered_shard_tables(unit):
+            yield self.with_text(table)
 
     def after_shard(self, unit: str) -> None:
         if not self.config.keep_raw_metadata:
