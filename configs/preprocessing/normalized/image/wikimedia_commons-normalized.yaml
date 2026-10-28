@@ -30,7 +30,7 @@ pipeline:
     busy_wait: 0.0
     max_bytes_per_second: 1500000
     filter_null_outputs: true
-    download_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/wikimedia_commons-normalized/images/
+    download_cache_dir: /mnt/nasbro/hdd/archive/wikimedia-commons/images/
   resize_images:
     type: ImageResizingMapperConfig
     batch_size: 64
