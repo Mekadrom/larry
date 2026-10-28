@@ -36,9 +36,17 @@ def _string(prop: str, value: str) -> dict[str, Any]:
 def _entity(
         page_id: int, title: str, *, licenses: tuple[str, ...] = (), statuses: tuple[str, ...] = (),
         mime: str = "image/jpeg", width: int | None = 2000, height: int | None = 1500,
-        labels: dict[str, str] | None = None, qualifiers: dict[str, list[str]] | None = None,
+        labels: dict[str, str] | None = None, qualifiers: dict[str, list[str]] | None = None, creators: bool = False,
 ) -> dict[str, Any]:
     statements: dict[str, list[dict[str, Any]]] = {"P1163": [_string("P1163", mime)]}
+    if creators:
+        statements["P170"] = [_item("P170", "Q42"), {
+            "mainsnak": {"property": "P170", "snaktype": "somevalue"},
+            "qualifiers": {
+                "P2093": [{"datavalue": {"value": "Jane Doe", "type": "string"}}],
+                "P4174": [{"datavalue": {"value": "JaneD", "type": "string"}}],
+            },
+        }]
     if licenses:
         statements["P275"] = [_item("P275", q) for q in licenses]
     if statuses:
@@ -57,7 +65,7 @@ ENTITIES = [
     _entity(1, "Public domain photo.jpg", statuses=(PUBLIC_DOMAIN,), labels={"en": "A fox", "de": "Ein Fuchs"},
             qualifiers={"P459": [US_GOVERNMENT]}),
     _entity(2, "Copyrighted.jpg", licenses=(CC_BY_SA,), statuses=(COPYRIGHTED,)),
-    _entity(3, "Small CC0 (scan).png", licenses=(CC0,), mime="image/png", width=640, height=480),
+    _entity(3, "Small CC0 (scan).png", licenses=(CC0,), mime="image/png", width=640, height=480, creators=True),
     _entity(4, "Diagram.svg", licenses=(CC0,), mime="image/svg+xml"),
     _entity(5, "No size.jpg", statuses=(PUBLIC_DOMAIN,), width=None, height=None),
 ]
@@ -84,9 +92,30 @@ def test_public_domain_and_cc0_raster_images_with_sizes_are_kept(tmp_path: Path)
 
     assert [r["id"] for r in rows] == ["M1", "M3"]
     fox = rows[0]
-    assert fox["caption_en"] == "A fox" and json.loads(fox["captions"]) == {"en": "A fox", "de": "Ein Fuchs"}
-    assert fox["copyright_determination_ids"] == [US_GOVERNMENT]
+    assert fox["description"] == "A fox" and json.loads(fox["captions"]) == {"en": "A fox", "de": "Ein Fuchs"}
+    assert json.loads(fox["license_raw"])["copyright_determinations"] == [US_GOVERNMENT]
     assert (fox["width"], fox["height"], fox["title"]) == (2000, 1500, "Public_domain_photo.jpg")
+    assert fox["source_url"] == "https://commons.wikimedia.org/wiki/File:Public_domain_photo.jpg"
+
+
+def test_licenses_are_normalized_with_us_government_works_told_apart(tmp_path: Path) -> None:
+    rows = _rows(_provider(tmp_path, require_dimensions=False))
+
+    assert [r["license"] for r in rows] == ["PD-USGov", "CC0", "PD"]
+
+
+def test_creators_come_from_items_and_author_qualifiers(tmp_path: Path) -> None:
+    rows = {r["id"]: r for r in _rows(_provider(tmp_path))}
+
+    assert rows["M3"]["creator"] == "Q42; Jane Doe; JaneD"
+    assert rows["M1"]["creator"] is None
+
+
+def test_unmapped_licenses_are_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="no canonical license"):
+        WikimediaCommonsCachedDatasetProvider(WikimediaCommonsCachedDatasetConfig(
+            download_extract_cache_dir=str(tmp_path), licenses=[CC_BY_SA],
+        ))
 
 
 def test_large_files_use_a_standard_thumbnail_and_small_ones_the_original(tmp_path: Path) -> None:
@@ -125,15 +154,3 @@ def test_the_dump_is_pinned_to_its_dated_path(tmp_path: Path) -> None:
     assert downloader.download_path == "other/wikibase/commonswiki/20261019/commons-20261019-mediainfo.json.gz"
     assert downloader.output_file_name == "commons-20261019-mediainfo.json.gz"
 
-
-def test_sampling_is_a_deterministic_subset_of_the_same_size(tmp_path: Path) -> None:
-    provider = WikimediaCommonsCachedDatasetProvider(WikimediaCommonsCachedDatasetConfig(
-        download_extract_cache_dir=str(tmp_path), sample_fraction=0.25,
-    ))
-    ids = [f"M{i}" for i in range(20000)]
-
-    first = [i for i in ids if provider.sampled(i)]
-    second = [i for i in ids if provider.sampled(i)]
-
-    assert first == second
-    assert 4600 < len(first) < 5400

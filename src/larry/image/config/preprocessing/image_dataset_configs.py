@@ -10,8 +10,8 @@ from larry.common.config.data.downloader_configs import (
 )
 from larry.common.config.data.extractor_configs import ExtractorConfig, SingleFileExtractorConfig
 from larry.common.config.data.preprocessing.dataset_configs import (
-    CachedDatasetConfig,
     DatasetConfig,
+    FilteredMetadataCachedDatasetConfig,
     MediaCachedDatasetConfig,
 )
 
@@ -79,10 +79,11 @@ class GoogleDOCCIMediaCachedDatasetConfig(MediaCachedDatasetConfig, ImageDataset
 
 
 @dataclasses.dataclass(kw_only=True)
-class WikimediaCommonsCachedDatasetConfig(CachedDatasetConfig, ImageDatasetConfig):
+class WikimediaCommonsCachedDatasetConfig(FilteredMetadataCachedDatasetConfig, ImageDatasetConfig):
     dumps_url: str = "https://dumps.wikimedia.org"
     dump_date: str = "20261019"
     upload_url: str = "https://upload.wikimedia.org/wikipedia/commons"
+    site_url: str = "https://commons.wikimedia.org/wiki"
     metadata_file: str = "commons-mediainfo-filtered.parquet"
 
     licenses: list[str] = dataclasses.field(default_factory=lambda: ["Q6938433"])
@@ -90,10 +91,7 @@ class WikimediaCommonsCachedDatasetConfig(CachedDatasetConfig, ImageDatasetConfi
     mime_types: list[str] = dataclasses.field(default_factory=lambda: ["image/jpeg", "image/png", "image/webp"])
     require_dimensions: bool = True
     thumbnail_width: int = 960
-    sample_fraction: float = 1.0
-    write_batch_rows: int = 50000
-
-    download_extract_file_type: str = "parquet"
+    deduplicate_ids: bool = False
 
     @property
     def mediainfo_file(self) -> str:
@@ -116,7 +114,7 @@ class WikimediaCommonsCachedDatasetConfig(CachedDatasetConfig, ImageDatasetConfi
 
 
 @dataclasses.dataclass(kw_only=True)
-class SmithsonianOpenAccessCachedDatasetConfig(CachedDatasetConfig, ImageDatasetConfig):
+class SmithsonianOpenAccessCachedDatasetConfig(FilteredMetadataCachedDatasetConfig, ImageDatasetConfig):
     bucket_url: str = "https://smithsonian-open-access.s3-us-west-2.amazonaws.com"
     metadata_prefix: str = "metadata/edan"
     ids_url: str = "https://ids.si.edu/ids/deliveryService"
@@ -126,11 +124,11 @@ class SmithsonianOpenAccessCachedDatasetConfig(CachedDatasetConfig, ImageDataset
     excluded_units: list[str] = dataclasses.field(default_factory=list)
     media_types: list[str] = dataclasses.field(default_factory=lambda: ["Images"])
     usages: list[str] = dataclasses.field(default_factory=lambda: ["CC0"])
+    description_labels: list[str] = dataclasses.field(default_factory=lambda: [
+        "Description (Brief)", "Description", "Summary", "Gallery Label",
+    ])
     max_size: int = 960
     keep_raw_metadata: bool = False
-    write_batch_rows: int = 50000
-
-    download_extract_file_type: str = "parquet"
 
     @property
     def index_file(self) -> str:

@@ -25,7 +25,14 @@ def _record(record_id: str, unit: str, *media: dict[str, Any]) -> dict[str, Any]
         "id": f"edan-{record_id}",
         "unitCode": unit.upper(),
         "content": {
-            "freetext": {"notes": [{"label": "Description", "content": f"About {record_id}"}]},
+            "freetext": {
+                "notes": [
+                    {"label": "Description", "content": f"About {record_id}"},
+                    {"label": "Location", "content": "Currently not on view"},
+                    {"label": "Summary", "content": "Summary"},
+                ],
+                "name": [{"label": "maker", "content": "Jane Doe"}],
+            },
             "indexedStructured": {"object_type": ["fire mark"]},
             "descriptiveNonRepeating": {
                 "record_ID": record_id,
@@ -87,6 +94,15 @@ def test_only_cc0_images_are_kept_once_each(tmp_path: Path) -> None:
     assert (first["record_id"], first["unit_code"], first["title"]) == ("nmah_1", "NMAH", "Title nmah_1")
     assert first["object_types"] == ["fire mark"]
     assert json.loads(first["freetext"])["notes"][0]["content"] == "About nmah_1"
+
+
+def test_attribution_columns_are_filled(tmp_path: Path) -> None:
+    first = _rows(_provider(tmp_path))[0]
+
+    assert (first["license"], first["license_raw"]) == ("CC0", "CC0")
+    assert first["creator"] == "maker: Jane Doe"
+    assert first["source_url"] == "ark-nmah_1"
+    assert first["description"] == "About nmah_1\n\nSummary"
 
 
 def test_large_images_are_requested_resized_and_small_ones_whole(tmp_path: Path) -> None:

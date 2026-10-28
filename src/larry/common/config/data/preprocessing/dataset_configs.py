@@ -106,3 +106,32 @@ class MediaCachedDatasetConfig(CachedDatasetConfig, ABC):
     media_type: Audio | Image
     media_column: str
     media_path_column: str = "path"
+
+
+@dataclasses.dataclass(kw_only=True)
+class FilteredMetadataCachedDatasetConfig(CachedDatasetConfig, ABC):
+    metadata_file: str
+    sample_fraction: float = 1.0
+    deduplicate_ids: bool = True
+    write_batch_rows: int = 50000
+
+    download_extract_file_type: str = "parquet"
+
+
+@dataclasses.dataclass(kw_only=True)
+class PagedApiCachedDatasetConfig(FilteredMetadataCachedDatasetConfig, ABC):
+    api_url: str
+    api_key_env_var: str | None = None
+    user_agent_name: str = "larry-dataset-downloader"
+    page_size: int = 100
+    max_pages: int | None = None
+    min_request_interval: float = 1.0
+    request_timeout: float = 60.0
+    max_retries: int = 5
+    retry_backoff: float = 30.0
+
+    def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
+        return []
+
+    def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
+        return []

@@ -1,24 +1,30 @@
 import gzip
-import hashlib
 import json
 import shutil
 import subprocess
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, ClassVar
 from urllib.parse import quote
 
 import pyarrow as pa
-import pyarrow.parquet as pq
-from datasets import Dataset
 
-from larry.common.data.cached_dataset_providers import CachedDatasetProvider, MediaCachedDatasetProvider
+from larry.common.data.cached_dataset_providers import MediaCachedDatasetProvider
 from larry.common.data.downloaders import SingleFileDownloader
+from larry.common.data.licenses import License
+from larry.common.data.metadata_dataset_providers import FilteredMetadataCachedDatasetProvider
 from larry.image.config.preprocessing.image_dataset_configs import (
     GoogleDOCCIMediaCachedDatasetConfig,
     SmithsonianOpenAccessCachedDatasetConfig,
     WikimediaCommonsCachedDatasetConfig,
 )
+from larry.image.data.preprocessing.image_urls import SmithsonianIdsUrls, WikimediaThumbnailUrls
+
+IMAGE_FIELDS = [
+    pa.field("image_url", pa.string()),
+    pa.field("width", pa.int32()),
+    pa.field("height", pa.int32()),
+]
 
 
 class GoogleDOCCIMediaCachedDatasetProvider(MediaCachedDatasetProvider[GoogleDOCCIMediaCachedDatasetConfig]):
@@ -34,47 +40,32 @@ class GoogleDOCCIMediaCachedDatasetProvider(MediaCachedDatasetProvider[GoogleDOC
         return {"train": str(self.download_extract_cache_dir / self.config.descriptions_file)}
 
 
-class WikimediaCommonsCachedDatasetProvider(CachedDatasetProvider[WikimediaCommonsCachedDatasetConfig]):
-    STANDARD_THUMBNAIL_WIDTHS = (20, 40, 60, 120, 250, 330, 500, 960, 1280, 1920, 3840)
-    URL_SAFE = ";@$!*(),~:"
-    SCHEMA = pa.schema([
-        ("id", pa.string()),
-        ("page_id", pa.int64()),
-        ("title", pa.string()),
-        ("mime_type", pa.string()),
-        ("width", pa.int32()),
-        ("height", pa.int32()),
-        ("license_ids", pa.list_(pa.string())),
-        ("copyright_status_ids", pa.list_(pa.string())),
-        ("copyright_determination_ids", pa.list_(pa.string())),
-        ("source_ids", pa.list_(pa.string())),
-        ("depicts_ids", pa.list_(pa.string())),
-        ("caption_en", pa.string()),
-        ("captions", pa.string()),
-        ("image_url", pa.string()),
-    ])
+class WikimediaCommonsCachedDatasetProvider(FilteredMetadataCachedDatasetProvider[WikimediaCommonsCachedDatasetConfig]):
+    LICENSES: ClassVar[dict[str, License]] = {"Q6938433": License.CC0}
+    COPYRIGHT_STATUSES: ClassVar[dict[str, License]] = {"Q19652": License.PUBLIC_DOMAIN}
+    US_GOVERNMENT_DETERMINATION = "Q60671452"
+    EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
+        *IMAGE_FIELDS,
+        pa.field("page_id", pa.int64()),
+        pa.field("mime_type", pa.string()),
+        pa.field("source_ids", pa.list_(pa.string())),
+        pa.field("depicts_ids", pa.list_(pa.string())),
+        pa.field("captions", pa.string()),
+    ]
 
     def __init__(self, config: WikimediaCommonsCachedDatasetConfig) -> None:
         super().__init__(config)
-        if config.thumbnail_width not in self.STANDARD_THUMBNAIL_WIDTHS:
-            raise ValueError(
-                f"thumbnail_width={config.thumbnail_width} is not a standard Wikimedia thumbnail width "
-                f"{self.STANDARD_THUMBNAIL_WIDTHS}; upload.wikimedia.org rejects other sizes"
-            )
+        unmapped = [q for q in config.licenses if q not in self.LICENSES]
+        unmapped += [q for q in config.copyright_statuses if q not in self.COPYRIGHT_STATUSES]
+        if unmapped:
+            raise ValueError(f"no canonical license is known for {unmapped}")
 
+        self.urls = WikimediaThumbnailUrls(config.upload_url, config.thumbnail_width)
         self.markers = [f'"{q}"'.encode() for q in (*config.licenses, *config.copyright_statuses)]
-
-    @property
-    def metadata_path(self) -> Path:
-        return self.download_extract_cache_dir / self.config.metadata_file
 
     @property
     def mediainfo_path(self) -> Path:
         return self.download_extract_cache_dir / self.config.mediainfo_file
-
-    @property
-    def load_input_data_files(self) -> Mapping[str, str]:
-        return {"train": str(self.metadata_path)}
 
     def open_mediainfo(self) -> IO[bytes] | gzip.GzipFile:
         if shutil.which("pigz"):
@@ -112,40 +103,45 @@ class WikimediaCommonsCachedDatasetProvider(CachedDatasetProvider[WikimediaCommo
         return found
 
     @staticmethod
-    def qualifier_ids(entity: dict[str, Any], prop: str, qualifier: str) -> list[str]:
+    def qualifier_values(entity: dict[str, Any], prop: str, qualifier: str) -> list[str]:
         found = []
         for statement in entity.get("statements", {}).get(prop, []):
             for snak in statement.get("qualifiers", {}).get(qualifier, []):
                 value = snak.get("datavalue", {}).get("value")
                 if isinstance(value, dict) and "id" in value:
                     found.append(value["id"])
+                elif isinstance(value, str):
+                    found.append(value)
 
         return found
 
-    def image_url(self, name: str, width: int | None) -> str:
-        digest = hashlib.md5(name.encode("utf-8")).hexdigest()
-        quoted = quote(name, safe=self.URL_SAFE)
-        path = f"{digest[0]}/{digest[:2]}/{quoted}"
-        thumbnail_width = self.config.thumbnail_width
-        if width is not None and width > thumbnail_width:
-            return f"{self.config.upload_url}/thumb/{path}/{thumbnail_width}px-{quoted}"
+    def creators(self, entity: dict[str, Any]) -> list[str]:
+        return [
+            *(str(v) for v in self.values(entity, "P170")),
+            *self.qualifier_values(entity, "P170", "P2093"),
+            *self.qualifier_values(entity, "P170", "P4174"),
+        ]
 
-        return f"{self.config.upload_url}/{path}"
+    def license(self, licenses: list[str], statuses: list[str], determinations: list[str]) -> License | None:
+        for q in licenses:
+            if q in self.config.licenses:
+                return self.LICENSES[q]
 
-    def sampled(self, entity_id: str) -> bool:
-        if self.config.sample_fraction >= 1.0:
-            return True
+        for q in statuses:
+            if q in self.config.copyright_statuses:
+                if self.US_GOVERNMENT_DETERMINATION in determinations:
+                    return License.US_GOVERNMENT
 
-        bucket = int.from_bytes(hashlib.md5(entity_id.encode("utf-8")).digest()[:8], "big") / 2 ** 64
-        return bucket < self.config.sample_fraction
+                return self.COPYRIGHT_STATUSES[q]
+
+        return None
 
     def record(self, entity: dict[str, Any]) -> dict[str, Any] | None:
-        if not self.sampled(entity["id"]):
-            return None
-
         licenses = self.values(entity, "P275")
         statuses = self.values(entity, "P6216")
-        if not set(licenses) & set(self.config.licenses) and not set(statuses) & set(self.config.copyright_statuses):
+        determinations = self.qualifier_values(entity, "P6216", "P459")
+        lcns = self.license(licenses, statuses, determinations)
+        if lcns is None:
             return None
 
         mime_types = self.values(entity, "P1163")
@@ -159,92 +155,64 @@ class WikimediaCommonsCachedDatasetProvider(CachedDatasetProvider[WikimediaCommo
         if self.config.require_dimensions and (width is None or height is None):
             return None
 
-        title = entity.get("title", "")
-        name = title.removeprefix("File:").replace(" ", "_")
+        name = entity.get("title", "").removeprefix("File:").replace(" ", "_")
         labels = {language: label["value"] for language, label in entity.get("labels", {}).items()}
+        creators = self.creators(entity)
         return {
             "id": entity["id"],
-            "page_id": entity.get("pageid"),
+            "license": lcns,
+            "license_raw": json.dumps({
+                "licenses": licenses, "copyright_statuses": statuses, "copyright_determinations": determinations,
+            }),
+            "creator": "; ".join(creators) if creators else None,
+            "source_url": f"{self.config.site_url}/File:{quote(name, safe=WikimediaThumbnailUrls.URL_SAFE)}",
             "title": name,
-            "mime_type": mime_type,
+            "description": labels.get("en"),
+            "image_url": self.urls.url(name, width, height),
             "width": width,
             "height": height,
-            "license_ids": licenses,
-            "copyright_status_ids": statuses,
-            "copyright_determination_ids": self.qualifier_ids(entity, "P6216", "P459"),
+            "page_id": entity.get("pageid"),
+            "mime_type": mime_type,
             "source_ids": self.values(entity, "P7482"),
             "depicts_ids": self.values(entity, "P180"),
-            "caption_en": labels.get("en"),
             "captions": json.dumps(labels, ensure_ascii=False) if labels else None,
-            "image_url": self.image_url(name, width),
         }
 
-    def load_secondary_data(self) -> None:
-        if self.metadata_path.exists():
-            self.log.info(f"Already filtered: {self.metadata_path}")
-            return
+    def units(self) -> Iterable[str]:
+        return ["mediainfo"]
 
-        partial = self.metadata_path.with_name(f"{self.metadata_path.name}.part")
-        kept = scanned = 0
-        batch: list[dict[str, Any]] = []
-        with self.open_mediainfo() as stream, pq.ParquetWriter(partial, self.SCHEMA) as writer:
+    def rows(self, unit: str) -> Iterator[dict[str, Any]]:
+        with self.open_mediainfo() as stream:
             for entity in self.candidate_entities(stream):
-                scanned += 1
                 row = self.record(entity)
-                if row is None:
-                    continue
-
-                batch.append(row)
-                kept += 1
-                if len(batch) >= self.config.write_batch_rows:
-                    writer.write_table(pa.Table.from_pylist(batch, schema=self.SCHEMA))
-                    batch = []
-                    self.log.info(f"kept {kept} of {scanned} candidate files")
-
-            if batch:
-                writer.write_table(pa.Table.from_pylist(batch, schema=self.SCHEMA))
-
-        self.log.info(f"kept {kept} of {scanned} candidate files")
-        partial.rename(self.metadata_path)
-
-    def cast_cols(self, dataset: Dataset) -> Dataset:
-        return dataset
-
-    def transform_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
-        return batch
+                if row is not None:
+                    yield row
 
 
-class SmithsonianOpenAccessCachedDatasetProvider(CachedDatasetProvider[SmithsonianOpenAccessCachedDatasetConfig]):
-    SCHEMA = pa.schema([
-        ("id", pa.string()),
-        ("record_id", pa.string()),
-        ("record_guid", pa.string()),
-        ("media_guid", pa.string()),
-        ("unit_code", pa.string()),
-        ("data_source", pa.string()),
-        ("media_type", pa.string()),
-        ("usage", pa.string()),
-        ("width", pa.int32()),
-        ("height", pa.int32()),
-        ("title", pa.string()),
-        ("media_caption", pa.string()),
-        ("object_types", pa.list_(pa.string())),
-        ("freetext", pa.string()),
-        ("indexed_structured", pa.string()),
-        ("image_url", pa.string()),
-    ])
+class SmithsonianOpenAccessCachedDatasetProvider(
+    FilteredMetadataCachedDatasetProvider[SmithsonianOpenAccessCachedDatasetConfig]
+):
+    USAGES: ClassVar[dict[str, License]] = {"CC0": License.CC0}
+    EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
+        *IMAGE_FIELDS,
+        pa.field("record_id", pa.string()),
+        pa.field("media_guid", pa.string()),
+        pa.field("unit_code", pa.string()),
+        pa.field("data_source", pa.string()),
+        pa.field("media_type", pa.string()),
+        pa.field("media_caption", pa.string()),
+        pa.field("object_types", pa.list_(pa.string())),
+        pa.field("freetext", pa.string()),
+        pa.field("indexed_structured", pa.string()),
+    ]
 
-    @property
-    def metadata_path(self) -> Path:
-        return self.download_extract_cache_dir / self.config.metadata_file
+    def __init__(self, config: SmithsonianOpenAccessCachedDatasetConfig) -> None:
+        super().__init__(config)
+        unmapped = [usage for usage in config.usages if usage not in self.USAGES]
+        if unmapped:
+            raise ValueError(f"no canonical license is known for {unmapped}")
 
-    @property
-    def shard_dir(self) -> Path:
-        return self.download_extract_cache_dir / "filtered"
-
-    @property
-    def load_input_data_files(self) -> Mapping[str, str]:
-        return {"train": str(self.metadata_path)}
+        self.urls = SmithsonianIdsUrls(config.ids_url, config.max_size)
 
     def relative_path(self, url: str) -> str:
         return url.strip().removeprefix(f"{self.config.bucket_url}/")
@@ -258,7 +226,7 @@ class SmithsonianOpenAccessCachedDatasetProvider(CachedDatasetProvider[Smithsoni
         lines = (self.download_extract_cache_dir / path).read_text().splitlines()
         return [self.relative_path(line) for line in lines if line.strip()]
 
-    def unit(self, path: str) -> str:
+    def unit_of(self, path: str) -> str:
         return path.removeprefix(f"{self.config.metadata_prefix}/").split("/")[0]
 
     def selected(self, unit: str) -> bool:
@@ -267,13 +235,16 @@ class SmithsonianOpenAccessCachedDatasetProvider(CachedDatasetProvider[Smithsoni
 
         return self.config.units is None or unit in self.config.units
 
-    def metadata_files(self) -> list[str]:
-        files = []
-        for unit_index in self.read_index(self.config.index_file):
-            if self.selected(self.unit(unit_index)):
-                files.extend(self.read_index(unit_index))
+    def metadata_path_of(self, unit: str) -> str:
+        return f"{self.config.metadata_prefix}/{unit}.txt"
 
-        return files
+    def units(self) -> Iterator[str]:
+        for unit_index in self.read_index(self.config.index_file):
+            if not self.selected(self.unit_of(unit_index)):
+                continue
+
+            for path in self.read_index(unit_index):
+                yield path.removeprefix(f"{self.config.metadata_prefix}/").removesuffix(".txt")
 
     @staticmethod
     def dimensions(media: dict[str, Any]) -> tuple[int | None, int | None]:
@@ -287,12 +258,14 @@ class SmithsonianOpenAccessCachedDatasetProvider(CachedDatasetProvider[Smithsoni
 
         return None, None
 
-    def image_url(self, ids_id: str, width: int | None, height: int | None) -> str:
-        url = f"{self.config.ids_url}?id={quote(ids_id, safe=':/')}"
-        if width is not None and height is not None and max(width, height) <= self.config.max_size:
-            return url
+    def description(self, freetext: dict[str, Any]) -> str | None:
+        notes = [n["content"] for n in freetext.get("notes", []) if n.get("label") in self.config.description_labels]
+        return "\n\n".join(notes) if notes else None
 
-        return f"{url}&max={self.config.max_size}"
+    @staticmethod
+    def creator(freetext: dict[str, Any]) -> str | None:
+        names = [f"{n['label']}: {n['content']}" for n in freetext.get("name", []) if n.get("content")]
+        return "; ".join(names) if names else None
 
     def records(self, entry: dict[str, Any]) -> Iterator[dict[str, Any]]:
         content = entry.get("content", {})
@@ -308,75 +281,34 @@ class SmithsonianOpenAccessCachedDatasetProvider(CachedDatasetProvider[Smithsoni
             width, height = self.dimensions(media)
             yield {
                 "id": ids_id,
+                "license": self.USAGES[usage],
+                "license_raw": usage,
+                "creator": self.creator(freetext),
+                "source_url": descriptive.get("guid"),
+                "title": descriptive.get("title", {}).get("content"),
+                "description": self.description(freetext),
+                "image_url": self.urls.url(ids_id, width, height),
+                "width": width,
+                "height": height,
                 "record_id": descriptive.get("record_ID"),
-                "record_guid": descriptive.get("guid"),
                 "media_guid": media.get("guid"),
                 "unit_code": descriptive.get("unit_code") or entry.get("unitCode"),
                 "data_source": descriptive.get("data_source"),
                 "media_type": media["type"],
-                "usage": usage,
-                "width": width,
-                "height": height,
-                "title": descriptive.get("title", {}).get("content"),
                 "media_caption": media.get("caption"),
                 "object_types": indexed.get("object_type", []),
                 "freetext": json.dumps(freetext, ensure_ascii=False) if freetext else None,
                 "indexed_structured": json.dumps(indexed, ensure_ascii=False) if indexed else None,
-                "image_url": self.image_url(ids_id, width, height),
             }
 
-    def shard_path(self, path: str) -> Path:
-        return self.shard_dir / Path(path).relative_to(self.config.metadata_prefix).with_suffix(".parquet")
-
-    def filter_file(self, path: str) -> int:
-        shard = self.shard_path(path)
-        if shard.exists():
-            return pq.ParquetFile(shard).metadata.num_rows
-
+    def rows(self, unit: str) -> Iterator[dict[str, Any]]:
+        path = self.metadata_path_of(unit)
         self.download_metadata(path)
-        raw = self.download_extract_cache_dir / path
-        rows = []
-        with raw.open("rb") as f:
+        with (self.download_extract_cache_dir / path).open("rb") as f:
             for line in f:
                 if line.strip():
-                    rows.extend(self.records(json.loads(line)))
+                    yield from self.records(json.loads(line))
 
-        shard.parent.mkdir(parents=True, exist_ok=True)
-        partial = shard.with_name(f"{shard.name}.part")
-        pq.write_table(pa.Table.from_pylist(rows, schema=self.SCHEMA), partial)
-        partial.rename(shard)
+    def after_shard(self, unit: str) -> None:
         if not self.config.keep_raw_metadata:
-            raw.unlink()
-
-        return len(rows)
-
-    def load_secondary_data(self) -> None:
-        if self.metadata_path.exists():
-            self.log.info(f"Already filtered: {self.metadata_path}")
-            return
-
-        files = self.metadata_files()
-        kept = 0
-        for i, path in enumerate(files):
-            kept += self.filter_file(path)
-            if (i + 1) % 100 == 0:
-                self.log.info(f"filtered {i + 1} of {len(files)} metadata files, kept {kept} images")
-
-        partial = self.metadata_path.with_name(f"{self.metadata_path.name}.part")
-        seen: set[str | None] = set()
-        with pq.ParquetWriter(partial, self.SCHEMA) as writer:
-            for path in files:
-                table = pq.read_table(self.shard_path(path), schema=self.SCHEMA)
-                ids = table.column("id").to_pylist()
-                keep = [i not in seen for i in ids]
-                seen.update(ids)
-                writer.write_table(table.filter(pa.array(keep, type=pa.bool_())))
-
-        self.log.info(f"kept {len(seen)} unique images from {len(files)} metadata files")
-        partial.rename(self.metadata_path)
-
-    def cast_cols(self, dataset: Dataset) -> Dataset:
-        return dataset
-
-    def transform_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
-        return batch
+            (self.download_extract_cache_dir / self.metadata_path_of(unit)).unlink()
