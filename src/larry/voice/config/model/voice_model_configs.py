@@ -53,8 +53,6 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
 
     enable_fsq_ctc_head: bool = False
 
-    fsmn_compiled_conv: Literal["eager", "shifted"] = "eager"
-
     weight_init: Literal["pytorch", "scaled_normal"] = "pytorch"
     init_std: float = 0.02
 

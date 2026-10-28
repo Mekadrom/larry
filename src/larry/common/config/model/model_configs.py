@@ -71,7 +71,6 @@ class FSMNAttentionConfig(AttentionModuleConfig):
     """
 
     fsmn_kernel_size: int = 31
-    fsmn_compiled_conv: Literal["eager", "shifted"] = "eager"
     is_causal: bool = False
 
 

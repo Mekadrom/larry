@@ -146,39 +146,24 @@ def test_growing_sequence_lengths_do_not_recompile_compiled_blocks(training: boo
     assert counters["stats"]["unique_graphs"] <= 2 * len(trunk.blocks)
 
 
-def _fsmn_block(d_model: int = 16, fsmn_compiled_conv: str = "eager") -> nn.Module:
+def _fsmn_block(d_model: int = 16) -> nn.Module:
     from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
     from larry.voice.model.speech_encoder import SpeechEncoderEncoderBlock
 
     torch.manual_seed(0)
     config = SpeechEncoderModelConfig(
         d_model=d_model, n_heads=2, n_query_groups=2, rotary_embedding_dim=8, vocab_size=8,
-        fsmn_compiled_conv=fsmn_compiled_conv,
     )
     return SpeechEncoderEncoderBlock(config)
 
 
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_the_compiled_fsmn_memory_matches_the_depthwise_conv(dtype: torch.dtype) -> None:
-    attention = _fsmn_block().attn
-    x = torch.randn(2, 16, 37).to(dtype)
-
-    expected = attention.fsmn.to(dtype)(x)
-    shifted = attention._shifted_depthwise(x)
-
-    assert shifted.shape == expected.shape and shifted.dtype == expected.dtype
-    tolerance = 1e-5 if dtype == torch.float32 else 3e-2
-    assert torch.allclose(shifted.float(), expected.float(), atol=tolerance, rtol=tolerance)
-
-
-@pytest.mark.parametrize("fsmn_compiled_conv", ["eager", "shifted"])
-def test_an_inductor_compiled_fsmn_block_trains_on_new_lengths_without_recompiling(fsmn_compiled_conv: str) -> None:
+def test_an_inductor_compiled_fsmn_block_trains_on_new_lengths_without_recompiling() -> None:
     from torch._dynamo.utils import counters
 
     torch._dynamo.reset()
     counters.clear()
-    block = _fsmn_block(fsmn_compiled_conv=fsmn_compiled_conv).train()
-    eager = _fsmn_block(fsmn_compiled_conv=fsmn_compiled_conv).train()
+    block = _fsmn_block().train()
+    eager = _fsmn_block().train()
     ModelCompiler(CompileConfig(mode="model")).apply(block)
 
     def train_on(lengths: tuple[int, ...]) -> None:
@@ -195,23 +180,28 @@ def test_an_inductor_compiled_fsmn_block_trains_on_new_lengths_without_recompili
     train_on((31, 52, 90))
 
     assert counters["stats"]["unique_graphs"] == warmed
-    assert warmed <= (2 if fsmn_compiled_conv == "shifted" else 8)
+    assert warmed <= 8
 
 
-def test_toggling_the_qk_probe_needs_only_one_extra_compiled_version() -> None:
+def test_toggling_the_qk_probe_stops_compiling_once_both_states_are_seen() -> None:
     from torch._dynamo.utils import counters
 
     from larry.common.training.qk_clip import QKClipHandler
 
     torch._dynamo.reset()
     counters.clear()
-    block = _fsmn_block(fsmn_compiled_conv="shifted").train()
+    block = _fsmn_block().train()
     assert "qk_probe_active" in block.attn.__dict__
     ModelCompiler(CompileConfig(mode="model", backend="aot_eager")).apply(block)
     handler = QKClipHandler(block, tau=100.0, probe_every=2)
 
-    for step in range(6):
-        handler.maybe_arm(step)
-        block(torch.randn(2, 12, 16), None).sum().backward()
+    def train(steps: range) -> None:
+        for step in steps:
+            handler.maybe_arm(step)
+            block(torch.randn(2, 12, 16), None).sum().backward()
 
-    assert counters["stats"]["unique_graphs"] <= 2
+    train(range(4))
+    warmed = counters["stats"]["unique_graphs"]
+    train(range(4, 12))
+
+    assert counters["stats"]["unique_graphs"] == warmed
