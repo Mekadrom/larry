@@ -1,2 +1,2 @@
 trainer:
-  decay_start_step: 75000
+  decay_start_step: 25000
