@@ -96,7 +96,7 @@ All voice data as redistributed (again, where applicable) or trained on is filte
 All image data will be filtered by per-image licenses where necessary.
 
 Pretrain:
-- Custom Flickr crawl for PD/CC0 images, unfiltered
+- Smithsonian Open Access (CC0 subset)
 - Cleveland CC0 print images
 - Art institute of Chicago dump
 - Te Papa
@@ -106,7 +106,6 @@ Pretrain:
 - The Met Open Access
 - Library of Congress "Free to Use"
 - NOAA, USGS, etc. (government image data)
-- Smithsonian Open Access (CC0 subset)
 - National Gallery of Art Open Data
 - NYPL Public Domain Collections
 - Paris Musées (CC0 subset)
@@ -124,6 +123,7 @@ Pretrain:
 - NPS NPGallery, USFWS National Digital Library, USDA
 - Landsat (USGS EarthExplorer)
 - CDC PHIL (public domain subset)
+- Custom Flickr crawl for PD/CC0 images, unfiltered
 - ~~Open Images~~ - rows filtered by proprietary image models, which is excluded for now
 - ~~COCO 2017~~
 - ~~Localized Narratives~~ - flickr crawl, individual images can be filtered

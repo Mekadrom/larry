@@ -24,7 +24,7 @@ class CTCCriterion(SamplableCriterion[SpeechEncoderModelOutput, CTCCriterionConf
             losses = F.ctc_loss(
                 ctc_log_probs.transpose(0, 1),
                 targets,
-                model_output.frame_lengths,
+                model_output.ctc_lengths,
                 target_lengths,
                 blank=self.config.blank,
                 reduction="none",
@@ -65,7 +65,7 @@ class CTCCriterion(SamplableCriterion[SpeechEncoderModelOutput, CTCCriterionConf
             loss = loss + (loss_weight * F.ctc_loss(
                 ctc_log_probs.transpose(0, 1),
                 targets,
-                model_output.frame_lengths,
+                model_output.ctc_lengths,
                 target_lengths,
                 blank=self.config.blank,
                 reduction=reduction,

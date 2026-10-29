@@ -1,6 +1,7 @@
 import dataclasses
 
 import torch
+import torch.nn.functional as F
 from huggingface_hub import PyTorchModelHubMixin
 from torch import nn
 
@@ -91,14 +92,29 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
         VoiceModel.__init__(self, config)
         ConditionalFlowMatching.__init__(self, config)
 
-        self.n_bins = self.config.n_fft // 2 + 1
+        if config.hop_length % config.stft_hop_length:
+            raise ValueError(
+                f"hop_length={config.hop_length} must be a multiple of stft_hop_length={config.stft_hop_length}"
+            )
+
+        self.n_bins = self.config.stft_n_fft // 2 + 1
+        self.mel_upsample = config.hop_length // config.stft_hop_length
         self.frontend = TTSLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
         self.codec = CompressedSTFT(
-            n_fft=config.n_fft,
-            hop_length=config.hop_length,
+            n_fft=config.stft_n_fft,
+            hop_length=config.stft_hop_length,
             alpha=config.stft_alpha,
             scale=config.stft_scale
         )
+        self.mel_upsampler = None
+        if self.mel_upsample > 1:
+            self.mel_upsampler = nn.ConvTranspose1d(
+                config.n_mels,
+                config.n_mels,
+                kernel_size=2 * self.mel_upsample,
+                stride=self.mel_upsample,
+                padding=self.mel_upsample // 2,
+            )
         self.backbone = VocoderVelocityNetwork(
             n_mels=config.n_mels,
             n_bins=self.n_bins,
@@ -114,10 +130,21 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
         nn.init.zeros_(self.backbone.out.weight)
         nn.init.zeros_(self.backbone.out.bias)
 
+    def upsample_mels(self, mels: torch.Tensor, frames: int) -> torch.Tensor:
+        if self.mel_upsampler is None:
+            return mels[..., :frames]
+
+        upsampled = self.mel_upsampler(mels)[..., :frames]
+        return F.pad(upsampled, (0, frames - upsampled.shape[-1]))
+
+    def spec_lengths(self, mel_lengths: torch.Tensor, frames: int) -> torch.Tensor:
+        return (mel_lengths * self.mel_upsample).clamp(max=frames)
+
     def forward(self, spec: torch.Tensor, mels: torch.Tensor, mel_lengths: torch.Tensor) -> LarryVocoderOutput:
-        mask = make_non_pad_mask(mel_lengths, spec.shape[-1]).to(spec.dtype)
+        frames = spec.shape[-1]
+        mask = make_non_pad_mask(self.spec_lengths(mel_lengths, frames), frames).to(spec.dtype)
         xt, t, target = self.path(spec)
-        pred = self.backbone(xt, t, mels, mask)
+        pred = self.backbone(xt, t, self.upsample_mels(mels, frames), mask)
         return LarryVocoderOutput(
             logits=pred,
             targets=target,
@@ -129,7 +156,7 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
     def one_step_waveforms(self, xt: torch.Tensor, t: torch.Tensor, velocity: torch.Tensor) -> torch.Tensor:
         with torch.autocast(device_type=xt.device.type, enabled=False):
             spec = xt.float() + (1 - t.float()).view(-1, 1, 1) * velocity.float()
-            return self.codec.decode(spec, (spec.shape[-1] - 1) * self.config.hop_length)
+            return self.codec.decode(spec, (spec.shape[-1] - 1) * self.config.stft_hop_length)
 
     def generate(
             self,
@@ -139,11 +166,13 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
             generator: torch.Generator | None = None,
             sway_coefficient: float | None = None,
     ) -> LarryVocoderGeneration:
-        mask = make_non_pad_mask(mel_lengths, mels.shape[-1]).to(mels.dtype)
-        shape = (mels.shape[0], self.config.n_fft + 2, mels.shape[-1])
+        frames = mels.shape[-1] * self.mel_upsample
+        mask = make_non_pad_mask(self.spec_lengths(mel_lengths, frames), frames).to(mels.dtype)
+        conditioning = self.upsample_mels(mels, frames)
+        shape = (mels.shape[0], 2 * self.n_bins, frames)
         spec = self.sample(
-            lambda x, t: self.backbone(x, t, mels, mask), shape, steps, self.device, generator, sway_coefficient
+            lambda x, t: self.backbone(x, t, conditioning, mask), shape, steps, self.device, generator, sway_coefficient
         )
-        waveforms = self.codec.decode(spec, (mels.shape[-1] - 1) * self.config.hop_length)
-        lengths = (mel_lengths * self.config.hop_length - self.config.n_fft // 2).clamp(min=0)
+        waveforms = self.codec.decode(spec, (frames - 1) * self.config.stft_hop_length)
+        lengths = (mel_lengths * self.config.hop_length - self.config.stft_n_fft // 2).clamp(min=0)
         return LarryVocoderGeneration(waveforms=waveforms, waveform_lengths=lengths)

@@ -15,7 +15,7 @@ from tests.helpers.audio import wav
 from tests.helpers.common import provenance
 from tests.helpers.voice import tiny_speech_encoder_config
 
-TINY_ENCODER = tiny_speech_encoder_config(8, fsq_dims=4, fsq_levels=3)
+TINY_ENCODER = tiny_speech_encoder_config(8, fsq_levels=[3, 3, 3, 3])
 
 
 @pytest.fixture

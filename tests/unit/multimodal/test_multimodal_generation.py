@@ -38,7 +38,7 @@ def _vocab(collator: PretrainingMultimodalCollator) -> int:
 def _voice(k: int, combine: str = "concat") -> dict[str, Any]:
     return {
         "voice_prelude_config": VoicePreludeConfig(
-            vocab_size=N_UNITS, fsq_dims=2, n_layers=1, units_per_position=k, group_combine=combine, **BLOCK
+            vocab_size=N_UNITS, fsq_levels=[3, 3], n_layers=1, units_per_position=k, group_combine=combine, **BLOCK
         ),
         "voice_coda_config": VoiceCodaConfig(
             vocab_size=N_UNITS + 1, n_layers=1, units_per_position=k, depth_n_layers=1, **BLOCK, **SPLIT

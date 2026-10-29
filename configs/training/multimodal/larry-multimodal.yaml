@@ -16,8 +16,7 @@ model:
     n_layers: 2
   voice_prelude_config:
     vocab_size: 6561
-    fsq_dims: 8
-    fsq_levels: 3
+    fsq_levels: [3, 3, 3, 3, 3, 3, 3, 3]
     d_model: 1024
     max_seq_len: 2048
     n_layers: 2

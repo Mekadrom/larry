@@ -18,7 +18,7 @@ def test_frame_seconds_matches_the_encoder_frame_rate() -> None:
     with torch.no_grad():
         output = model(torch.zeros(1, 32000), torch.tensor([32000]))
 
-    assert model.encoder1.frame_seconds == 0.04
+    assert model.encoder1.frame_seconds == 0.08
     assert abs(int(output.frame_lengths[0]) * model.encoder1.frame_seconds - 2.0) <= model.encoder1.frame_seconds + 1e-9
 
 

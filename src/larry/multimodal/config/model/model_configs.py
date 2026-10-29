@@ -1,4 +1,5 @@
 import dataclasses
+import math
 from typing import Literal
 
 from larry.common.config.model.model_configs import (
@@ -41,8 +42,7 @@ class VoiceModuleConfig(VocabularyConfig, LLMBlockModuleConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class VoicePreludeConfig(VoiceModuleConfig):
-    fsq_dims: int = 8
-    fsq_levels: int = 3
+    fsq_levels: list[int] = dataclasses.field(default_factory=lambda: [3] * 8)
     conv_kernel_size: int = 4
     group_combine: Literal["concat", "sum"] = "concat"
 
@@ -81,8 +81,8 @@ class LarryMultimodalModelConfig(ModelConfig):
             raise ValueError("every prelude and coda must share the recurrent trunk's d_model")
 
         voice_prelude = self.voice_prelude_config
-        if voice_prelude is not None and voice_prelude.vocab_size != voice_prelude.fsq_levels ** voice_prelude.fsq_dims:
-            raise ValueError("the voice prelude's vocab must be every FSQ code: fsq_levels ** fsq_dims")
+        if voice_prelude is not None and voice_prelude.vocab_size != math.prod(voice_prelude.fsq_levels):
+            raise ValueError("the voice prelude's vocab must be every FSQ code: the product of fsq_levels")
 
         if self.voice_coda_config is not None:
             if voice_prelude is None:

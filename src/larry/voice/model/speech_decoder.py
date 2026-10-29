@@ -54,6 +54,13 @@ class SpeechCodesUnitEmbedding(nn.Module):
             for _ in range(config.n_encoder_layers)
         ])
         self.post_blocks_norm = nn.RMSNorm(config.d_model)
+        self.upsampler = nn.ConvTranspose1d(
+            config.d_model,
+            config.d_model,
+            kernel_size=2 * self.upsample,
+            stride=self.upsample,
+            padding=self.upsample // 2,
+        )
         self.proj = nn.Linear(config.d_model, config.n_mels)
 
     def forward(self, unit_ids: torch.Tensor, unit_id_lengths: torch.Tensor) -> torch.Tensor:
@@ -62,9 +69,9 @@ class SpeechCodesUnitEmbedding(nn.Module):
         for block in self.blocks:
             x = block(x, attention_mask=mask).logits
 
-        x = self.post_blocks_norm(x)
-        x = x.repeat_interleave(self.upsample, dim=1)
-        return self.proj(x).transpose(1, 2)
+        x = self.post_blocks_norm(x) * mask.unsqueeze(-1).to(x.dtype)
+        x = self.upsampler(x.transpose(1, 2))[..., :unit_ids.shape[1] * self.upsample]
+        return self.proj(x.transpose(1, 2)).transpose(1, 2)
 
 
 class SpeechDecoderVelocityNetwork(nn.Module):

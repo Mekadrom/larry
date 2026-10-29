@@ -35,7 +35,7 @@ class StubEncoder:
         for i, ids in enumerate(self.frames):
             for t, token in enumerate(ids):
                 logits[i, t, token] = 0.0
-        return SimpleNamespace(logits=logits.log_softmax(-1), frame_lengths=torch.tensor(self.frame_lengths))
+        return SimpleNamespace(logits=logits.log_softmax(-1), ctc_lengths=torch.tensor(self.frame_lengths))
 
 
 def _ids(text: str) -> list[int]:

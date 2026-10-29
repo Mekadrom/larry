@@ -333,7 +333,7 @@ class MultimodalCase(BenchmarkCase[LarryMultimodalModelConfig, LarryMultimodalTr
         voice = self.template.voice_prelude_config
         if voice is None:
             raise ValueError("the multimodal benchmark trains voice tasks, so the template needs a voice_prelude_config")
-        return LarryMultimodalModelConfigBuilder(self.template).build(processor, voice.fsq_dims, voice.fsq_levels)
+        return LarryMultimodalModelConfigBuilder(self.template).build(processor, voice.fsq_levels)
 
     def text(self, rng: random.Random, n_words: int) -> str:
         return " ".join(rng.choices(self.vocabulary, k=n_words))

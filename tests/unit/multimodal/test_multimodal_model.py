@@ -40,7 +40,7 @@ def _config(text_vocab_size: int, **overrides: Any) -> LarryMultimodalModelConfi
         "d_model": D_MODEL,
         "text_prelude_config": text,
         "text_coda_config": TextModuleConfig(vocab_size=text_vocab_size, n_layers=1, **BLOCK, **SPLIT),
-        "voice_prelude_config": VoicePreludeConfig(vocab_size=N_UNITS, fsq_dims=2, n_layers=1, **BLOCK),
+        "voice_prelude_config": VoicePreludeConfig(vocab_size=N_UNITS, fsq_levels=[3, 3], n_layers=1, **BLOCK),
         "voice_coda_config": VoiceCodaConfig(vocab_size=N_UNITS + 1, n_layers=1, **BLOCK, **SPLIT),
         "recurrent_trunk_config": LarryRecurrentTrunkConfig(
             n_layers=1, thought_state_init="zero", mean_thinking_steps=2, backprop_depth=1, exit_criteria="none",
@@ -356,16 +356,18 @@ def _voice_prelude(**overrides: Any) -> Any:
     from larry.multimodal.model.multimodal_model import VoicePrelude
 
     torch.manual_seed(0)
-    return VoicePrelude(VoicePreludeConfig(**{"vocab_size": N_UNITS, "fsq_dims": 2, "n_layers": 1, **BLOCK, **overrides}))
+    return VoicePrelude(VoicePreludeConfig(**{"vocab_size": N_UNITS, "fsq_levels": [3, 3], "n_layers": 1, **BLOCK, **overrides}))
 
 
 def test_voice_prelude_codes_round_trip_through_fsq_indices() -> None:
     from larry.voice.model.fsq import FSQ
 
-    prelude = _voice_prelude(vocab_size=3 ** 8, fsq_dims=8, fsq_levels=3)
+    levels = [8, 6, 5, 3]
+    prelude = _voice_prelude(vocab_size=8 * 6 * 5 * 3, fsq_levels=levels)
+    fsq = FSQ(D_MODEL, levels)
 
-    assert torch.equal(FSQ(D_MODEL, dims=8, levels=3).indices(prelude.codes), torch.arange(3 ** 8))
-    assert set(prelude.codes.unique().tolist()) == {-1.0, 0.0, 1.0}
+    assert torch.equal(fsq.indices(prelude.codes * fsq.half_width), torch.arange(8 * 6 * 5 * 3))
+    assert prelude.codes.min() == -1.0 and prelude.codes.max() == 1.0
 
 
 def test_voice_prelude_is_causal_for_generated_voice_and_bidirectional_for_input_voice() -> None:
@@ -577,7 +579,7 @@ def test_image_sampling_returns_latents_of_the_requested_grid(collator: Pretrain
 
 
 @pytest.mark.parametrize(("overrides", "match"), [
-    ({"voice_prelude_config": VoicePreludeConfig(vocab_size=10, fsq_dims=2, **BLOCK)}, "fsq_levels"),
+    ({"voice_prelude_config": VoicePreludeConfig(vocab_size=10, fsq_levels=[3, 3], **BLOCK)}, "fsq_levels"),
     ({"voice_prelude_config": None}, "tied to the voice prelude"),
     ({"voice_coda_config": VoiceModuleConfig(vocab_size=N_UNITS + 1, **{**BLOCK, "d_model": 16})}, "d_model"),
 ])

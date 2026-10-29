@@ -142,7 +142,7 @@ def test_every_task_needs_a_train_source_and_sources_must_be_configured_tasks(
 def test_the_voice_vocab_comes_from_the_speech_encoders_config(
         collator: PretrainingMultimodalCollator, tmp_path: Path,
 ) -> None:
-    (tmp_path / "config.json").write_text(json.dumps({"fsq_dims": 2, "fsq_levels": 5}))
+    (tmp_path / "config.json").write_text(json.dumps({"fsq_levels": [5, 5]}))
     config = _trainer_config(collator, tmp_path, ["text_voice"], speech_encoder_model_path=str(tmp_path))
 
     built = LarryMultimodalTrainer.prepare_model_config(_template(collator, ["text_voice"]), config)

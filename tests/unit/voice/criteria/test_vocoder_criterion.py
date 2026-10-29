@@ -50,7 +50,7 @@ def test_one_step_estimate_with_the_true_velocity_recovers_the_waveform() -> Non
     estimates = model.one_step_waveforms(xt, t, target)
 
     n = estimates.shape[-1]
-    assert n == (spec.shape[-1] - 1) * TINY.hop_length
+    assert n == (spec.shape[-1] - 1) * TINY.stft_hop_length
     assert torch.allclose(estimates, waveforms[:, :n], atol=2e-3)
 
 
@@ -156,4 +156,4 @@ def test_trainer_augments_conditioning_only_in_training(training: bool) -> None:
 
     clean, _ = model.frontend(waveforms, lengths)
     assert set(output.terms or {}) == {"flow", "stft", "mel"}
-    assert torch.equal(seen[0], clean) != training
+    assert torch.equal(seen[0], model.upsample_mels(clean, seen[0].shape[-1])) != training

@@ -1,4 +1,5 @@
 import dataclasses
+import math
 from typing import Literal
 
 from larry.multimodal.config.model.model_configs import LarryMultimodalModelConfig
@@ -53,8 +54,7 @@ class LarryMultimodalModelConfigBuilder:
     def build(
             self,
             processor: LarryProcessorBase,
-            fsq_dims: int | None = None,
-            fsq_levels: int | None = None,
+            fsq_levels: list[int] | None = None,
             latent_channels: int | None = None,
     ) -> LarryMultimodalModelConfig:
         required = self.required_modules()
@@ -71,7 +71,7 @@ class LarryMultimodalModelConfigBuilder:
         for name in MEDIA_MODULES:
             module = getattr(self.template, name)
             if name in required:
-                updates[name] = self.fit(name, module, processor, fsq_dims, fsq_levels, latent_channels)
+                updates[name] = self.fit(name, module, processor, fsq_levels, latent_channels)
             else:
                 updates[name] = None
 
@@ -82,8 +82,7 @@ class LarryMultimodalModelConfigBuilder:
             name: str,
             module: object,
             processor: LarryProcessorBase,
-            fsq_dims: int | None,
-            fsq_levels: int | None,
+            fsq_levels: list[int] | None,
             latent_channels: int | None,
     ) -> object:
         # every size here is decided by the processor or an upstream encoder, not by hand in the template
@@ -95,10 +94,10 @@ class LarryMultimodalModelConfigBuilder:
             return dataclasses.replace(module, **updates)  # pyright: ignore[reportArgumentType]
 
         updates = {"units_per_position": processor.config.voice_units_per_position}
-        if fsq_dims is not None and fsq_levels is not None:
-            n_units = fsq_levels ** fsq_dims
+        if fsq_levels is not None:
+            n_units = math.prod(fsq_levels)
             if name == "voice_prelude_config":
-                updates |= {"vocab_size": n_units, "fsq_dims": fsq_dims, "fsq_levels": fsq_levels}
+                updates |= {"vocab_size": n_units, "fsq_levels": list(fsq_levels)}
             else:
                 updates["vocab_size"] = n_units + 1
 

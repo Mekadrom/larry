@@ -46,7 +46,7 @@ class SpeechEncoderEncoderBlock(nn.Module):
 
 
 class SpeechEncoderPreBottleneck(VoiceModel[SpeechEncoderModelConfig], register=False):
-    """Log-mels at 100 Hz -> two strided convs -> FSMN attention blocks -> [B, T, D] at 25 Hz.
+    """Log-mels at 100 Hz -> two strided convs -> FSMN blocks at 25 Hz -> frame merge -> FSMN blocks at 12.5 Hz.
 
     Consists of a convolutional subsampling frontend followed by a set of ``SpeechTokenizerEncoderBlock`` instances to
     feed the input of the ``FSQ`` bottleneck.
@@ -76,16 +76,39 @@ class SpeechEncoderPreBottleneck(VoiceModel[SpeechEncoderModelConfig], register=
             padding=self.padding,
         )
 
+        if not 0 <= config.n_premerge_layers <= config.n_encoder1_layers:
+            raise ValueError(
+                f"n_premerge_layers={config.n_premerge_layers} "
+                f"must be within n_encoder1_layers={config.n_encoder1_layers}"
+            )
+
+        self.frame_merge = config.frame_merge
+        merged_config = dataclasses.replace(config, fsmn_kernel_size=config.merged_fsmn_kernel_size)
         self.blocks = nn.ModuleList([
             SpeechEncoderEncoderBlock(config)
-            for _ in range(config.n_encoder1_layers)
+            for _ in range(config.n_premerge_layers)
+        ])
+        self.merge = nn.Linear(config.frame_merge * config.d_model, config.d_model) if config.frame_merge > 1 else None
+        self.merged_blocks = nn.ModuleList([
+            SpeechEncoderEncoderBlock(merged_config)
+            for _ in range(config.n_encoder1_layers - config.n_premerge_layers)
         ])
         self.final_norm = nn.RMSNorm(config.d_model)
 
     @property
     def frame_seconds(self) -> float:
         """Helper for calculating the fractional seconds in each frame."""
-        return self.config.hop_length * self.stride1 * self.stride2 / self.config.sample_rate
+        return self.config.hop_length * self.stride1 * self.stride2 * self.frame_merge / self.config.sample_rate
+
+    def merge_frames(self, x: torch.Tensor, lengths: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.merge is None:
+            return x, lengths
+
+        batch_size, frames, d_model = x.shape
+        merged_frames = -(-frames // self.frame_merge)
+        x = F.pad(x, (0, 0, 0, merged_frames * self.frame_merge - frames))
+        x = self.merge(x.reshape(batch_size, merged_frames, self.frame_merge * d_model))
+        return x, -(-lengths // self.frame_merge)
 
     def _conv_lengths(self, lengths: torch.Tensor, stride: int) -> torch.Tensor:
         """A normalized length for each example that the strided convs will actually see."""
@@ -106,6 +129,11 @@ class SpeechEncoderPreBottleneck(VoiceModel[SpeechEncoderModelConfig], register=
 
         x = x.transpose(1, 2)  # [B, T, D]
         for block in self.blocks:
+            x = block(x, mask)
+
+        x, lengths = self.merge_frames(x * mask.unsqueeze(-1).to(x.dtype), lengths)
+        mask = make_non_pad_mask(lengths, x.shape[1])
+        for block in self.merged_blocks:
             x = block(x, mask)
 
         # zero padded frames so nothing downstream (FSQ, encoder2) sees leftover values there
@@ -129,10 +157,10 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         self.frontend = ASRLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
 
         self.encoder1 = SpeechEncoderPreBottleneck(encoder_config)
-        self.fsq = FSQ(config.d_model, dims=config.fsq_dims, levels=config.fsq_levels)
+        self.fsq = FSQ(config.d_model, config.fsq_levels)
 
         if config.enable_fsq_ctc_head:
-            self.fsq_ctc_head = nn.Linear(config.d_model, config.vocab_size + 1)
+            self.fsq_ctc_head = nn.Linear(config.d_model, config.ctc_upsample * (config.vocab_size + 1))
         else:
             self.fsq_ctc_head = None
 
@@ -142,7 +170,7 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         ])
         self.encoder2_norm = nn.RMSNorm(config.d_model)
 
-        self.ctc_head = nn.Linear(config.d_model, config.vocab_size + 1)
+        self.ctc_head = nn.Linear(config.d_model, config.ctc_upsample * (config.vocab_size + 1))
 
         if config.weight_init == "scaled_normal":
             self.init_weights()
@@ -157,7 +185,8 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
             nn.init.kaiming_normal_(conv.weight, nonlinearity="relu")
 
         # the FSQ bottleneck separates two residual streams
-        initializer.scale_residuals(self.encoder1.blocks, len(self.encoder1.blocks))
+        encoder1_blocks = [*self.encoder1.blocks, *self.encoder1.merged_blocks]
+        initializer.scale_residuals(encoder1_blocks, len(encoder1_blocks))
         initializer.scale_residuals(self.encoder2, len(self.encoder2))
 
         # unit-variance pre-tanh activations, so FSQ starts out using every level instead of rounding most dims to 0
@@ -219,7 +248,7 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         quantized, unit_ids = self.fsq(encoded)
 
         if self.fsq_ctc_head is not None:
-            ctc_log_probs["fsq"] = F.log_softmax(self.fsq_ctc_head(quantized).float(), dim=-1)
+            ctc_log_probs["fsq"] = self.ctc_log_probs(self.fsq_ctc_head, quantized)
 
         hidden = quantized
         for block in self.encoder2:
@@ -227,16 +256,22 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
 
         hidden = self.encoder2_norm(hidden)
 
-        canonical_ctc_log_probs = F.log_softmax(self.ctc_head(hidden).float(), dim=-1)
+        canonical_ctc_log_probs = self.ctc_log_probs(self.ctc_head, hidden)
         ctc_log_probs["encoder2_norm"] = canonical_ctc_log_probs
         return SpeechEncoderModelOutput(
             logits=canonical_ctc_log_probs,
             ctc_log_probs=ctc_log_probs,
             frame_lengths=frame_lengths,
+            ctc_lengths=frame_lengths * self.config.ctc_upsample,
             unit_ids=unit_ids,
             mels=mels,
             mel_lengths=mel_lengths,
         )
+
+    def ctc_log_probs(self, head: nn.Linear, hidden: torch.Tensor) -> torch.Tensor:
+        batch_size, frames, _ = hidden.shape
+        logits = head(hidden).view(batch_size, frames * self.config.ctc_upsample, self.config.vocab_size + 1)
+        return F.log_softmax(logits.float(), dim=-1)
 
     @torch.inference_mode()
     def tokenize(self, waveforms: torch.Tensor, waveform_lengths: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

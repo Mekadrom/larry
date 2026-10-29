@@ -22,7 +22,7 @@ def tiny_config(**overrides: object) -> SpeechDecoderModelConfig:
         "speaker_dim": 8,
         "n_encoder_layers": 1,
         "n_backbone_layers": 2,
-        "fsq_dims": 4,
+        "fsq_levels": [3, 3, 3, 3],
         "mel_mean": -2.0,
         "mel_std": 1.5,
         **overrides,

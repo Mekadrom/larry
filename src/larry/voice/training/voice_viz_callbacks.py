@@ -149,11 +149,12 @@ class SpeechEncoderVizCallback(SpeechEncoderDecoderVizCallback):
         finally:
             model.train(was_training)
 
-        frame_seconds = cast(SpeechEncoderPreBottleneck, model.encoder1).frame_seconds
+        encoder = cast(SpeechEncoderModel, model)
+        frame_seconds = cast(SpeechEncoderPreBottleneck, encoder.encoder1).frame_seconds / encoder.config.ctc_upsample
         mel_seconds = model.frontend.hop_length / model_config.sample_rate
 
         for i, item in enumerate(items):
-            log_probs = output.logits[i, :int(output.frame_lengths[i])].float().cpu()
+            log_probs = output.logits[i, :int(output.ctc_lengths[i])].float().cpu()
             target = batch["targets"][i, :int(batch["target_lengths"][i])].cpu()
 
             greedy = log_probs.argmax(-1)

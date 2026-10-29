@@ -16,6 +16,7 @@ class SpeechEncoderModelOutput(LarryModelOutput):
 
     ctc_log_probs: Mapping[str, torch.Tensor]
     frame_lengths: torch.Tensor
+    ctc_lengths: torch.Tensor
     unit_ids: torch.Tensor
     mels: torch.Tensor
     mel_lengths: torch.Tensor

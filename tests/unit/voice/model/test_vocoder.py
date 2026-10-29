@@ -26,7 +26,8 @@ def test_a_training_step_gives_a_finite_loss_and_gradients() -> None:
     loss = ConditionalFlowMatchingCriterion(CriterionConfig())(output)
     loss.backward()
 
-    assert spec.shape == (3, TINY.n_fft + 2, mels.shape[-1])
+    assert spec.shape == (3, TINY.stft_n_fft + 2, spec.shape[-1])
+    assert spec.shape[-1] in (2 * mels.shape[-1] - 1, 2 * mels.shape[-1])
     assert output.logits.shape == output.targets.shape == spec.shape
     assert torch.isfinite(loss)
     assert all(p.grad is not None for p in model.backbone.parameters() if p.requires_grad)
@@ -41,7 +42,7 @@ def test_padded_frames_do_not_contribute_to_the_loss() -> None:
     criterion = ConditionalFlowMatchingCriterion(CriterionConfig())
 
     before = criterion.sample_losses(output, output.targets)
-    output.targets[2, :, int(mel_lengths[2]):] += 100.0
+    output.targets[2, :, int(model.spec_lengths(mel_lengths, output.targets.shape[-1])[2]):] += 100.0
 
     assert torch.equal(criterion.sample_losses(output, output.targets), before)
 
@@ -55,6 +56,6 @@ def test_generation_returns_trimmed_waveforms() -> None:
     out = model.generate(mels, mel_lengths, steps=2, generator=torch.Generator().manual_seed(0))
 
     assert out.waveforms.shape[0] == 3
-    assert out.waveform_lengths.tolist() == (mel_lengths * TINY.hop_length - TINY.n_fft // 2).tolist()
+    assert out.waveform_lengths.tolist() == (mel_lengths * TINY.hop_length - TINY.stft_n_fft // 2).tolist()
     assert (out.waveform_lengths <= batch["waveform_lengths"]).all()
     assert torch.isfinite(out.waveforms).all()

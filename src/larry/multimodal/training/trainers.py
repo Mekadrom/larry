@@ -55,17 +55,15 @@ class LarryMultimodalTrainer(
             raise TypeError(f"{cls.__name__} trains a LarryMultimodalModelConfig, got {type(model_config).__name__}")
 
         cls.check_sources(model_config, config)
-        fsq_dims = fsq_levels = None
+        fsq_levels = None
         if config.speech_encoder_model_path is not None:
-            encoder_config = cls.speech_encoder_config(config.speech_encoder_model_path)
-            fsq_dims, fsq_levels = encoder_config["fsq_dims"], encoder_config["fsq_levels"]
+            fsq_levels = cls.speech_encoder_config(config.speech_encoder_model_path)["fsq_levels"]
 
         processor = LarryMultimodalPretrainProcessor.from_pretrained(config.processor_model_path)
         cls.check_processor_settings(processor, config)
         # only the modules the configured tasks need are built
         return LarryMultimodalModelConfigBuilder(model_config).build(
             processor,
-            fsq_dims,
             fsq_levels,
             config.image_latent_channels,
         )

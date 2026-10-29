@@ -40,6 +40,7 @@ from larry.multimodal.processor.processor import (
     TextSpan,
     VoicePlaceholder,
 )
+from larry.voice.model.fsq import fsq_codes
 
 INIT_STD = 0.02
 PROCESSOR_DIR = "processor"
@@ -185,11 +186,8 @@ class VoicePrelude(LarryModalityModule):
         super().__init__(config, config.n_layers)
 
         self.ute = nn.Embedding(config.vocab_size, config.d_model)
-        self.code_proj = nn.Linear(config.fsq_dims, config.d_model)
-        unit_ids = torch.arange(config.vocab_size)
-        radix = config.fsq_levels ** torch.arange(config.fsq_dims)
-        # inverse of FSQ.indices: each unit id's fixed code in {-halve..halve} per FSQ dim
-        codes = (unit_ids[:, None] // radix) % config.fsq_levels - config.fsq_levels // 2
+        self.code_proj = nn.Linear(len(config.fsq_levels), config.d_model)
+        codes = fsq_codes(torch.arange(config.vocab_size), config.fsq_levels)
         self.register_buffer("codes", codes.float(), persistent=False)
 
         self.units_per_position = config.units_per_position

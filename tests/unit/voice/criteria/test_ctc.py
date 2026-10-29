@@ -49,7 +49,7 @@ def test_each_ctc_head_is_its_own_weighted_term_per_row() -> None:
     log_probs = torch.randn(2, 6, 5).log_softmax(-1)
     output = SimpleNamespace(
         ctc_log_probs={"encoder2_norm": log_probs, "fsq": log_probs.roll(1, dims=-1)},
-        frame_lengths=torch.tensor([6, 5]),
+        ctc_lengths=torch.tensor([6, 5]),
         logits=log_probs,
     )
     targets, target_lengths = torch.tensor([[1, 2, 3], [2, 2, 0]]), torch.tensor([3, 2])
@@ -60,7 +60,7 @@ def test_each_ctc_head_is_its_own_weighted_term_per_row() -> None:
     assert {name: term.weight for name, term in terms.items()} == {"ctc/encoder2_norm": 0.7, "ctc/fsq": 0.3}
     assert all(term.sums.shape == (2,) and term.counts.tolist() == [1.0, 1.0] for term in terms.values())
     expected = sum(
-        weight * F.ctc_loss(probs.transpose(0, 1), targets, output.frame_lengths, target_lengths, reduction="mean")
+        weight * F.ctc_loss(probs.transpose(0, 1), targets, output.ctc_lengths, target_lengths, reduction="mean")
         for probs, weight in ((log_probs, 0.7), (log_probs.roll(1, dims=-1), 0.3))
     )
     assert torch.allclose(criterion(output, targets=targets, target_lengths=target_lengths), expected)

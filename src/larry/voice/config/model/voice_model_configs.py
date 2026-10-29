@@ -1,4 +1,5 @@
 import dataclasses
+import math
 from typing import Literal
 
 from larry.common.config.model.model_configs import (
@@ -18,12 +19,11 @@ class VoiceModelConfig(ModelConfig, MelsConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechEncoderDecoderModelConfig(VoiceModelConfig, LLMBlockModuleConfig):
-    fsq_dims: int = 8
-    fsq_levels: int = 3
+    fsq_levels: list[int] = dataclasses.field(default_factory=lambda: [3] * 8)
 
     @property
     def n_units(self) -> int:
-        return self.fsq_levels ** self.fsq_dims
+        return math.prod(self.fsq_levels)
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -38,7 +38,12 @@ class SpeechEncoderModelConfig(SpeechEncoderDecoderModelConfig, LLMBlockModuleCo
     d_model: int = 1024
 
     n_encoder1_layers: int = 6
+    n_premerge_layers: int = 3
+    frame_merge: int = 2
+    fsmn_kernel_size: int = 31
+    merged_fsmn_kernel_size: int = 15
     n_encoder2_layers: int = 6
+    ctc_upsample: int = 1
 
     vocab_size: int = 512
 
@@ -69,6 +74,7 @@ class SpeechDecoderModelConfig(
     speaker_dim: int = 192
     n_encoder_layers: int = 4
     n_backbone_layers: int = 4
+    hop_length: int = 320
     unit_upsample: int = 4
 
     is_causal: bool = False
@@ -89,6 +95,10 @@ class SpeechDecoderModelConfig(
 @dataclasses.dataclass(kw_only=True)
 class LarryVocoderConfig(VoiceModelConfig, FlowMatchingConfig):
     """Configures ``LarryVocoder`` models."""
+
+    hop_length: int = 320
+    stft_n_fft: int = 640
+    stft_hop_length: int = 160
 
     d_model: int = 512
     d_inner: int = 1536

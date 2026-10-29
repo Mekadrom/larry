@@ -249,8 +249,7 @@ class SpeechEncoderTrainer(
         metrics = MetricDict()
         if self.train_state.global_step % self.config.logging_steps == 0:
             counts = code_counts(output.unit_ids, output.frame_lengths, self.unwrapped_model.config.n_units)[0]
-            statistics = codebook_statistics(counts, self.unwrapped_model.config.fsq_dims,
-                                             self.unwrapped_model.config.fsq_levels)
+            statistics = codebook_statistics(counts, self.unwrapped_model.config.fsq_levels)
             for name, value in statistics.items():
                 if not name.startswith("dim"):
                     metrics.add_metric(ScalarMetricEntry(tag=f"train/fsq/{name}", scalar=value))
@@ -294,11 +293,11 @@ class SpeechEncoderTrainer(
 
         blank = self.unwrapped_model.config.vocab_size
         greedy = model_output.logits.argmax(dim=-1).cpu()
-        frame_lengths = model_output.frame_lengths.cpu().tolist()
+        ctc_lengths = model_output.ctc_lengths.cpu().tolist()
         targets = batch["targets"].cpu()
         target_lengths = batch["target_lengths"].cpu().tolist()
         rows = []
-        for i, (n_frames, n_targets) in enumerate(zip(frame_lengths, target_lengths, strict=True)):
+        for i, (n_frames, n_targets) in enumerate(zip(ctc_lengths, target_lengths, strict=True)):
             hypothesis = self.tokenizer.decode(collapse_ctc_emissions(greedy[i, :n_frames], blank))
             reference = self.tokenizer.decode(targets[i, :n_targets].tolist())
             raw = error_counts(hypothesis, reference)
@@ -316,12 +315,12 @@ class SpeechEncoderTrainer(
         """Finalizes eval metrics by producing a ``MetricDict``."""
         metrics = MetricDict()
         counts = statistics["fsq_counts"]
-        dims, levels = self.unwrapped_model.config.fsq_dims, self.unwrapped_model.config.fsq_levels
-        for name, value in codebook_statistics(counts.sum(dim=0), dims, levels).items():
+        levels = self.unwrapped_model.config.fsq_levels
+        for name, value in codebook_statistics(counts.sum(dim=0), levels).items():
             metrics.add_metric(ScalarMetricEntry(tag=f"eval/fsq/{name}", scalar=value))
 
         for source, source_counts in zip(self.config.mixture_config.eval_sources, counts, strict=True):
-            for name, value in codebook_statistics(source_counts, dims, levels).items():
+            for name, value in codebook_statistics(source_counts, levels).items():
                 if not name.startswith("dim"):
                     metrics.add_metric(ScalarMetricEntry(tag=f"eval/fsq/{name}/{source.name}", scalar=value))
 

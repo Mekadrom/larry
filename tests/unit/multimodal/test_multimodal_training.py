@@ -147,11 +147,11 @@ def test_the_builder_takes_sizes_from_the_processor_and_encoders(
     )
     template = _template(collator, ["text_voice", "text_image"], ["text", "voice", "image"])
 
-    built = LarryMultimodalModelConfigBuilder(template).build(processor, fsq_dims=3, fsq_levels=3, latent_channels=8)
+    built = LarryMultimodalModelConfigBuilder(template).build(processor, fsq_levels=[3, 3, 3], latent_channels=8)
 
     assert built.text_prelude_config.vocab_size == built.text_coda_config.vocab_size == _vocab(collator)
     assert (built.voice_prelude_config.vocab_size, built.voice_coda_config.vocab_size) == (27, 28)
-    assert built.voice_prelude_config.fsq_dims == 3
+    assert built.voice_prelude_config.fsq_levels == [3, 3, 3]
     assert built.voice_units_per_position == 2
     assert (built.image_coda_config.patch_size, built.image_coda_config.latent_channels) == (4, 8)
     LarryMultimodalModel(built).check_processor(processor)

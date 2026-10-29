@@ -1,36 +1,65 @@
+from collections.abc import Sequence
+
 import torch
 from torch import nn
+
+
+def fsq_radix(levels: Sequence[int]) -> torch.Tensor:
+    return torch.cumprod(torch.tensor([1, *levels[:-1]]), dim=0)
+
+
+def fsq_digits(unit_ids: torch.Tensor, levels: Sequence[int]) -> torch.Tensor:
+    radix = fsq_radix(levels).to(unit_ids.device)
+    return (unit_ids[..., None] // radix) % torch.tensor(levels, device=unit_ids.device)
+
+
+def fsq_codes(unit_ids: torch.Tensor, levels: Sequence[int]) -> torch.Tensor:
+    half_width = torch.tensor(levels, device=unit_ids.device) // 2
+    return (fsq_digits(unit_ids, levels) - half_width) / half_width
 
 
 class FSQ(nn.Module):
     """Finite Scalar Quantization module.
 
-    This module defines a latent space with a number of allowed "levels" within a number of dimensions. This produces a
-    quantized latent space with levels**dims total possible values.
+    This module defines a latent space with a number of allowed "levels" per dimension, any of which may be even or
+    odd. This produces a quantized latent space with the product of the levels as its total possible values.
     """
 
-    def __init__(self, d_model: int, dims: int = 8, levels: int = 3) -> None:
+    half_level: torch.Tensor
+    offset: torch.Tensor
+    shift: torch.Tensor
+    half_width: torch.Tensor
+    radix: torch.Tensor
+
+    def __init__(self, d_model: int, levels: Sequence[int], eps: float = 1e-3) -> None:
         """Module init that creates an up and down project to make the quantizing bottleneck."""
         super().__init__()
-        assert levels % 2 == 1  # odd levels: symmetric around 0, no half-step offset needed
-        self.halve = levels // 2
-        self.down = nn.Linear(d_model, dims)
-        self.up = nn.Linear(dims, d_model)
-        self.register_buffer("radix", levels ** torch.arange(dims))
+        self.levels = list(levels)
+        self.down = nn.Linear(d_model, len(levels))
+        self.up = nn.Linear(len(levels), d_model)
+
+        level_tensor = torch.tensor(self.levels, dtype=torch.float32)
+        half_level = (level_tensor - 1) * (1 + eps) / 2
+        offset = (level_tensor % 2 == 0).float() * 0.5
+        self.register_buffer("half_level", half_level, persistent=False)
+        self.register_buffer("offset", offset, persistent=False)
+        self.register_buffer("shift", torch.atanh(offset / half_level), persistent=False)
+        self.register_buffer("half_width", torch.div(level_tensor, 2, rounding_mode="floor"), persistent=False)
+        self.register_buffer("radix", fsq_radix(self.levels), persistent=False)
 
     def quantize(self, x: torch.Tensor) -> torch.Tensor:
         """Straight-through estimation hack."""
-        z = torch.tanh(self.down(x)) * self.halve
+        z = torch.tanh(self.down(x) + self.shift) * self.half_level - self.offset
         return z + (torch.round(z) - z).detach()
 
     def indices(self, q: torch.Tensor) -> torch.Tensor:
         """Returns the "vocab" indices represented by the quantized latent vector bottleneck value."""
-        return ((q.round().long() + self.halve) * self.radix).sum(-1)  # pyright: ignore[reportOperatorIssue]
+        return ((q.round() + self.half_width).long() * self.radix).sum(-1)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns both the up-casted post-bottleneck logits and the chosen vocab indices."""
         q = self.quantize(x)
-        return self.up(q), self.indices(q)
+        return self.up(q / self.half_width), self.indices(q)
 
 
 def code_counts(
@@ -51,12 +80,12 @@ def code_counts(
     return torch.bincount(flat, minlength=n_groups * codebook_size).view(n_groups, codebook_size)
 
 
-def codebook_statistics(counts: torch.Tensor, dims: int, levels: int) -> dict[str, float]:
+def codebook_statistics(counts: torch.Tensor, levels: Sequence[int]) -> dict[str, float]:
     """Usage, perplexity, and per-dimension level shares of one [codebook_size] count vector."""
     total = counts.sum()
     if total == 0:
         return {}
-    
+
     probs = counts.double() / total
     used = probs[probs > 0]
     statistics = {
@@ -64,11 +93,10 @@ def codebook_statistics(counts: torch.Tensor, dims: int, levels: int) -> dict[st
         "perplexity": float(torch.exp(-(used * used.log()).sum())),
     }
 
-    codes = torch.arange(levels ** dims, device=counts.device)
-    for d in range(dims):
-        digit = (codes // levels ** d) % levels
-        for level in range(levels):
-            share = float(probs[digit == level].sum())
-            statistics[f"dim{d}/level{level - levels // 2}"] = share
+    digits = fsq_digits(torch.arange(len(counts), device=counts.device), levels)
+    for d, level_count in enumerate(levels):
+        for level in range(level_count):
+            share = float(probs[digits[:, d] == level].sum())
+            statistics[f"dim{d}/level{level - level_count // 2}"] = share
 
     return statistics

@@ -52,7 +52,7 @@ def _trainer(sources: list[str]) -> SpeechEncoderTrainer:
         tokenizer=CharTokenizer(ALPHABET),
         whisper_normalizer=EnglishTextNormalizer(SPELLINGS),
         unwrapped_model=SimpleNamespace(
-            config=SimpleNamespace(vocab_size=BLANK, fsq_dims=2, fsq_levels=3, n_units=3 ** 2)
+            config=SimpleNamespace(vocab_size=BLANK, fsq_levels=[3, 3], n_units=3 ** 2)
         ),
         _config=SimpleNamespace(mixture_config=SimpleNamespace(
             eval_sources=[SpeechSourceConfig(name=n, index_path=n) for n in sources],
