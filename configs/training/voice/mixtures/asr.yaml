@@ -35,7 +35,6 @@ trainer:
         provenance_name: thelarryproject/libriheavy-large-index-asr
         index_path: /home/zadar/.cache/larry/datasets/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
         source_path: mythicinfinity/libriheavy
-        source_cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/asr/mythicinfinity_libriheavy-large-index-asr/
         source_name: large
         source_split: train
         weight: 0.44
