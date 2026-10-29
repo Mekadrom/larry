@@ -1,15 +1,20 @@
 from typing import Any
 
 import torch
-from datasets import List, Value
+from datasets import Dataset, DatasetDict, Features, List, Value
 from datasets.features.features import FeatureType
 from transformers import AutoTokenizer
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
-from larry.common.data.preprocessing.mappers import SingleColumnMapper
+from larry.common.data.preprocessing.mappers import Mapper, SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
 from larry.common.data.utils import bot_user_agent
-from larry.text.config.preprocessing.text_mapper_configs import TextTokenizingMapperConfig, UrlTextMapperConfig
+from larry.text.config.preprocessing.text_mapper_configs import (
+    TextTokenizingMapperConfig,
+    UrlTextMapperConfig,
+    VisualDescriptionExtractingMapperConfig,
+)
+from larry.text.data.preprocessing.visual_text import VisualTextExtractor
 
 
 class UrlTextMapper(UrlMapper[str, UrlTextMapperConfig]):
@@ -55,3 +60,22 @@ class TextTokenizingMapper(SingleColumnMapper[list[str], torch.Tensor | None, Te
     def output_feature(self) -> FeatureType | None:
         """Makes the output feature type for this mapper's output column a list of unsigned 32-bit integers."""
         return List(Value("uint32"))
+
+
+class VisualDescriptionExtractingMapper(Mapper[VisualDescriptionExtractingMapperConfig]):
+    def __init__(self, provenance: Provenance, config: VisualDescriptionExtractingMapperConfig) -> None:
+        super().__init__(provenance, config)
+        self.extractor = VisualTextExtractor(config)
+
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        extracted = [self.extractor.extract(text) for text in batch[self.config.input_column]]
+        return {
+            self.config.output_column: [text for text, _ in extracted],
+            self.config.retained_output_column: [retained for _, retained in extracted],
+        }
+
+    def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        return Features({
+            self.config.output_column: Value("string"),
+            self.config.retained_output_column: Value("float32"),
+        })

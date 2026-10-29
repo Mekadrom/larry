@@ -40,3 +40,22 @@ class TextTokenizingMapperConfig(SingleColumnMapperConfig):
     tokenizer: str
     input_column: str = "text"
     output_column: str = "input_ids"
+
+
+@dataclasses.dataclass(kw_only=True)
+class VisualDescriptionExtractingMapperConfig(MapperConfig):
+    input_column: str = "description"
+    output_column: str = "visual_description"
+    retained_output_column: str = "visual_retained"
+
+    paragraph_threshold: float = 0.0
+    sentence_drop_threshold: float = -0.15
+    sentence_keep_threshold: float = 0.15
+    extra_visual_terms: list[str] = dataclasses.field(default_factory=list)
+    extra_history_terms: list[str] = dataclasses.field(default_factory=list)
+
+    def required_input_columns(self) -> list[str]:
+        return [self.input_column]
+
+    def required_output_columns(self) -> list[str]:
+        return [self.output_column, self.retained_output_column]
