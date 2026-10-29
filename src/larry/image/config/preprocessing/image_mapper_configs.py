@@ -2,7 +2,7 @@ import dataclasses
 
 from torchvision.transforms import InterpolationMode
 
-from larry.common.config.data.preprocessing.mapper_configs import SingleColumnMapperConfig, UrlMapperConfig
+from larry.common.config.data.preprocessing.mapper_configs import MapperConfig, SingleColumnMapperConfig, UrlMapperConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -33,3 +33,23 @@ class ImageResizingMapperConfig(ImageMapperConfig):
     resize: bool = True
     resize_interpolation_mode: InterpolationMode = InterpolationMode.BILINEAR
     center_crop: bool = True
+
+
+@dataclasses.dataclass(kw_only=True)
+class LarryImageVAELatentExtractingMapperConfig(MapperConfig):
+    vae_checkpoint_path: str
+    image_column: str = "image"
+    latents_output_column: str = "latents"
+    shape_output_column: str = "latent_shape"
+    image_size: int = 256
+    size_multiple: int = 16
+
+    batch_size: int = 32
+    writer_batch_size: int = 32
+    num_proc: int = 1
+
+    def required_input_columns(self) -> list[str]:
+        return [self.image_column]
+
+    def required_output_columns(self) -> list[str]:
+        return [self.latents_output_column, self.shape_output_column]

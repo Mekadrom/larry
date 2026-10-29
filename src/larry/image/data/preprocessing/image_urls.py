@@ -74,12 +74,14 @@ class IIIFImageUrls(ResizedImageUrls):
             max_size: int,
             base_url: str | None = None,
             full_size: str = "max",
+            size_template: str = "!{size},{size}",
             quality: str = "default",
             image_format: str = "jpg",
     ) -> None:
         super().__init__(max_size)
         self.base_url = base_url
         self.full_size = full_size
+        self.size_template = size_template
         self.quality = quality
         self.image_format = image_format
 
@@ -95,5 +97,11 @@ class IIIFImageUrls(ResizedImageUrls):
     def original(self, identifier: str) -> str:
         return self.image(identifier, self.full_size)
 
+    def fits(self, width: int | None, height: int | None) -> bool:
+        if self.size_template.startswith("{size},"):
+            return width is not None and width <= self.max_size
+
+        return super().fits(width, height)
+
     def resized(self, identifier: str) -> str:
-        return self.image(identifier, f"!{self.max_size},{self.max_size}")
+        return self.image(identifier, self.size_template.format(size=self.max_size))

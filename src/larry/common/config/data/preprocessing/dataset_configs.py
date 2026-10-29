@@ -122,6 +122,7 @@ class FilteredMetadataCachedDatasetConfig(CachedDatasetConfig, ABC):
 class PagedApiCachedDatasetConfig(FilteredMetadataCachedDatasetConfig, ABC):
     api_url: str
     api_key_env_var: str | None = None
+    api_key_file: str | None = None
     user_agent_name: str = "larry-dataset-downloader"
     page_size: int = 100
     max_pages: int | None = None

@@ -50,3 +50,10 @@ def test_iiif_service_urls_can_be_used_as_identifiers() -> None:
     assert urls.resized("https://iiif.example.org/iiif/2/abc") == (
         "https://iiif.example.org/iiif/2/abc/full/!960,960/0/default.jpg"
     )
+
+
+def test_iiif_can_size_by_width_alone() -> None:
+    urls = IIIFImageUrls(843, base_url="https://www.artic.edu/iiif/2", full_size="full", size_template="{size},")
+
+    assert urls.url("abc", 2203, 3128) == "https://www.artic.edu/iiif/2/abc/full/843,/0/default.jpg"
+    assert urls.url("abc", 800, 3000) == "https://www.artic.edu/iiif/2/abc/full/full/0/default.jpg"

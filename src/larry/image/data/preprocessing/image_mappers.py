@@ -1,19 +1,36 @@
 import io
+from typing import Any
 
 import datasets
+import numpy as np
 import torch
+import torchvision.transforms.functional as TVF
+from datasets import Dataset, DatasetDict, Features, List, Value
 from datasets.features.features import FeatureType
 from PIL import Image
 from torchvision import transforms
 from torchvision.io import ImageReadMode, decode_image, encode_jpeg
 
 from larry.common.config.data.preprocessing.pipeline_config import Provenance
-from larry.common.data.preprocessing.mappers import SingleColumnMapper
+from larry.common.data.preprocessing.mappers import Mapper, SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
 from larry.common.data.utils import bot_user_agent
 from larry.common.utils.types import EncodedImage
-from larry.image.config.preprocessing.image_mapper_configs import ImageResizingMapperConfig, UrlImageMapperConfig
+from larry.image.config.preprocessing.image_mapper_configs import (
+    ImageResizingMapperConfig,
+    LarryImageVAELatentExtractingMapperConfig,
+    UrlImageMapperConfig,
+)
 from larry.image.data.preprocessing import image_transforms as larry_image_transforms
+from larry.image.model.vae import ImageVAE
+
+_VAES: dict[str, ImageVAE] = {}
+
+
+def _lazy_get_vae(key: str, device: torch.device) -> ImageVAE:
+    if key not in _VAES:
+        _VAES[key] = ImageVAE.from_pretrained(key).to(device).eval()
+    return _VAES[key]
 
 
 class UrlImageMapper(UrlMapper[EncodedImage, UrlImageMapperConfig]):
@@ -74,3 +91,35 @@ class ImageResizingMapper(SingleColumnMapper[EncodedImage | None, EncodedImage |
     def output_feature(self) -> FeatureType | None:
         """Sets the output feature for this mapper's output column to an undecoded image."""
         return datasets.Image(decode=False)
+
+
+class LarryImageVAELatentExtractingMapper(Mapper[LarryImageVAELatentExtractingMapperConfig]):
+    def mutate_provenance(self) -> None:
+        self.provenance.ancestry.models.add(self.config.vae_checkpoint_path)
+
+    def prepare(self, image: EncodedImage) -> torch.Tensor:
+        pixels = decode_image(torch.frombuffer(bytearray(image["bytes"]), dtype=torch.uint8), mode=ImageReadMode.RGB)
+        pixels = TVF.resize(pixels, [self.config.image_size], antialias=True)
+        multiple = self.config.size_multiple
+        height, width = pixels.shape[-2:]
+        pixels = TVF.center_crop(pixels, [height // multiple * multiple, width // multiple * multiple])
+        return pixels.float() / 127.5 - 1
+
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        model = _lazy_get_vae(self.config.vae_checkpoint_path, self.device)
+        device = next(model.parameters()).device
+        latents: list[np.ndarray] = []
+        shapes: list[list[int]] = []
+        with torch.inference_mode():
+            for image in batch[self.config.image_column]:
+                mean, _ = model.encode(self.prepare(image)[None].to(device))
+                latents.append(mean[0].float().cpu().numpy().astype(np.float16).reshape(-1))
+                shapes.append(list(mean.shape[1:]))
+
+        return {self.config.latents_output_column: latents, self.config.shape_output_column: shapes}
+
+    def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        return Features({
+            self.config.latents_output_column: List(Value("float16")),
+            self.config.shape_output_column: List(Value("int32")),
+        })

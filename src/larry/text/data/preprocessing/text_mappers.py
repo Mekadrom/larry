@@ -10,6 +10,7 @@ from larry.common.data.preprocessing.mappers import Mapper, SingleColumnMapper
 from larry.common.data.preprocessing.url_mappers import UrlMapper
 from larry.common.data.utils import bot_user_agent
 from larry.text.config.preprocessing.text_mapper_configs import (
+    CaptionSelectingMapperConfig,
     TextTokenizingMapperConfig,
     UrlTextMapperConfig,
     VisualDescriptionExtractingMapperConfig,
@@ -78,4 +79,35 @@ class VisualDescriptionExtractingMapper(Mapper[VisualDescriptionExtractingMapper
         return Features({
             self.config.output_column: Value("string"),
             self.config.retained_output_column: Value("float32"),
+        })
+
+
+class CaptionSelectingMapper(Mapper[CaptionSelectingMapperConfig]):
+    def candidate(self, value: Any) -> str | None:
+        if isinstance(value, list):
+            value = next((v for v in value if isinstance(v, str) and v.strip()), None)
+
+        if not isinstance(value, str):
+            return None
+
+        value = value.strip()
+        return value if len(value) >= self.config.min_characters else None
+
+    def preprocess_batch(self, batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        captions: list[str | None] = []
+        sources: list[str | None] = []
+        for i in range(len(batch[self.config.caption_columns[0]])):
+            chosen = next(
+                ((c, text) for c in self.config.caption_columns if (text := self.candidate(batch[c][i])) is not None),
+                (None, None),
+            )
+            sources.append(chosen[0])
+            captions.append(chosen[1])
+
+        return {self.config.output_column: captions, self.config.source_output_column: sources}
+
+    def output_features(self, dataset: Dataset | DatasetDict) -> Features | None:
+        return Features({
+            self.config.output_column: Value("string"),
+            self.config.source_output_column: Value("string"),
         })

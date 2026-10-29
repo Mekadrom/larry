@@ -1,0 +1,29 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: IndexedSourceDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/index/image/caption/srishti-kaushik_coco-2017-index-caption/
+  split_sources:
+    train: train
+    validation: validation
+  source_path: /home/zadar/.cache/larry/datasets/normalized/image/srishti-kaushik_coco-2017-normalized/
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/image/latent/srishti-kaushik_coco-2017-index-latent/
+pipeline:
+  skip_image_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      image: image_no_decode
+  encode:
+    type: LarryImageVAELatentExtractingMapperConfig
+    vae_checkpoint_path: /home/zadar/.cache/larry/models/image/larry-image-vae/
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id
+      - caption
+      - caption_source
+      - latents
+      - latent_shape

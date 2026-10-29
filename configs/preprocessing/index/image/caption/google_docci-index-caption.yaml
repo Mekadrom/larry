@@ -1,0 +1,25 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: IndexedSourceDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/index/image/vae/google_docci-index-vae/
+  split_sources:
+    train: train
+    test: test
+  source_path: /home/zadar/.cache/larry/datasets/normalized/image/google_docci-normalized/
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/image/caption/google_docci-index-caption/
+pipeline:
+  select_caption:
+    type: CaptionSelectingMapperConfig
+    filter_null_outputs: true
+    caption_columns:
+      - text
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id
+      - caption
+      - caption_source

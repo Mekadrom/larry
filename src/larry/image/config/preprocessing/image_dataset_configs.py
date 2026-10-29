@@ -13,6 +13,7 @@ from larry.common.config.data.preprocessing.dataset_configs import (
     DatasetConfig,
     FilteredMetadataCachedDatasetConfig,
     MediaCachedDatasetConfig,
+    PagedApiCachedDatasetConfig,
 )
 
 
@@ -151,3 +152,63 @@ class SmithsonianOpenAccessCachedDatasetConfig(FilteredMetadataCachedDatasetConf
 
     def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
         return []
+
+
+@dataclasses.dataclass(kw_only=True)
+class ArtInstituteOfChicagoCachedDatasetConfig(FilteredMetadataCachedDatasetConfig, ImageDatasetConfig):
+    dump_url: str = "https://artic-api-data.s3.amazonaws.com"
+    dump_file: str = "artic-api-data.tar.bz2"
+    artworks_prefix: str = "artic-api-data/json/artworks/"
+    iiif_url: str = "https://www.artic.edu/iiif/2"
+    site_url: str = "https://www.artic.edu/artworks"
+    metadata_file: str = "artic-artworks-filtered.parquet"
+
+    image_width: int = 843
+    include_alt_images: bool = False
+
+    def downloader_configs(self) -> Sequence[tuple[str, DownloaderConfig]]:
+        return [
+            ("SingleFileDownloader", SingleFileDownloaderConfig(
+                download_base_url=self.dump_url,
+                output_file_name=self.dump_file,
+                download_timeout=60,
+                max_retries=5,
+                busy_wait=30.0,
+            )),
+        ]
+
+    def extractor_configs(self) -> Sequence[tuple[str, ExtractorConfig]]:
+        return []
+
+
+@dataclasses.dataclass(kw_only=True)
+class TePapaCachedDatasetConfig(PagedApiCachedDatasetConfig, ImageDatasetConfig):
+    api_url: str = "https://data.tepapa.govt.nz/collection"
+    api_key_env_var: str | None = "TEPAPA_API_KEY"
+    api_key_file: str | None = "~/.config/larry/tepapa_api_key"
+    site_url: str = "https://collections.tepapa.govt.nz/object"
+    metadata_file: str = "tepapa-objects-filtered.parquet"
+
+    page_size: int = 50
+    scroll_minutes: int = 5
+    min_request_interval: float = 0.25
+    fields: list[str] = dataclasses.field(default_factory=lambda: [
+        "id", "type", "collection", "title", "description", "caption", "creditLine", "isMadeOfSummary",
+        "production", "depicts", "refersTo", "isTypeOf", "hasRepresentation",
+    ])
+
+    licenses: list[str] = dataclasses.field(default_factory=lambda: [
+        "No Known Copyright Restrictions", "CC BY 4.0", "CC 0",
+    ])
+    excluded_collections: list[str] = dataclasses.field(default_factory=lambda: ["TaongaMāori", "PacificCultures"])
+    excluded_subject_terms: list[str] = dataclasses.field(default_factory=lambda: [
+        "Māori", "Maori", "iwi", "hapū", "hapu", "marae", "wharenui", "wharekai", "kāinga", "kainga", "pā",
+        "rangatira", "ariki", "moko", "tā moko", "haka", "waka", "tūpuna", "tupuna", "tīpuna", "tipuna", "taonga",
+        "tangata whenua", "whakairo", "korowai", "hei tiki", "tiki", "taiaha", "pounamu", "tukutuku", "kōwhaiwhai",
+        "kowhaiwhai", "karakia",
+    ])
+    excluded_specimen_terms: list[str] = dataclasses.field(default_factory=lambda: [
+        "specimen", "specimens", "fossil", "fossils", "herbarium", "skeleton", "skeletons", "skull", "skulls",
+        "taxidermy", "x-ray", "x-rays", "radiograph", "radiographs",
+    ])
+    max_images_per_object: int | None = 4

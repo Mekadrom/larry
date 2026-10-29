@@ -1,0 +1,28 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: IndexedSourceDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/index/image/vae/nyuuzyou_clevelandmuseumart-index-vae/
+  split_sources:
+    train: train
+  source_path: /home/zadar/.cache/larry/datasets/normalized/image/nyuuzyou_clevelandmuseumart-normalized/
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/image/caption/nyuuzyou_clevelandmuseumart-index-caption/
+pipeline:
+  extract_visual_description:
+    type: VisualDescriptionExtractingMapperConfig
+    input_column: description
+  select_caption:
+    type: CaptionSelectingMapperConfig
+    filter_null_outputs: true
+    caption_columns:
+      - visual_description
+      - title
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id
+      - caption
+      - caption_source

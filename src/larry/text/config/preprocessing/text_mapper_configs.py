@@ -59,3 +59,17 @@ class VisualDescriptionExtractingMapperConfig(MapperConfig):
 
     def required_output_columns(self) -> list[str]:
         return [self.output_column, self.retained_output_column]
+
+
+@dataclasses.dataclass(kw_only=True)
+class CaptionSelectingMapperConfig(MapperConfig):
+    caption_columns: list[str]
+    output_column: str = "caption"
+    source_output_column: str = "caption_source"
+    min_characters: int = 1
+
+    def required_input_columns(self) -> list[str]:
+        return list(self.caption_columns)
+
+    def required_output_columns(self) -> list[str]:
+        return [self.output_column, self.source_output_column]

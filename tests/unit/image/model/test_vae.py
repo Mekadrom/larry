@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -109,3 +111,14 @@ def test_attention_weight_gradients_keep_the_parameter_layout() -> None:
 
     for parameter in (attention.qkv.weight, attention.out.weight):
         assert parameter.grad is not None and parameter.grad.stride() == parameter.stride()
+
+
+def test_a_saved_vae_loads_back_with_its_discriminator_config(tmp_path: Path) -> None:
+    torch.manual_seed(0)
+    model = ImageVAE(TINY)
+    model.save_pretrained(tmp_path)
+
+    loaded = ImageVAE.from_pretrained(str(tmp_path))
+
+    assert loaded.config.discriminator == TINY.discriminator
+    assert all(torch.equal(a, b) for a, b in zip(model.state_dict().values(), loaded.state_dict().values(), strict=True))

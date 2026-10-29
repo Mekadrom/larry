@@ -171,15 +171,18 @@ class PagedApiCachedDatasetProvider[C: PagedApiCachedDatasetConfig = PagedApiCac
         session.headers["User-Agent"] = bot_user_agent(self.config.user_agent_name)
         return session
 
-    @property
+    @functools.cached_property
     def api_key(self) -> str | None:
-        name = self.config.api_key_env_var
-        if name is None:
+        name, path = self.config.api_key_env_var, self.config.api_key_file
+        if name is None and path is None:
             return None
 
-        key = os.environ.get(name)
+        key = os.environ.get(name) if name is not None else None
+        if not key and path is not None and Path(path).expanduser().is_file():
+            key = Path(path).expanduser().read_text().strip()
+
         if not key:
-            raise ValueError(f"environment variable {name} is not set")
+            raise ValueError(f"no API key in environment variable {name} or file {path}")
 
         return key
 

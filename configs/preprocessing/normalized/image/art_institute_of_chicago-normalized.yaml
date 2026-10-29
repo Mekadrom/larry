@@ -1,0 +1,30 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: ArtInstituteOfChicagoCachedDatasetConfig
+  download_extract_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/art_institute_of_chicago-normalized/
+  cache_dir: /home/zadar/.cache/larry/intermediates/normalized/image/art_institute_of_chicago-normalized/
+pipeline:
+#  prune_do_not_train:
+#    type: DoNotTrainPrunerConfig
+#    input_columns:
+#      - image_url
+  download_image:
+    type: UrlImageMapperConfig
+    input_column: image_url
+    num_proc: 1
+    batch_size: 8
+    writer_batch_size: 8
+    busy_wait: 1.0
+    filter_null_outputs: true
+    download_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/art_institute_of_chicago-normalized/images/
+  resize_images:
+    type: ImageResizingMapperConfig
+    batch_size: 64
+    filter_null_outputs: true
+    width: 512
+    height: 512
+    pad_to_equal: false
+    center_crop: false

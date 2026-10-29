@@ -198,8 +198,20 @@ def test_api_keys_come_from_the_environment(tmp_path: Path, monkeypatch: pytest.
     provider = _pages(tmp_path, api_key_env_var="LARRY_TEST_API_KEY")
     monkeypatch.delenv("LARRY_TEST_API_KEY", raising=False)
 
-    with pytest.raises(ValueError, match="LARRY_TEST_API_KEY is not set"):
+    with pytest.raises(ValueError, match="no API key in environment variable LARRY_TEST_API_KEY"):
         _ = provider.api_key
 
     monkeypatch.setenv("LARRY_TEST_API_KEY", "abc")
     assert provider.api_key == "abc"
+
+
+def test_api_keys_can_come_from_a_file_when_the_environment_has_none(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key_file = tmp_path / "key"
+    key_file.write_text("from-file\n")
+    monkeypatch.delenv("LARRY_TEST_API_KEY", raising=False)
+
+    assert _pages(tmp_path, api_key_env_var="LARRY_TEST_API_KEY", api_key_file=str(key_file)).api_key == "from-file"
+    monkeypatch.setenv("LARRY_TEST_API_KEY", "from-env")
+    assert _pages(tmp_path, api_key_env_var="LARRY_TEST_API_KEY", api_key_file=str(key_file)).api_key == "from-env"

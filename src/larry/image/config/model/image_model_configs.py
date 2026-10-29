@@ -30,6 +30,10 @@ class ImageVAEConfig(ImageModelConfig):
     init_std: float = 0.02
     discriminator: PatchDiscriminatorConfig = dataclasses.field(default_factory=PatchDiscriminatorConfig)
 
+    def __post_init__(self) -> None:
+        if isinstance(self.discriminator, dict):
+            self.discriminator = PatchDiscriminatorConfig(**self.discriminator)
+
     @property
     def downsample_factor(self) -> int:
         return 2 ** (len(self.channel_mults) - 1)

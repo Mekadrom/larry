@@ -4,6 +4,8 @@ import json
 import re
 import shutil
 import subprocess
+import tarfile
+import unicodedata
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import IO, Any, ClassVar
@@ -15,13 +17,29 @@ import pyarrow as pa
 from larry.common.data.cached_dataset_providers import MediaCachedDatasetProvider
 from larry.common.data.downloaders import SingleFileDownloader
 from larry.common.data.licenses import License
-from larry.common.data.metadata_dataset_providers import FilteredMetadataCachedDatasetProvider
+from larry.common.data.metadata_dataset_providers import (
+    FilteredMetadataCachedDatasetProvider,
+    PagedApiCachedDatasetProvider,
+)
 from larry.image.config.preprocessing.image_dataset_configs import (
+    ArtInstituteOfChicagoCachedDatasetConfig,
     GoogleDOCCIMediaCachedDatasetConfig,
     SmithsonianOpenAccessCachedDatasetConfig,
+    TePapaCachedDatasetConfig,
     WikimediaCommonsCachedDatasetConfig,
 )
-from larry.image.data.preprocessing.image_urls import SmithsonianIdsUrls, WikimediaThumbnailUrls
+from larry.image.data.preprocessing.image_urls import IIIFImageUrls, SmithsonianIdsUrls, WikimediaThumbnailUrls
+
+TAG = re.compile(r"<[^>]+>")
+
+
+def clean_text(text: str | None) -> str | None:
+    if text is None:
+        return None
+
+    cleaned = " ".join(TAG.sub("", html.unescape(text)).split())
+    return cleaned or None
+
 
 IMAGE_FIELDS = [
     pa.field("image_url", pa.string()),
@@ -196,7 +214,6 @@ class SmithsonianOpenAccessCachedDatasetProvider(
     FilteredMetadataCachedDatasetProvider[SmithsonianOpenAccessCachedDatasetConfig]
 ):
     USAGES: ClassVar[dict[str, License]] = {"CC0": License.CC0}
-    TAG = re.compile(r"<[^>]+>")
     EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
         *IMAGE_FIELDS,
         pa.field("record_id", pa.string()),
@@ -267,11 +284,7 @@ class SmithsonianOpenAccessCachedDatasetProvider(
 
     @staticmethod
     def clean_text(text: str | None) -> str | None:
-        if text is None:
-            return None
-
-        cleaned = " ".join(SmithsonianOpenAccessCachedDatasetProvider.TAG.sub("", html.unescape(text)).split())
-        return cleaned or None
+        return clean_text(text)
 
     def description(self, freetext: dict[str, Any]) -> str | None:
         notes = [
@@ -381,3 +394,229 @@ class SmithsonianOpenAccessCachedDatasetProvider(
     def after_shard(self, unit: str) -> None:
         if not self.config.keep_raw_metadata:
             (self.download_extract_cache_dir / self.metadata_path_of(unit)).unlink()
+
+
+class ArtInstituteOfChicagoCachedDatasetProvider(
+    FilteredMetadataCachedDatasetProvider[ArtInstituteOfChicagoCachedDatasetConfig]
+):
+    EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
+        *IMAGE_FIELDS,
+        pa.field("artwork_id", pa.int64()),
+        pa.field("is_alt_image", pa.bool_()),
+        pa.field("artwork_type", pa.string()),
+        pa.field("medium", pa.string()),
+        pa.field("alt_text", pa.string()),
+        pa.field("short_description", pa.string()),
+        pa.field("date_display", pa.string()),
+        pa.field("place_of_origin", pa.string()),
+        pa.field("department", pa.string()),
+        pa.field("classification_titles", pa.list_(pa.string())),
+        pa.field("subject_titles", pa.list_(pa.string())),
+        pa.field("term_titles", pa.list_(pa.string())),
+    ]
+
+    def __init__(self, config: ArtInstituteOfChicagoCachedDatasetConfig) -> None:
+        super().__init__(config)
+        self.urls = IIIFImageUrls(
+            config.image_width, base_url=config.iiif_url, full_size="full", size_template="{size},"
+        )
+
+    @property
+    def dump_path(self) -> Path:
+        return self.download_extract_cache_dir / self.config.dump_file
+
+    def units(self) -> Iterable[str]:
+        return ["artworks"]
+
+    def artworks(self) -> Iterator[dict[str, Any]]:
+        with tarfile.open(self.dump_path, "r:bz2") as archive:
+            for member in archive:
+                if not member.isfile() or not member.name.startswith(self.config.artworks_prefix):
+                    continue
+
+                if not member.name.endswith(".json"):
+                    continue
+
+                handle = archive.extractfile(member)
+                if handle is not None:
+                    yield json.load(handle)
+
+    def records(self, artwork: dict[str, Any]) -> Iterator[dict[str, Any]]:
+        if not artwork.get("is_public_domain") or not artwork.get("image_id"):
+            return
+
+        thumbnail = artwork.get("thumbnail") or {}
+        image_ids = [(artwork["image_id"], False)]
+        if self.config.include_alt_images:
+            image_ids += [(i, True) for i in artwork.get("alt_image_ids") or []]
+
+        for image_id, is_alt in image_ids:
+            width = None if is_alt else thumbnail.get("width")
+            height = None if is_alt else thumbnail.get("height")
+            yield {
+                "id": image_id,
+                "license": License.PUBLIC_DOMAIN,
+                "license_raw": "is_public_domain",
+                "creator": artwork.get("artist_display"),
+                "source_url": f"{self.config.site_url}/{artwork['id']}",
+                "title": artwork.get("title"),
+                "description": clean_text(artwork.get("description")),
+                "image_url": self.urls.url(image_id, width, height),
+                "width": width,
+                "height": height,
+                "artwork_id": artwork["id"],
+                "is_alt_image": is_alt,
+                "artwork_type": artwork.get("artwork_type_title"),
+                "medium": artwork.get("medium_display"),
+                "alt_text": None if is_alt else thumbnail.get("alt_text"),
+                "short_description": clean_text(artwork.get("short_description")),
+                "date_display": artwork.get("date_display"),
+                "place_of_origin": artwork.get("place_of_origin"),
+                "department": artwork.get("department_title"),
+                "classification_titles": artwork.get("classification_titles") or [],
+                "subject_titles": artwork.get("subject_titles") or [],
+                "term_titles": artwork.get("term_titles") or [],
+            }
+
+    def rows(self, unit: str) -> Iterator[dict[str, Any]]:
+        for artwork in self.artworks():
+            yield from self.records(artwork)
+
+
+class TePapaCachedDatasetProvider(PagedApiCachedDatasetProvider[TePapaCachedDatasetConfig]):
+    LICENSES: ClassVar[dict[str, License]] = {
+        "No Known Copyright Restrictions": License.PUBLIC_DOMAIN,
+        "CC BY 4.0": License.CC_BY,
+        "CC 0": License.CC0,
+    }
+    EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
+        *IMAGE_FIELDS,
+        pa.field("object_id", pa.int64()),
+        pa.field("collection", pa.string()),
+        pa.field("credit_caption", pa.string()),
+        pa.field("credit_line", pa.string()),
+        pa.field("made_of", pa.string()),
+        pa.field("categories", pa.list_(pa.string())),
+        pa.field("object_types", pa.list_(pa.string())),
+        pa.field("production", pa.list_(pa.string())),
+    ]
+
+    def __init__(self, config: TePapaCachedDatasetConfig) -> None:
+        super().__init__(config)
+        unmapped = [title for title in config.licenses if title not in self.LICENSES]
+        if unmapped:
+            raise ValueError(f"no canonical license is known for {unmapped}")
+
+        excluded = [*config.excluded_subject_terms, *config.excluded_specimen_terms]
+        terms = sorted((self.normalize(t) for t in excluded), key=len, reverse=True)
+        self.subject_pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + r")\b") if terms else None
+
+    @staticmethod
+    def normalize(text: str) -> str:
+        return unicodedata.normalize("NFC", text).casefold()
+
+    @property
+    def query(self) -> str:
+        licenses = " OR ".join(f'hasRepresentation.rights.title:"{title}"' for title in self.config.licenses)
+        return f"type:Object AND ({licenses})"
+
+    def request(self, cursor: str | None) -> tuple[list[Any], str | None]:
+        headers = {"x-api-key": self.api_key or "", "Accept": "application/json"}
+        if cursor is None:
+            response = self.session.post(
+                f"{self.config.api_url}/search/_scroll",
+                params={
+                    "q": self.query,
+                    "size": self.config.page_size,
+                    "duration": self.config.scroll_minutes,
+                    "fields": ",".join(self.config.fields),
+                },
+                headers=headers,
+                allow_redirects=False,
+                timeout=self.config.request_timeout,
+            )
+        else:
+            response = self.session.get(
+                cursor, headers=headers, allow_redirects=False, timeout=self.config.request_timeout
+            )
+
+        if response.status_code == 204:
+            return [], None
+
+        response.raise_for_status()
+        location = response.headers.get("Location")
+        records = response.json().get("results", [])
+        return records, self.scroll_url(location) if location and records else None
+
+    def scroll_url(self, location: str) -> str:
+        if location.startswith(("http://", "https://")):
+            return location
+
+        return f"{self.config.api_url.rstrip('/')}/{location.lstrip('/')}"
+
+    def units(self) -> Iterator[str]:
+        yield "objects"
+
+    def rows(self, unit: str) -> Iterator[dict[str, Any]]:
+        cursor: str | None = None
+        while True:
+            records, cursor = self.fetch(cursor)
+            for record in records:
+                yield from self.rows_from_record(record)
+
+            if cursor is None:
+                return
+
+    @staticmethod
+    def titles(entries: Any) -> list[str]:
+        return [e["title"] for e in entries or [] if isinstance(e, dict) and e.get("title")]
+
+    def depicts_excluded_subject(self, record: dict[str, Any]) -> bool:
+        if self.subject_pattern is None:
+            return False
+
+        texts = [record.get("title"), record.get("description"), record.get("caption")]
+        texts += self.titles(record.get("depicts")) + self.titles(record.get("refersTo"))
+        return any(self.subject_pattern.search(self.normalize(t)) for t in texts if t)
+
+    def rows_from_record(self, record: Any) -> Iterable[dict[str, Any]]:
+        if record.get("type") != "Object" or record.get("collection") in self.config.excluded_collections:
+            return
+
+        if self.depicts_excluded_subject(record):
+            return
+
+        production = record.get("production") or []
+        creators = [p["contributor"]["title"] for p in production if (p.get("contributor") or {}).get("title")]
+        usable = [
+            media for media in record.get("hasRepresentation") or []
+            if media.get("type") == "ImageObject"
+            and (media.get("rights") or {}).get("title") in self.config.licenses
+            and (media.get("rights") or {}).get("allowsDownload")
+            and media.get("previewUrl")
+        ]
+        for media in usable[:self.config.max_images_per_object]:
+            rights = media["rights"]
+
+            yield {
+                "id": str(media["id"]),
+                "license": self.LICENSES[rights["title"]],
+                "license_raw": rights["title"],
+                "creator": "; ".join(dict.fromkeys(creators)) or None,
+                "source_url": f"{self.config.site_url}/{record['id']}",
+                "title": clean_text(record.get("title")),
+                "description": clean_text(record.get("description")),
+                "image_url": media["previewUrl"],
+                "width": media.get("width"),
+                "height": media.get("height"),
+                "object_id": int(record["id"]),
+                "collection": record.get("collection"),
+                "credit_caption": clean_text(record.get("caption")),
+                "credit_line": clean_text(record.get("creditLine")),
+                "made_of": clean_text(record.get("isMadeOfSummary")),
+                "categories": list(dict.fromkeys(
+                    self.titles(record.get("depicts")) + self.titles(record.get("refersTo"))
+                )),
+                "object_types": self.titles(record.get("isTypeOf")),
+                "production": self.titles(production),
+            }

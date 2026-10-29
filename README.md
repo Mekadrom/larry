@@ -96,8 +96,8 @@ All voice data as redistributed (again, where applicable) or trained on is filte
 All image data will be filtered by per-image licenses where necessary.
 
 Pretrain:
-- Smithsonian Open Access (CC0 subset)
 - Cleveland CC0 print images
+- Smithsonian Open Access (CC0 subset)
 - Art institute of Chicago dump
 - Te Papa
 - NASA Image Library
