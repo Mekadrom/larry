@@ -45,7 +45,7 @@ class FSQ(nn.Module):
         self.register_buffer("offset", offset, persistent=False)
         self.register_buffer("shift", torch.atanh(offset / half_level), persistent=False)
         self.register_buffer("half_width", torch.div(level_tensor, 2, rounding_mode="floor"), persistent=False)
-        self.register_buffer("radix", fsq_radix(self.levels), persistent=False)
+        self.register_buffer("radix", fsq_radix(self.levels))
 
     def quantize(self, x: torch.Tensor) -> torch.Tensor:
         """Straight-through estimation hack."""

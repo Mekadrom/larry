@@ -157,7 +157,7 @@ class SpeechEncoderModel(VoiceModel[SpeechEncoderModelConfig], PyTorchModelHubMi
         self.frontend = ASRLogMelFrontend(config.sample_rate, config.n_mels, config.n_fft, config.hop_length)
 
         self.encoder1 = SpeechEncoderPreBottleneck(encoder_config)
-        self.fsq = FSQ(config.d_model, config.fsq_levels)
+        self.fsq = FSQ(config.d_model, config.fsq_levels, eps=config.fsq_eps)
 
         if config.enable_fsq_ctc_head:
             self.fsq_ctc_head = nn.Linear(config.d_model, config.ctc_upsample * (config.vocab_size + 1))

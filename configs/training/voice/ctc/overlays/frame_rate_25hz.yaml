@@ -1,0 +1,7 @@
+model:
+  frame_merge: 1
+  n_premerge_layers: 6
+  fsmn_kernel_size: 31
+  fsq_levels: [3, 3, 3, 3, 3, 3, 3, 3]
+  fsq_eps: 0.0
+  ctc_upsample: 1
