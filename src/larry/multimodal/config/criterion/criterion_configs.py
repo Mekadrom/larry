@@ -10,3 +10,6 @@ class LarryMultimodalCriterionConfig(CriterionConfig):
     image_weight: float = 1.0
     text_label_smoothing: float = 0.1
     voice_label_smoothing: float = 0.1
+    voiced_weight: float = 1.0
+    contour_weight: float = 1.0
+    aperiodicity_weight: float = 1.0

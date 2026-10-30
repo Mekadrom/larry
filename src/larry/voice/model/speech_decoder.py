@@ -1,4 +1,5 @@
 import dataclasses
+import itertools
 from typing import cast
 
 import torch
@@ -9,6 +10,7 @@ from torch import nn
 from larry.common.config.model.model_configs import LarryConditionalEncoderBlockModuleConfig, LLMBlockModuleConfig
 from larry.common.model.flow import ConditionalFlowMatching, TimestepEmbedding
 from larry.common.model.init import WeightInitializer
+from larry.common.model.kv_cache import KVCache
 from larry.common.model.llm import LarryConditionalEncoderBlock, LarrySimpleEncoderBlock
 from larry.common.model.masks import make_non_pad_mask
 from larry.common.model.norms import AdaLayerNorm
@@ -46,6 +48,13 @@ class SpeakerLatentEmbeddings(nn.Module):
         return mu + eps * std
 
 
+@dataclasses.dataclass(kw_only=True)
+class StreamingCache:
+    kv: list[KVCache]
+    frames: int
+    inputs: torch.Tensor | None = None
+
+
 def chunk_attention_mask(valid: torch.Tensor, chunk: int | None) -> torch.Tensor:
     if chunk is None:
         return valid
@@ -80,6 +89,23 @@ class SpeechCodesUnitEmbedding(nn.Module):
         for block in self.blocks:
             x = block(x, attention_mask=attention_mask).logits
 
+        return self.project(x, mask)
+
+    def forward_chunk(
+            self, unit_ids: torch.Tensor, cache: StreamingCache | None = None,
+    ) -> tuple[torch.Tensor, StreamingCache]:
+        offset = 0 if cache is None else cache.frames
+        x = self.unit_embedding(unit_ids)
+        kv = []
+        for i, block in enumerate(self.blocks):
+            output = block(x, kv_cache=None if cache is None else cache.kv[i], position_offset=offset, use_cache=True)
+            x = output.logits
+            kv.append(cast(KVCache, output.kv_cache))
+
+        mask = torch.ones(unit_ids.shape, device=unit_ids.device)
+        return self.project(x, mask), StreamingCache(kv=kv, frames=offset + unit_ids.shape[1])
+
+    def project(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         x = self.post_blocks_norm(x) * mask.unsqueeze(-1).to(x.dtype)
         x = self.upsampler(x.transpose(1, 2))
         return self.proj(x.transpose(1, 2)).transpose(1, 2)
@@ -113,15 +139,57 @@ class SpeechDecoderVelocityNetwork(nn.Module):
             attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         cond = self.time(t) + speaker_cond
-        inputs = [xt, unit_cond] if context is None else [xt, unit_cond, context]
-        if prosody is not None:
-            inputs.append(prosody.to(xt.dtype))
-        x = torch.cat(inputs, dim=1) * mask.unsqueeze(1)
+        x = self.inputs(xt, unit_cond, mask, context, prosody)
         x = self.embed(F.pad(x, (self.embed_kernel_size - 1, 0))).transpose(1, 2)
         for block in self.blocks:
             x = block(x, cond, mask if attention_mask is None else attention_mask).logits
 
         return self.out(self.final_norm(x, cond)).transpose(1, 2) * mask.unsqueeze(1)
+
+    def forward_chunk(
+            self,
+            xt: torch.Tensor,
+            t: torch.Tensor,
+            speaker_cond: torch.Tensor,
+            unit_cond: torch.Tensor,
+            context: torch.Tensor | None = None,
+            prosody: torch.Tensor | None = None,
+            cache: StreamingCache | None = None,
+    ) -> tuple[torch.Tensor, StreamingCache]:
+        cond = self.time(t) + speaker_cond
+        mask = torch.ones(xt.shape[0], xt.shape[-1], device=xt.device, dtype=xt.dtype)
+        x = self.inputs(xt, unit_cond, mask, context, prosody)
+        history = cache.inputs if cache is not None and cache.inputs is not None else F.pad(
+            x[..., :0], (self.embed_kernel_size - 1, 0)
+        )
+        x = torch.cat([history, x], dim=-1)
+        offset = 0 if cache is None else cache.frames
+        h = self.embed(x).transpose(1, 2)
+        kv = []
+        for i, block in enumerate(self.blocks):
+            output = block(
+                h, cond, kv_cache=None if cache is None else cache.kv[i], position_offset=offset, use_cache=True,
+            )
+            h = output.logits
+            kv.append(cast(KVCache, output.kv_cache))
+
+        velocity = self.out(self.final_norm(h, cond)).transpose(1, 2)
+        tail = x[..., x.shape[-1] - (self.embed_kernel_size - 1):]
+        return velocity, StreamingCache(kv=kv, frames=offset + xt.shape[-1], inputs=tail)
+
+    @staticmethod
+    def inputs(
+            xt: torch.Tensor,
+            unit_cond: torch.Tensor,
+            mask: torch.Tensor,
+            context: torch.Tensor | None,
+            prosody: torch.Tensor | None,
+    ) -> torch.Tensor:
+        inputs = [xt, unit_cond] if context is None else [xt, unit_cond, context]
+        if prosody is not None:
+            inputs.append(prosody.to(xt.dtype))
+
+        return torch.cat(inputs, dim=1) * mask.unsqueeze(1)
 
 
 class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMixin, ConditionalFlowMatching):
@@ -208,17 +276,73 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
             return torch.zeros(batch_size, self.harmonics.channels, frames, device=frame_mask.device), None
 
         stats = F0Statistics.from_f0(self.fit_frames(f0.float(), frames), frame_mask)
-        if use_true_f0:
-            log_f0 = stats.log_f0
-        else:
+        features, _ = self.contour_prosody(
+            stats.contour, stats.voiced, aperiodicity, frame_mask, log_f0_mean, log_f0_spread,
+            stats.log_f0 if use_true_f0 else None,
+        )
+        return features, stats
+
+    def contour_prosody(
+            self,
+            contour: torch.Tensor,
+            voiced: torch.Tensor,
+            aperiodicity: torch.Tensor | None,
+            frame_mask: torch.Tensor,
+            log_f0_mean: torch.Tensor | None = None,
+            log_f0_spread: torch.Tensor | None = None,
+            log_f0: torch.Tensor | None = None,
+            f0_offset: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        assert self.harmonics is not None
+        frames = frame_mask.shape[1]
+        voiced = self.fit_frames(voiced.float(), frames) * frame_mask
+        contour = self.fit_frames(contour.float(), frames) * voiced
+        if log_f0 is None:
             assert log_f0_mean is not None and log_f0_spread is not None
-            log_f0 = (log_f0_mean[:, None] + log_f0_spread[:, None] * stats.contour) * stats.voiced
+            log_f0 = (log_f0_mean[:, None] + log_f0_spread[:, None] * contour) * voiced
 
         if aperiodicity is not None:
             aperiodicity = self.fit_frames(aperiodicity.float(), frames)
 
-        features = self.harmonics(stats.contour, stats.voiced, log_f0, aperiodicity)
-        return features * frame_mask.unsqueeze(1).to(features.dtype), stats
+        features = self.harmonics(contour, voiced, log_f0, aperiodicity, f0_offset)
+        return features * frame_mask.unsqueeze(1).to(features.dtype), log_f0
+
+    def speaker_conditions(
+            self, speaker_ids: torch.Tensor | None, batch_size: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        null_embedding = self.cfg_null_speaker_embedding.expand(batch_size, -1)
+        speaker_vectors = null_embedding if speaker_ids is None else self.speaker_embedding.mean_embedding(speaker_ids)
+        return speaker_vectors, self.speaker_projection(speaker_vectors), self.speaker_projection(null_embedding)
+
+    def pitch_range(
+            self,
+            speaker_vectors: torch.Tensor,
+            log_f0_mean: torch.Tensor | None = None,
+            log_f0_spread: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        assert self.f0_range is not None
+        mean, log_spread = self.f0_range(speaker_vectors)
+        return (
+            mean if log_f0_mean is None else log_f0_mean.float(),
+            log_spread.exp() if log_f0_spread is None else log_f0_spread.float(),
+        )
+
+    def stream(
+            self,
+            speaker_ids: torch.Tensor | None,
+            batch_size: int,
+            steps: int,
+            chunk_units: int,
+            cfg_scale: float = 1.0,
+            generator: torch.Generator | None = None,
+            sway_coefficient: float | None = None,
+            log_f0_mean: torch.Tensor | None = None,
+            log_f0_spread: torch.Tensor | None = None,
+    ) -> SpeechDecoderStream:
+        return SpeechDecoderStream(
+            self, speaker_ids, batch_size, steps, chunk_units, cfg_scale, generator, sway_coefficient, log_f0_mean,
+            log_f0_spread,
+        )
 
     def normalize(self, mels: torch.Tensor) -> torch.Tensor:
         return (mels - self.config.mel_mean) / self.config.mel_std
@@ -324,6 +448,9 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
             log_f0_mean: torch.Tensor | None = None,
             log_f0_spread: torch.Tensor | None = None,
             chunk_units: int | None = None,
+            contour: torch.Tensor | None = None,
+            voiced: torch.Tensor | None = None,
+            noise: torch.Tensor | None = None,
     ) -> SpeechDecoderGeneration:
         if prompt_mels is not None and not self.config.infill_enabled:
             raise ValueError("prompt_mels requires a model trained with infill_enabled")
@@ -334,17 +461,17 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
         mask = make_non_pad_mask(lengths, frames).to(unit_cond.dtype)
         attention_mask = self.mel_attention_mask(mask, chunk_units)
 
-        null_embedding = self.cfg_null_speaker_embedding.expand(unit_ids.shape[0], -1)
-        speaker_vectors = null_embedding if speaker_ids is None else self.speaker_embedding.mean_embedding(speaker_ids)
-        null_cond = self.speaker_projection(null_embedding)
-        speaker_cond = self.speaker_projection(speaker_vectors)
+        speaker_vectors, speaker_cond, null_cond = self.speaker_conditions(speaker_ids, unit_ids.shape[0])
 
         prosody = None
         if self.f0_range is not None:
-            predicted_mean, predicted_log_spread = self.f0_range(speaker_vectors)
-            mean = predicted_mean if log_f0_mean is None else log_f0_mean.float()
-            spread = predicted_log_spread.exp() if log_f0_spread is None else log_f0_spread.float()
-            prosody, _ = self.prosody(f0, aperiodicity, mask > 0, mean, spread)
+            mean, spread = self.pitch_range(speaker_vectors, log_f0_mean, log_f0_spread)
+            if contour is None:
+                prosody, _ = self.prosody(f0, aperiodicity, mask > 0, mean, spread)
+            elif f0 is not None or voiced is None:
+                raise ValueError("pass either f0, or contour together with voiced")
+            else:
+                prosody, _ = self.contour_prosody(contour, voiced, aperiodicity, mask > 0, mean, spread)
 
         context = None
         prompt_mask = None
@@ -376,8 +503,124 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
                 return unconditional + cfg_scale * (conditional - unconditional)
 
         shape = (unit_ids.shape[0], self.config.n_mels, frames)
-        mels = self.sample(velocity, shape, steps, unit_ids.device, generator, sway_coefficient)
+        mels = self.sample(velocity, shape, steps, unit_ids.device, generator, sway_coefficient, noise)
         if prompt_mask is not None and context is not None:
             mels = torch.where(prompt_mask, context, mels)
 
         return SpeechDecoderGeneration(mels=self.denormalize(mels) * mask.unsqueeze(1), mel_lengths=lengths)
+
+
+class SpeechDecoderStream:
+    def __init__(
+            self,
+            model: SpeechDecoderModel,
+            speaker_ids: torch.Tensor | None,
+            batch_size: int,
+            steps: int,
+            chunk_units: int,
+            cfg_scale: float = 1.0,
+            generator: torch.Generator | None = None,
+            sway_coefficient: float | None = None,
+            log_f0_mean: torch.Tensor | None = None,
+            log_f0_spread: torch.Tensor | None = None,
+    ) -> None:
+        self.model = model
+        self.batch_size = batch_size
+        self.chunk_units = chunk_units
+        self.cfg_scale = cfg_scale
+        self.generator = generator
+        self.device = model.cfg_null_speaker_embedding.device
+        with torch.inference_mode():
+            speaker_vectors, speaker_cond, null_cond = model.speaker_conditions(speaker_ids, batch_size)
+            self.speaker_cond = speaker_cond if cfg_scale == 1.0 else torch.cat([speaker_cond, null_cond])
+            self.log_f0_mean = self.log_f0_spread = None
+            if model.f0_range is not None:
+                self.log_f0_mean, self.log_f0_spread = model.pitch_range(speaker_vectors, log_f0_mean, log_f0_spread)
+
+        self.ts = model.timesteps(steps, self.device, sway_coefficient)
+        self.unit_cache: StreamingCache | None = None
+        self.step_caches: list[StreamingCache | None] = [None] * steps
+        self.f0_offset = torch.zeros(batch_size, device=self.device)
+        self.finished = False
+
+    @torch.inference_mode()
+    def push(
+            self,
+            unit_ids: torch.Tensor,
+            contour: torch.Tensor | None = None,
+            voiced: torch.Tensor | None = None,
+            aperiodicity: torch.Tensor | None = None,
+            noise: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if self.finished:
+            raise ValueError("the stream already ended with a short chunk")
+
+        n_units = unit_ids.shape[1]
+        if not 0 < n_units <= self.chunk_units:
+            raise ValueError(f"push between 1 and {self.chunk_units} units at a time, got {n_units}")
+
+        self.finished = n_units < self.chunk_units
+        model = self.model
+        unit_cond, self.unit_cache = model.unit_encoder.forward_chunk(unit_ids, self.unit_cache)
+        frames = unit_cond.shape[-1]
+        prosody = self.prosody(contour, voiced, aperiodicity, frames)
+        context = torch.zeros_like(unit_cond) if model.config.infill_enabled else None
+        if self.cfg_scale != 1.0:
+            unit_cond = torch.cat([unit_cond, unit_cond])
+            context = None if context is None else torch.cat([context, context])
+            prosody = None if prosody is None else torch.cat([prosody, prosody])
+
+        shape = (self.batch_size, model.config.n_mels, frames)
+        x = torch.randn(shape, device=self.device, generator=self.generator) if noise is None else noise.to(self.device)
+        for step, (t0, t1) in enumerate(itertools.pairwise(self.ts)):
+            x = x + (t1 - t0) * self.velocity(x, t0, unit_cond, context, prosody, step)
+
+        return model.denormalize(x)
+
+    def velocity(
+            self,
+            x: torch.Tensor,
+            t: torch.Tensor,
+            unit_cond: torch.Tensor,
+            context: torch.Tensor | None,
+            prosody: torch.Tensor | None,
+            step: int,
+    ) -> torch.Tensor:
+        backbone = self.model.backbone
+        if self.cfg_scale == 1.0:
+            velocity, self.step_caches[step] = backbone.forward_chunk(
+                x, t.expand(x.shape[0]), self.speaker_cond, unit_cond, context, prosody, self.step_caches[step],
+            )
+            return velocity
+
+        both, self.step_caches[step] = backbone.forward_chunk(
+            torch.cat([x, x]), t.expand(2 * x.shape[0]), self.speaker_cond, unit_cond, context, prosody,
+            self.step_caches[step],
+        )
+        conditional, unconditional = both.chunk(2)
+        return unconditional + self.cfg_scale * (conditional - unconditional)
+
+    def prosody(
+            self,
+            contour: torch.Tensor | None,
+            voiced: torch.Tensor | None,
+            aperiodicity: torch.Tensor | None,
+            frames: int,
+    ) -> torch.Tensor | None:
+        model = self.model
+        if model.harmonics is None:
+            return None
+
+        if contour is None:
+            return torch.zeros(self.batch_size, model.harmonics.channels, frames, device=self.device)
+
+        if voiced is None:
+            raise ValueError("contour needs voiced")
+
+        frame_mask = torch.ones(self.batch_size, frames, dtype=torch.bool, device=self.device)
+        features, log_f0 = model.contour_prosody(
+            contour, voiced, aperiodicity, frame_mask, self.log_f0_mean, self.log_f0_spread, f0_offset=self.f0_offset,
+        )
+        cycle = model.config.sample_rate / model.config.hop_length
+        self.f0_offset = torch.remainder(self.f0_offset + log_f0.exp().sum(dim=1), cycle)
+        return features

@@ -41,6 +41,7 @@ from larry.multimodal.processor.processor import (
     VoicePlaceholder,
 )
 from larry.voice.model.fsq import fsq_codes
+from larry.voice.model.prosody import F0Statistics
 
 INIT_STD = 0.02
 PROCESSOR_DIR = "processor"
@@ -61,6 +62,28 @@ class VoiceGroups:
     unit_ids: torch.Tensor  # (B, G, k)
     unit_valid: torch.Tensor  # (B, G, k)
     group_valid: torch.Tensor  # (B, G)
+
+
+@dataclasses.dataclass(kw_only=True)
+class VoiceProsody:
+    voiced: torch.Tensor
+    contour: torch.Tensor
+    aperiodicity: torch.Tensor
+
+    @classmethod
+    def from_head(cls, outputs: torch.Tensor) -> VoiceProsody:
+        return cls(
+            voiced=outputs[..., 0].sigmoid(),
+            contour=outputs[..., 1],
+            aperiodicity=outputs[..., 2:].sigmoid(),
+        )
+
+
+@dataclasses.dataclass(kw_only=True)
+class VoiceProsodyTargets:
+    targets: torch.Tensor
+    frame_mask: torch.Tensor
+    contour_mask: torch.Tensor
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -89,6 +112,8 @@ class LarryMultimodalModelOutput(LarryAttentionOutput[LarryMultimodalModelKVCach
     voice_route: torch.Tensor
     voice_logits: torch.Tensor | None = None
     voice_targets: torch.Tensor | None = None
+    voice_prosody: torch.Tensor | None = None
+    voice_prosody_targets: VoiceProsodyTargets | None = None
     image_route: torch.Tensor
     image_query_states: torch.Tensor | None = None
     image_query_mask: torch.Tensor | None = None
@@ -104,6 +129,7 @@ class LarryMultimodalGeneration:
     finished: bool
     text_logits: list[torch.Tensor] = dataclasses.field(default_factory=list)
     voice_logits: list[torch.Tensor] = dataclasses.field(default_factory=list)
+    voice_prosody: list[VoiceProsody] = dataclasses.field(default_factory=list)
     image_query_states: list[torch.Tensor] = dataclasses.field(default_factory=list)
 
 
@@ -357,6 +383,23 @@ class ImageCoda(nn.Module):
         return self.unpatchify(patches, rows, columns)
 
 
+class VoiceProsodyHead(nn.Module):
+    def __init__(self, d_model: int, frames_per_unit: int, n_aperiodicity_bands: int, hidden_dim: int) -> None:
+        super().__init__()
+        self.frames_per_unit = frames_per_unit
+        self.channels = 2 + n_aperiodicity_bands
+        self.norm = nn.RMSNorm(d_model)
+        self.net = nn.Sequential(
+            nn.Linear(2 * d_model, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, frames_per_unit * self.channels),
+        )
+
+    def forward(self, states: torch.Tensor, unit_embeddings: torch.Tensor) -> torch.Tensor:
+        x = torch.cat([self.norm(states), unit_embeddings], dim=-1)
+        return self.net(x).unflatten(-1, (self.frames_per_unit, self.channels))
+
+
 class VoiceCoda(LarryModalityModule):
     def __init__(self, config: VoiceCodaConfig) -> None:
         super().__init__(config, config.n_layers)
@@ -371,6 +414,12 @@ class VoiceCoda(LarryModalityModule):
             # small causal decoder over the k units of one group, started from the trunk position's state
             self.depth = LarryModalityModule(config, config.depth_n_layers)
             self.depth_input_norm = nn.RMSNorm(config.d_model)
+
+        self.prosody = None
+        if config.prosody_head:
+            self.prosody = VoiceProsodyHead(
+                config.d_model, config.prosody_frames_per_unit, config.n_aperiodicity_bands, config.prosody_hidden_dim,
+            )
 
     def forward(
             self,
@@ -397,15 +446,26 @@ class VoiceCoda(LarryModalityModule):
             unit_embeddings: torch.Tensor,
     ) -> torch.Tensor:
         # (n, d) states and (n, j) earlier classes of each group -> (n, j + 1, units + 1) logits
+        return self.head(self.group_states(states, previous, unit_embeddings), unit_embeddings)
+
+    def group_states(
+            self,
+            states: torch.Tensor,
+            previous: torch.Tensor,
+            unit_embeddings: torch.Tensor,
+    ) -> torch.Tensor:
         if self.depth is None or self.depth_input_norm is None:
-            return self.head(states, unit_embeddings)[:, None]
+            return states[:, None]
 
         inputs = torch.cat([states[:, None], self.output_embeddings(unit_embeddings)[previous]], dim=1)
         steps = torch.arange(inputs.shape[1], device=inputs.device)
         # global axis only; the local axes stay 0 inside a group
         position_ids = F.pad(steps[:, None], (0, 2)).expand(inputs.shape[0], -1, -1)
-        x = self.depth.run_blocks(self.depth_input_norm(inputs), position_ids=position_ids).logits
-        return self.head(x, unit_embeddings)
+        return self.depth.run_blocks(self.depth_input_norm(inputs), position_ids=position_ids).logits
+
+    def unit_prosody(self, states: torch.Tensor, units: torch.Tensor, unit_embeddings: torch.Tensor) -> torch.Tensor:
+        assert self.prosody is not None
+        return self.prosody(states, self.output_embeddings(unit_embeddings)[units])
 
 
 class LarryMultimodalModel(LarryModel[LarryMultimodalModelConfig], PyTorchModelHubMixin):
@@ -807,6 +867,44 @@ class LarryMultimodalModel(LarryModel[LarryMultimodalModelConfig], PyTorchModelH
 
         return route, torch.cat(targets) if targets else voice_unit_ids.new_zeros(0, k)
 
+    def voice_prosody_targets(
+            self,
+            voice_route: torch.Tensor,
+            voice_unit_id_lengths: torch.Tensor,
+            voice_f0: torch.Tensor,
+            voice_f0_lengths: torch.Tensor,
+            voice_aperiodicity: torch.Tensor,
+    ) -> VoiceProsodyTargets:
+        if self.config.voice_coda_config is None:
+            raise ValueError("Don't call voice_prosody_targets if no voice modules are configured")
+
+        device = voice_route.device
+        k = self.voice_units_per_position
+        frames_per_unit = self.config.voice_coda_config.prosody_frames_per_unit
+        voice_f0, voice_aperiodicity = voice_f0.to(device).float(), voice_aperiodicity.to(device).float()
+        f0_lengths = voice_f0_lengths.to(device)
+        stats = F0Statistics.from_f0(voice_f0, make_non_pad_mask(f0_lengths, voice_f0.shape[1]).to(device))
+
+        # each routed group's row and its index among that row's groups, in the order voice_group_targets stacks them
+        rows = voice_route.nonzero()[:, 0]
+        counts = voice_route.sum(dim=1)
+        group_index = torch.arange(rows.shape[0], device=device) - (torch.cumsum(counts, 0) - counts)[rows]
+        unit_index = group_index[:, None] * k + torch.arange(k, device=device)
+        frame_index = unit_index[..., None] * frames_per_unit + torch.arange(frames_per_unit, device=device)
+        real_unit = unit_index < voice_unit_id_lengths.to(device)[rows, None]
+        frame_mask = real_unit[..., None] & (frame_index < f0_lengths[rows, None, None])
+
+        row_index = rows[:, None, None].expand_as(frame_index)
+        index = frame_index.clamp(max=max(voice_f0.shape[1] - 1, 0))
+        voiced = stats.voiced[row_index, index]
+        targets = torch.cat([
+            voiced[..., None],
+            stats.contour[row_index, index][..., None],
+            voice_aperiodicity[row_index, index],
+        ], dim=-1) * frame_mask[..., None]
+        contour_mask = frame_mask & (voiced > 0) & stats.has_range[row_index]
+        return VoiceProsodyTargets(targets=targets, frame_mask=frame_mask, contour_mask=contour_mask)
+
     def forward(
             self,
             input_ids: torch.Tensor,
@@ -822,6 +920,9 @@ class LarryMultimodalModel(LarryModel[LarryMultimodalModelConfig], PyTorchModelH
             kv_cache: LarryMultimodalModelKVCache | None = None,
             position_offset: int = 0,
             use_cache: bool = False,
+            voice_f0: torch.Tensor | None = None,
+            voice_f0_lengths: torch.Tensor | None = None,
+            voice_aperiodicity: torch.Tensor | None = None,
     ) -> LarryMultimodalModelOutput:
         if is_synthesis is None:
             is_synthesis = torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)
@@ -867,7 +968,7 @@ class LarryMultimodalModel(LarryModel[LarryMultimodalModelConfig], PyTorchModelH
         # head only on routed positions
         text_logits = self.text_coda.head(encoding.text_states[text_route])
 
-        voice_logits = voice_targets = None
+        voice_logits = voice_targets = voice_prosody = voice_prosody_targets = None
         if (self.voice_prelude is not None
                 and self.voice_coda is not None
                 and voice_unit_ids is not None
@@ -881,11 +982,19 @@ class LarryMultimodalModel(LarryModel[LarryMultimodalModelConfig], PyTorchModelH
             )
             # teacher forcing: each group's earlier classes come from its targets
             previous = voice_targets[:, :-1].masked_fill(voice_targets[:, :-1] < 0, 0)
-            voice_logits = self.voice_coda.group_logits(
-                encoding.voice_states[voice_route],
-                previous,
-                self.voice_prelude.unit_embeddings()
-            )
+            unit_embeddings = self.voice_prelude.unit_embeddings()
+            group_states = self.voice_coda.group_states(encoding.voice_states[voice_route], previous, unit_embeddings)
+            voice_logits = self.voice_coda.head(group_states, unit_embeddings)
+            if (self.voice_coda.prosody is not None
+                    and voice_f0 is not None
+                    and voice_f0_lengths is not None
+                    and voice_aperiodicity is not None):
+                voice_prosody = self.voice_coda.unit_prosody(
+                    group_states, voice_targets.clamp(min=0), unit_embeddings
+                )
+                voice_prosody_targets = self.voice_prosody_targets(
+                    voice_route, voice_unit_id_lengths, voice_f0, voice_f0_lengths, voice_aperiodicity
+                )
         else:
             voice_route = torch.zeros_like(voice_route)
 
@@ -927,6 +1036,8 @@ class LarryMultimodalModel(LarryModel[LarryMultimodalModelConfig], PyTorchModelH
             voice_route=voice_route,
             voice_logits=voice_logits,
             voice_targets=voice_targets,
+            voice_prosody=voice_prosody,
+            voice_prosody_targets=voice_prosody_targets,
             image_route=image_route,
             image_query_states=image_query_states,
             image_query_mask=image_query_mask,
@@ -988,6 +1099,7 @@ class LarryMultimodalGenerator:
         self.images: list[torch.Tensor] = []
         self.text_logits: list[torch.Tensor] = []
         self.voice_logits: list[torch.Tensor] = []
+        self.voice_prosody: list[VoiceProsody] = []
         self.image_query_states: list[torch.Tensor] = []
 
     @property
@@ -1053,6 +1165,7 @@ class LarryMultimodalGenerator:
         self.cache.voice_prelude_cache = None
         self.cache.voice_prelude_conv_state = None
         units: list[int] = []
+        prosody: list[torch.Tensor] = []
         n_groups = 0
 
         while self.generated < self.config.max_new_positions:
@@ -1064,9 +1177,11 @@ class LarryMultimodalGenerator:
             state = voice_states[0, -1:]
             group: list[int] = []
             group_logits = []
+            group_states = state[:, None]
             while len(group) < k and (not group or group[-1] != eov_class):
                 previous = torch.tensor([group], dtype=torch.long, device=self.device)
-                logits = self.model.voice_coda.group_logits(state, previous, unit_embeddings)[0, -1]
+                group_states = self.model.voice_coda.group_states(state, previous, unit_embeddings)
+                logits = self.model.voice_coda.head(group_states[0, -1], unit_embeddings)
                 group_logits.append(logits)
                 group.append(self.sample(logits, "voice"))
 
@@ -1079,6 +1194,12 @@ class LarryMultimodalGenerator:
                 if unit != eov_class
             ]
             ended = group[-1] == eov_class
+            if self.model.voice_coda.prosody is not None and group_units:
+                group_units_tensor = torch.tensor(group_units, device=self.device)
+                prosody.append(self.model.voice_coda.unit_prosody(
+                    group_states[0, :len(group_units)], group_units_tensor, unit_embeddings
+                ).flatten(0, 1))
+
             chunk = ([self.base + VPH] if group_units else []) + ([self.base + EOV] if ended else [])
             chunk_ids = torch.tensor([chunk], device=self.device)
             position_ids = self.model.position_ids(chunk_ids, None)
@@ -1098,6 +1219,9 @@ class LarryMultimodalGenerator:
                 break
 
         self.voices.append(torch.tensor(units, dtype=torch.long))
+        if prosody:
+            self.voice_prosody.append(VoiceProsody.from_head(torch.cat(prosody)))
+
         return encoding
 
     def image(self) -> LarryMultimodalEncoding:
@@ -1203,5 +1327,6 @@ class LarryMultimodalGenerator:
             finished=finished,
             text_logits=self.text_logits,
             voice_logits=self.voice_logits,
+            voice_prosody=self.voice_prosody,
             image_query_states=self.image_query_states,
         )

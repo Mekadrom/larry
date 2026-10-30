@@ -1,4 +1,5 @@
 import dataclasses
+import math
 
 import torch
 import torch.nn.functional as F
@@ -137,6 +138,22 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
         upsampled = self.mel_upsampler(mels)[..., :frames]
         return F.pad(upsampled, (0, frames - upsampled.shape[-1]))
 
+    @property
+    def receptive_field(self) -> int:
+        stft_frames = 3 * (len(self.backbone.blocks) + 1) + self.config.stft_n_fft // (2 * self.config.stft_hop_length)
+        return math.ceil(stft_frames / self.mel_upsample) + 1
+
+    def stream(
+            self,
+            steps: int,
+            lookahead: int | None = None,
+            left_context: int | None = None,
+            crossfade: int | None = None,
+            generator: torch.Generator | None = None,
+            sway_coefficient: float | None = None,
+    ) -> LarryVocoderStream:
+        return LarryVocoderStream(self, steps, lookahead, left_context, crossfade, generator, sway_coefficient)
+
     def spec_lengths(self, mel_lengths: torch.Tensor, frames: int) -> torch.Tensor:
         return (mel_lengths * self.mel_upsample).clamp(max=frames)
 
@@ -165,14 +182,105 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
             steps: int,
             generator: torch.Generator | None = None,
             sway_coefficient: float | None = None,
+            noise: torch.Tensor | None = None,
     ) -> LarryVocoderGeneration:
         frames = mels.shape[-1] * self.mel_upsample
         mask = make_non_pad_mask(self.spec_lengths(mel_lengths, frames), frames).to(mels.dtype)
         conditioning = self.upsample_mels(mels, frames)
         shape = (mels.shape[0], 2 * self.n_bins, frames)
         spec = self.sample(
-            lambda x, t: self.backbone(x, t, conditioning, mask), shape, steps, self.device, generator, sway_coefficient
+            lambda x, t: self.backbone(x, t, conditioning, mask), shape, steps, self.device, generator, sway_coefficient,
+            noise,
         )
         waveforms = self.codec.decode(spec, (frames - 1) * self.config.stft_hop_length)
         lengths = (mel_lengths * self.config.hop_length - self.config.stft_n_fft // 2).clamp(min=0)
         return LarryVocoderGeneration(waveforms=waveforms, waveform_lengths=lengths)
+
+
+class LarryVocoderStream:
+    def __init__(
+            self,
+            vocoder: LarryVocoder,
+            steps: int,
+            lookahead: int | None = None,
+            left_context: int | None = None,
+            crossfade: int | None = None,
+            generator: torch.Generator | None = None,
+            sway_coefficient: float | None = None,
+    ) -> None:
+        self.vocoder = vocoder
+        self.steps = steps
+        self.lookahead = vocoder.receptive_field if lookahead is None else lookahead
+        self.left_context = vocoder.receptive_field if left_context is None else left_context
+        self.hop_length = vocoder.config.hop_length
+        self.crossfade = vocoder.config.stft_hop_length if crossfade is None else crossfade
+        if not 0 < self.crossfade <= self.hop_length:
+            raise ValueError(f"crossfade must be between 1 and {self.hop_length} samples")
+
+        if self.lookahead * self.hop_length < self.crossfade + vocoder.config.stft_n_fft // 2:
+            raise ValueError("lookahead must cover the crossfade plus half an STFT window")
+
+        self.generator = generator
+        self.sway_coefficient = sway_coefficient
+        self.mels: torch.Tensor | None = None
+        self.noise: torch.Tensor | None = None
+        self.offset = 0
+        self.emitted = 0
+        self.tail: torch.Tensor | None = None
+
+    @property
+    def buffered(self) -> int:
+        return self.offset + (0 if self.mels is None else self.mels.shape[-1])
+
+    @torch.inference_mode()
+    def push(self, mels: torch.Tensor, noise: torch.Tensor | None = None) -> torch.Tensor:
+        vocoder = self.vocoder
+        if noise is None:
+            shape = (mels.shape[0], 2 * vocoder.n_bins, mels.shape[-1] * vocoder.mel_upsample)
+            noise = torch.randn(shape, device=mels.device, generator=self.generator)
+
+        self.mels = mels if self.mels is None else torch.cat([self.mels, mels], dim=-1)
+        self.noise = noise if self.noise is None else torch.cat([self.noise, noise], dim=-1)
+        ready = self.buffered - self.lookahead
+        if ready <= self.emitted:
+            return mels.new_zeros(mels.shape[0], 0)
+
+        return self.render(ready, final=False)
+
+    @torch.inference_mode()
+    def finish(self) -> torch.Tensor:
+        if self.mels is None:
+            raise ValueError("nothing was pushed")
+
+        return self.render(self.buffered, final=True)
+
+    def render(self, end: int, final: bool) -> torch.Tensor:
+        assert self.mels is not None and self.noise is not None
+        vocoder = self.vocoder
+        upsample = vocoder.mel_upsample
+        start = max(self.offset, self.emitted - self.left_context)
+        window = self.mels[..., start - self.offset:]
+        noise = self.noise[..., (start - self.offset) * upsample:]
+        frames = window.shape[-1] * upsample
+        mask = torch.ones(window.shape[0], frames, device=window.device, dtype=window.dtype)
+        conditioning = vocoder.upsample_mels(window, frames)
+        spec = vocoder.sample(
+            lambda x, t: vocoder.backbone(x, t, conditioning, mask), tuple(noise.shape), self.steps, window.device,
+            None, self.sway_coefficient, noise,
+        )
+        waveforms = vocoder.codec.decode(spec, (frames - 1) * vocoder.config.stft_hop_length)
+        first = (self.emitted - start) * self.hop_length
+        last = waveforms.shape[-1] if final else (end - start) * self.hop_length
+        emitted = waveforms[..., first:last]
+        if self.tail is not None:
+            fade = self.tail.shape[-1]
+            ramp = torch.linspace(0, 1, fade + 2, device=emitted.device)[1:-1]
+            emitted = torch.cat([self.tail * (1 - ramp) + emitted[..., :fade] * ramp, emitted[..., fade:]], dim=-1)
+
+        self.tail = None if final else waveforms[..., last:last + self.crossfade]
+        self.emitted = end
+        keep = max(self.offset, end - self.left_context)
+        self.mels = self.mels[..., keep - self.offset:]
+        self.noise = self.noise[..., (keep - self.offset) * upsample:]
+        self.offset = keep
+        return emitted

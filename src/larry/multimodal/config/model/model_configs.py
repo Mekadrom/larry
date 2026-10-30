@@ -50,6 +50,11 @@ class VoicePreludeConfig(VoiceModuleConfig):
 @dataclasses.dataclass(kw_only=True)
 class VoiceCodaConfig(VoiceModuleConfig):
     depth_n_layers: int = 2
+    prosody_head: bool = True
+    prosody_hop_length: int = 320
+    prosody_frames_per_unit: int = 4
+    prosody_hidden_dim: int = 1024
+    n_aperiodicity_bands: int = 8
 
 
 @dataclasses.dataclass(kw_only=True)

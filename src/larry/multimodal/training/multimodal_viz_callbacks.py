@@ -21,6 +21,7 @@ from larry.multimodal.model.multimodal_model import (
     LarryMultimodalGenerationConfig,
     LarryMultimodalGenerator,
     LarryMultimodalModel,
+    VoiceProsody,
 )
 from larry.multimodal.processor.processor import EOS, EOV, ImagePlaceholder, VoicePlaceholder
 from larry.voice.model.speech_decoder import SpeechDecoderModel
@@ -123,15 +124,25 @@ class UnitVocalizer:
         return LarryVocoder.from_pretrained(self.vocoder_model_path).to(self.device).eval()
 
     @torch.no_grad()
-    def audio(self, units: torch.Tensor) -> Vocalization:
+    def audio(self, units: torch.Tensor, prosody: VoiceProsody | None = None) -> Vocalization:
         generator = torch.Generator(device=self.device).manual_seed(self.config.seed)
         unit_ids = units.to(self.device)[None]
+        flat: dict[str, torch.Tensor] = {}
+        if prosody is not None:
+            voiced = (prosody.voiced > 0.5).float()[None].to(self.device)
+            flat = {
+                "contour": torch.zeros_like(voiced),
+                "voiced": voiced,
+                "aperiodicity": prosody.aperiodicity[None].to(self.device),
+            }
+
         mels = self.decoder.generate(
             unit_ids,
             torch.tensor([units.shape[0]], device=self.device),
             None,
             steps=self.config.vocoder_steps,
             generator=generator,
+            **flat,
         )
         waveforms = self.vocoder.generate(
             mels.mels,
@@ -380,7 +391,8 @@ class VoiceSynthesisVizCallback(MultimodalTaskVizCallback):
             self.trainer.metrics.add_text(f"{tag}/synthesis", "  \n".join(summary), step)
 
             if self.vocalizer is not None and units:
-                generated = self.vocalizer.audio(torch.tensor(units))
+                prosody = generation.voice_prosody[0] if generation.voice_prosody else None
+                generated = self.vocalizer.audio(torch.tensor(units), prosody)
                 self.trainer.metrics.add_audio(
                     f"{tag}/generated",
                     generated.waveform,

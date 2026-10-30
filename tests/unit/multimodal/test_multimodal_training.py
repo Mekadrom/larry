@@ -83,7 +83,9 @@ def test_heads_are_weighted_and_kept_per_row(collator: PretrainingMultimodalColl
         total = criterion(out, **batch)
         terms = criterion.loss_terms(out, **batch)
 
-    assert {name: term.weight for name, term in terms.items()} == {"text": 0.5, "voice": 2.0, "image": 3.0}
+    assert {name: term.weight for name, term in terms.items()} == {
+        "text": 0.5, "voice": 2.0, "voiced": 1.0, "contour": 1.0, "aperiodicity": 1.0, "image": 3.0,
+    }
     assert torch.allclose(total, sum(term.weight * term.value for term in terms.values()))
     # each head's rows: voice only on the TTS row, the image only on the synthesis row, text everywhere
     assert terms["voice"].counts.gt(0).tolist() == [True, False, False]

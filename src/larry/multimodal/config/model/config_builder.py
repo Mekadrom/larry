@@ -56,6 +56,7 @@ class LarryMultimodalModelConfigBuilder:
             processor: LarryProcessorBase,
             fsq_levels: list[int] | None = None,
             latent_channels: int | None = None,
+            unit_samples: int | None = None,
     ) -> LarryMultimodalModelConfig:
         required = self.required_modules()
         absent = sorted(name for name in required if getattr(self.template, name) is None)
@@ -71,7 +72,7 @@ class LarryMultimodalModelConfigBuilder:
         for name in MEDIA_MODULES:
             module = getattr(self.template, name)
             if name in required:
-                updates[name] = self.fit(name, module, processor, fsq_levels, latent_channels)
+                updates[name] = self.fit(name, module, processor, fsq_levels, latent_channels, unit_samples)
             else:
                 updates[name] = None
 
@@ -84,6 +85,7 @@ class LarryMultimodalModelConfigBuilder:
             processor: LarryProcessorBase,
             fsq_levels: list[int] | None,
             latent_channels: int | None,
+            unit_samples: int | None = None,
     ) -> object:
         # every size here is decided by the processor or an upstream encoder, not by hand in the template
         if name.startswith("image"):
@@ -100,5 +102,12 @@ class LarryMultimodalModelConfigBuilder:
                 updates |= {"vocab_size": n_units, "fsq_levels": list(fsq_levels)}
             else:
                 updates["vocab_size"] = n_units + 1
+
+        if name == "voice_coda_config" and unit_samples is not None:
+            hop_length = module.prosody_hop_length  # pyright: ignore[reportAttributeAccessIssue]
+            if unit_samples % hop_length:
+                raise ValueError(f"a unit spans {unit_samples} samples, not a whole number of {hop_length}-sample frames")
+
+            updates["prosody_frames_per_unit"] = unit_samples // hop_length
 
         return dataclasses.replace(module, **updates)  # pyright: ignore[reportArgumentType]

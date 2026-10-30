@@ -79,8 +79,26 @@ class PretrainingMultimodalCollator(MultimodalCollator):
 
         return {
             **self.tensors(rows),
+            **self.prosody_tensors(items),
             "is_synthesis_mask": torch.tensor([item.get("is_modal_synthesis", True) for item in items]),
             "source_ids": torch.tensor([item["source"] for item in items], dtype=torch.long),
+        }
+
+    @staticmethod
+    def prosody_tensors(items: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
+        if not any("f0" in item for item in items):
+            return {}
+
+        f0 = [torch.from_numpy(item["f0"]) if "f0" in item else torch.zeros(0) for item in items]
+        bands = next(item["aperiodicity"].shape[-1] for item in items if "f0" in item)
+        aperiodicity = [
+            torch.from_numpy(item["aperiodicity"]).view(-1, bands) if "f0" in item else torch.zeros(0, bands)
+            for item in items
+        ]
+        return {
+            "voice_f0": pad_sequence(f0, batch_first=True),
+            "voice_f0_lengths": torch.tensor([min(len(a), len(b)) for a, b in zip(f0, aperiodicity, strict=True)]),
+            "voice_aperiodicity": pad_sequence(aperiodicity, batch_first=True),
         }
 
 

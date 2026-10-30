@@ -74,6 +74,38 @@ class LarryMultimodalCriterion(TermCriterion[LarryMultimodalModelOutput, LarryMu
             in_loss, self.config.voice_label_smoothing,
         )
 
+    def prosody_terms(self, model_output: LarryMultimodalModelOutput, in_loss: torch.Tensor) -> dict[str, LossTerm]:
+        route = model_output.voice_route
+        n_rows = route.shape[0]
+        weights = {
+            "voiced": self.config.voiced_weight,
+            "contour": self.config.contour_weight,
+            "aperiodicity": self.config.aperiodicity_weight,
+        }
+        prosody, targets = model_output.voice_prosody, model_output.voice_prosody_targets
+        if prosody is None or targets is None:
+            zeros = torch.zeros(n_rows, device=route.device)
+            return {name: LossTerm(weight=w, sums=zeros, counts=zeros.clone()) for name, w in weights.items()}
+
+        prosody, target = prosody.float(), targets.targets.float()
+        position_in_loss = in_loss[route].view(-1, 1, 1)
+        frame_mask = (targets.frame_mask & position_in_loss).float()
+        contour_mask = (targets.contour_mask & position_in_loss).float()
+        losses = {
+            "voiced": (F.binary_cross_entropy_with_logits(prosody[..., 0], target[..., 0], reduction="none"), frame_mask),
+            "contour": ((prosody[..., 1] - target[..., 1]).abs(), contour_mask),
+            "aperiodicity": ((prosody[..., 2:].sigmoid() - target[..., 2:]).abs().mean(dim=-1), frame_mask),
+        }
+        rows = route.nonzero()[:, 0]
+        return {
+            name: LossTerm(
+                weight=weights[name],
+                sums=self.per_row(rows, (loss * mask).sum(dim=(1, 2)), n_rows),
+                counts=self.per_row(rows, mask.sum(dim=(1, 2)), n_rows),
+            )
+            for name, (loss, mask) in losses.items()
+        }
+
     def image_term(self, model_output: LarryMultimodalModelOutput) -> LossTerm:
         n_rows = model_output.image_route.shape[0]
         sums = torch.zeros(n_rows, device=model_output.image_route.device)
@@ -100,5 +132,6 @@ class LarryMultimodalCriterion(TermCriterion[LarryMultimodalModelOutput, LarryMu
         return {
             "text": self.text_term(model_output, in_loss),
             "voice": self.voice_term(model_output, in_loss),
+            **self.prosody_terms(model_output, in_loss),
             "image": self.image_term(model_output),
         }

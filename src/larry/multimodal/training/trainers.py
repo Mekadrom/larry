@@ -30,10 +30,13 @@ from larry.multimodal.data.dataloading.indexed_multimodal_dataset import Indexed
 from larry.multimodal.model.multimodal_model import LarryMultimodalModel, LarryMultimodalModelOutput
 from larry.multimodal.processor.processor import LarryMultimodalPretrainProcessor
 from larry.multimodal.training.multimodal_viz_callbacks import MultimodalVizCallbacks
+from larry.voice.config.model.voice_model_configs import SpeechEncoderModelConfig
+from larry.voice.config.preprocessing.voice_configs import MelsConfig
 
 MODEL_KEYS = (
     "input_ids", "modality_ids", "input_lengths", "voice_unit_ids", "voice_unit_id_lengths", "images", "image_sizes",
 )
+PROSODY_KEYS = ("voice_f0", "voice_f0_lengths", "voice_aperiodicity")
 EXPORT_DIR = "export"
 
 
@@ -55,9 +58,11 @@ class LarryMultimodalTrainer(
             raise TypeError(f"{cls.__name__} trains a LarryMultimodalModelConfig, got {type(model_config).__name__}")
 
         cls.check_sources(model_config, config)
-        fsq_levels = None
+        fsq_levels = unit_samples = None
         if config.speech_encoder_model_path is not None:
-            fsq_levels = cls.speech_encoder_config(config.speech_encoder_model_path)["fsq_levels"]
+            encoder = cls.speech_encoder_config(config.speech_encoder_model_path)
+            fsq_levels = encoder["fsq_levels"]
+            unit_samples = cls.unit_samples(encoder)
 
         processor = LarryMultimodalPretrainProcessor.from_pretrained(config.processor_model_path)
         cls.check_processor_settings(processor, config)
@@ -66,6 +71,7 @@ class LarryMultimodalTrainer(
             processor,
             fsq_levels,
             config.image_latent_channels,
+            unit_samples,
         )
 
     @staticmethod
@@ -90,6 +96,16 @@ class LarryMultimodalTrainer(
                 f"the processor at {config.processor_model_path} was built with other settings "
                 f"(processor, config): {stale}; rerun tokenizer-training"
             )
+
+    @staticmethod
+    def unit_samples(encoder: dict[str, Any]) -> int:
+        defaults = SpeechEncoderModelConfig
+        return (
+            encoder.get("hop_length", MelsConfig.hop_length)
+            * encoder.get("subsampler_stride", defaults.subsampler_stride)
+            * 2
+            * encoder.get("frame_merge", defaults.frame_merge)
+        )
 
     @staticmethod
     def speech_encoder_config(path: str) -> dict[str, Any]:
@@ -144,6 +160,8 @@ class LarryMultimodalTrainer(
 
         if IndexedMultimodalDataset.has_voice(config):
             columns.append(config.voice_column)
+            if config.is_modal_synthesis:
+                columns += [config.f0_column, config.aperiodicity_column]
 
         if IndexedMultimodalDataset.has_image(config):
             columns += [config.image_column, config.image_shape_column]
@@ -199,7 +217,11 @@ class LarryMultimodalTrainer(
         return MultimodalVizCallbacks(self, viz_steps, self.config.viz)
 
     def model_forward(self, batch: Mapping[str, Any]) -> LarryMultimodalModelOutput:
-        return self.model(**{key: batch[key] for key in MODEL_KEYS}, is_synthesis=batch["is_synthesis_mask"])
+        return self.model(
+            **{key: batch[key] for key in MODEL_KEYS},
+            **{key: batch[key] for key in PROSODY_KEYS if key in batch},
+            is_synthesis=batch["is_synthesis_mask"],
+        )
 
     def _forward_pass(self, batch: Mapping[str, Any]) -> StepOutput:
         output = self.model_forward(batch)

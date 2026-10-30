@@ -46,6 +46,9 @@ class IndexedMultimodalDataset(IndexedDataset[MultimodalSourceConfig]):
 
         if self.has_voice(config):
             item["voice"] = np.asarray(entry[config.voice_column])
+            if config.is_modal_synthesis and config.f0_column in entry and config.aperiodicity_column in entry:
+                item["f0"] = np.asarray(entry[config.f0_column], dtype=np.float32)
+                item["aperiodicity"] = np.asarray(entry[config.aperiodicity_column], dtype=np.float32)
 
         if self.has_image(config):
             item["image"] = np.asarray(entry[config.image_column], dtype=np.float32).reshape(

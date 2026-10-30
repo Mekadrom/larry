@@ -58,6 +58,10 @@ class ConditionalFlowMatching:
     def sway(ts: torch.Tensor, coefficient: float) -> torch.Tensor:
         return ts + coefficient * (torch.cos(math.pi / 2 * ts) - 1 + ts)
 
+    def timesteps(self, steps: int, device: torch.device, sway_coefficient: float | None = None) -> torch.Tensor:
+        ts = torch.linspace(0, 1, steps + 1, device=device)
+        return ts if sway_coefficient is None else self.sway(ts, sway_coefficient)
+
     @torch.inference_mode()
     def sample(
             self,
@@ -67,12 +71,10 @@ class ConditionalFlowMatching:
             device: torch.device,
             generator: torch.Generator | None = None,
             sway_coefficient: float | None = None,
+            noise: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        x = torch.randn(shape, device=device, generator=generator)
-        ts = torch.linspace(0, 1, steps + 1, device=device)
-        if sway_coefficient is not None:
-            ts = self.sway(ts, sway_coefficient)
-
+        x = torch.randn(shape, device=device, generator=generator) if noise is None else noise.to(device)
+        ts = self.timesteps(steps, device, sway_coefficient)
         for t0, t1 in itertools.pairwise(ts):
             x = x + (t1 - t0) * velocity_fn(x, t0.expand(shape[0]))
 

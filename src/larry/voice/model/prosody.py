@@ -91,8 +91,12 @@ class HarmonicConditioning(nn.Module):
         peaks = ((1 + torch.cos(2 * math.pi * ratio)) / 2).pow(self.comb_sharpness) * (ratio >= 0.5)
         return peaks @ self.mel_weights
 
-    def sinusoids(self, log_f0: torch.Tensor) -> torch.Tensor:
-        cumulative_phase = (2 * math.pi * self.frame_seconds) * torch.cumsum(log_f0.float().exp(), dim=1)
+    def sinusoids(self, log_f0: torch.Tensor, f0_offset: torch.Tensor | None = None) -> torch.Tensor:
+        cumulative_f0 = torch.cumsum(log_f0.float().exp(), dim=1)
+        if f0_offset is not None:
+            cumulative_f0 = cumulative_f0 + f0_offset.float()[:, None]
+
+        cumulative_phase = (2 * math.pi * self.frame_seconds) * cumulative_f0
         features = []
         for h in range(1, self.n_harmonics + 1):
             phase = torch.remainder(h * cumulative_phase, 2 * math.pi)
@@ -106,8 +110,9 @@ class HarmonicConditioning(nn.Module):
             voiced: torch.Tensor,
             log_f0: torch.Tensor,
             aperiodicity: torch.Tensor | None,
+            f0_offset: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        harmonics = self.comb(log_f0) if self.mode == "comb" else self.sinusoids(log_f0)
+        harmonics = self.comb(log_f0) if self.mode == "comb" else self.sinusoids(log_f0, f0_offset)
         harmonics = harmonics * voiced.unsqueeze(-1)
         scalars = torch.stack([contour, voiced, voiced * (log_f0 - math.log(150.0))], dim=-1)
         parts = [scalars.float(), harmonics]

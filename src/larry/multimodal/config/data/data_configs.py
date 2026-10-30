@@ -13,6 +13,8 @@ class MultimodalSourceConfig(TextSourceConfig):
     # exact text token counts for length bucketing, if precomputed; otherwise estimated from characters
     text_tokens_column: str | None = None
     voice_column: str = "unit_ids"
+    f0_column: str = "f0"
+    aperiodicity_column: str = "aperiodicity"
     # VAE latents stored flat, with their (C, H, W) shape alongside
     image_column: str = "latents"
     image_shape_column: str = "latent_shape"
