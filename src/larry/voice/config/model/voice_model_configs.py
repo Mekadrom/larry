@@ -88,6 +88,9 @@ class SpeechDecoderModelConfig(
 
     cfg_dropout_rate: float = 0.1
 
+    full_context_rate: float = 0.5
+    training_chunk_units: list[int] = dataclasses.field(default_factory=lambda: [6, 12, 25])
+
     infill_enabled: bool = False
     infill_min_fraction: float = 0.7
     infill_max_fraction: float = 1.0

@@ -46,6 +46,15 @@ class SpeakerLatentEmbeddings(nn.Module):
         return mu + eps * std
 
 
+def chunk_attention_mask(valid: torch.Tensor, chunk: int | None) -> torch.Tensor:
+    if chunk is None:
+        return valid
+
+    index = torch.arange(valid.shape[1], device=valid.device) // chunk
+    visible = index[None, :] <= index[:, None]
+    return (visible[None] & valid.bool()[:, None, :]).unsqueeze(1)
+
+
 class SpeechCodesUnitEmbedding(nn.Module):
     def __init__(self, config: SpeechDecoderModelConfig) -> None:
         super().__init__()
@@ -58,22 +67,21 @@ class SpeechCodesUnitEmbedding(nn.Module):
         ])
         self.post_blocks_norm = nn.RMSNorm(config.d_model)
         self.upsampler = nn.ConvTranspose1d(
-            config.d_model,
-            config.d_model,
-            kernel_size=2 * self.upsample,
-            stride=self.upsample,
-            padding=self.upsample // 2,
+            config.d_model, config.d_model, kernel_size=self.upsample, stride=self.upsample,
         )
         self.proj = nn.Linear(config.d_model, config.n_mels)
 
-    def forward(self, unit_ids: torch.Tensor, unit_id_lengths: torch.Tensor) -> torch.Tensor:
+    def forward(
+            self, unit_ids: torch.Tensor, unit_id_lengths: torch.Tensor, chunk_units: int | None = None,
+    ) -> torch.Tensor:
         mask = make_non_pad_mask(unit_id_lengths, unit_ids.shape[1]).to(unit_ids.device)
+        attention_mask = chunk_attention_mask(mask, chunk_units)
         x = self.unit_embedding(unit_ids)
         for block in self.blocks:
-            x = block(x, attention_mask=mask).logits
+            x = block(x, attention_mask=attention_mask).logits
 
         x = self.post_blocks_norm(x) * mask.unsqueeze(-1).to(x.dtype)
-        x = self.upsampler(x.transpose(1, 2))[..., :unit_ids.shape[1] * self.upsample]
+        x = self.upsampler(x.transpose(1, 2))
         return self.proj(x.transpose(1, 2)).transpose(1, 2)
 
 
@@ -81,7 +89,8 @@ class SpeechDecoderVelocityNetwork(nn.Module):
     def __init__(self, config: SpeechDecoderModelConfig, prosody_channels: int = 0) -> None:
         super().__init__()
         in_channels = (3 if config.infill_enabled else 2) * config.n_mels + prosody_channels
-        self.embed = nn.Conv1d(in_channels, config.d_model, kernel_size=7, padding=3)
+        self.embed_kernel_size = 7
+        self.embed = nn.Conv1d(in_channels, config.d_model, kernel_size=self.embed_kernel_size)
         self.time = TimestepEmbedding(config.d_model)
         self.blocks = nn.ModuleList([
             LarryConditionalEncoderBlock(LarryConditionalEncoderBlockModuleConfig.from_child(config))
@@ -101,14 +110,16 @@ class SpeechDecoderVelocityNetwork(nn.Module):
             mask: torch.Tensor,
             context: torch.Tensor | None = None,
             prosody: torch.Tensor | None = None,
+            attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         cond = self.time(t) + speaker_cond
         inputs = [xt, unit_cond] if context is None else [xt, unit_cond, context]
         if prosody is not None:
             inputs.append(prosody.to(xt.dtype))
-        x = self.embed(torch.cat(inputs, dim=1) * mask.unsqueeze(1)).transpose(1, 2)
+        x = torch.cat(inputs, dim=1) * mask.unsqueeze(1)
+        x = self.embed(F.pad(x, (self.embed_kernel_size - 1, 0))).transpose(1, 2)
         for block in self.blocks:
-            x = block(x, cond, mask).logits
+            x = block(x, cond, mask if attention_mask is None else attention_mask).logits
 
         return self.out(self.final_norm(x, cond)).transpose(1, 2) * mask.unsqueeze(1)
 
@@ -156,6 +167,21 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
         nn.init.zeros_(self.backbone.out.bias)
         if self.f0_range is not None:
             self.f0_range.reset_parameters()
+
+    def sample_chunk_units(self) -> int | None:
+        generator = self.noise_generator
+        device = generator.device if generator is not None else torch.device("cpu")
+        chunks = self.config.training_chunk_units
+        if not chunks or float(torch.rand(1, device=device, generator=generator)) < self.config.full_context_rate:
+            return None
+
+        return chunks[int(torch.randint(len(chunks), (1,), device=device, generator=generator))]
+
+    def mel_attention_mask(self, frame_mask: torch.Tensor, chunk_units: int | None) -> torch.Tensor | None:
+        if chunk_units is None:
+            return None
+
+        return chunk_attention_mask(frame_mask > 0, chunk_units * self.config.unit_upsample)
 
     @staticmethod
     def fit_frames(values: torch.Tensor, frames: int) -> torch.Tensor:
@@ -229,7 +255,8 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
             speaker_embs = torch.where(drop, self.cfg_null_speaker_embedding, speaker_embs)
 
         mels, mel_lengths = self.frontend(waveforms, waveform_lengths)
-        unit_cond = self.unit_encoder(unit_ids, unit_id_lengths)
+        chunk_units = self.sample_chunk_units() if self.training else None
+        unit_cond = self.unit_encoder(unit_ids, unit_id_lengths, chunk_units)
 
         frames = min(mels.shape[-1], unit_cond.shape[-1])
         mels, unit_cond = self.normalize(mels[..., :frames]), unit_cond[..., :frames]
@@ -258,8 +285,11 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
                     keep = torch.rand(prosody.shape[0], device=prosody.device) >= self.config.f0_dropout_rate
                     prosody = prosody * keep.view(-1, 1, 1).to(prosody.dtype)
 
+        attention_mask = self.mel_attention_mask(frame_mask, chunk_units)
         xt, t, target = self.path(mels)
-        pred = self.backbone(xt, t, self.speaker_projection(speaker_embs), unit_cond, frame_mask, context, prosody)
+        pred = self.backbone(
+            xt, t, self.speaker_projection(speaker_embs), unit_cond, frame_mask, context, prosody, attention_mask,
+        )
 
         kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum(dim=1)
         return SpeechDecoderModelOutput(
@@ -293,14 +323,16 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
             aperiodicity: torch.Tensor | None = None,
             log_f0_mean: torch.Tensor | None = None,
             log_f0_spread: torch.Tensor | None = None,
+            chunk_units: int | None = None,
     ) -> SpeechDecoderGeneration:
         if prompt_mels is not None and not self.config.infill_enabled:
             raise ValueError("prompt_mels requires a model trained with infill_enabled")
 
-        unit_cond = self.unit_encoder(unit_ids, unit_id_lengths)
+        unit_cond = self.unit_encoder(unit_ids, unit_id_lengths, chunk_units)
         frames = unit_cond.shape[-1]
         lengths = (self.config.unit_upsample * unit_id_lengths).clamp(max=frames)
         mask = make_non_pad_mask(lengths, frames).to(unit_cond.dtype)
+        attention_mask = self.mel_attention_mask(mask, chunk_units)
 
         null_embedding = self.cfg_null_speaker_embedding.expand(unit_ids.shape[0], -1)
         speaker_vectors = null_embedding if speaker_ids is None else self.speaker_embedding.mean_embedding(speaker_ids)
@@ -327,18 +359,19 @@ class SpeechDecoderModel(VoiceModel[SpeechDecoderModelConfig], PyTorchModelHubMi
 
         if cfg_scale == 1.0:
             def velocity(x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-                return self.backbone(x, t, speaker_cond, unit_cond, mask, context, prosody)
+                return self.backbone(x, t, speaker_cond, unit_cond, mask, context, prosody, attention_mask)
         else:
             both_speakers = torch.cat([speaker_cond, null_cond])
             both_units = torch.cat([unit_cond, unit_cond])
             both_masks = torch.cat([mask, mask])
             both_contexts = None if context is None else torch.cat([context, torch.zeros_like(context)])
             both_prosody = None if prosody is None else torch.cat([prosody, prosody])
+            both_attention = None if attention_mask is None else torch.cat([attention_mask, attention_mask])
 
             def velocity(x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
                 conditional, unconditional = self.backbone(
                     torch.cat([x, x]), torch.cat([t, t]), both_speakers, both_units, both_masks, both_contexts,
-                    both_prosody,
+                    both_prosody, both_attention,
                 ).chunk(2)
                 return unconditional + cfg_scale * (conditional - unconditional)
 

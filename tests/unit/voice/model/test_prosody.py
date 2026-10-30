@@ -129,7 +129,7 @@ def test_f0_dropout_zeroes_the_conditioning_for_dropped_rows() -> None:
     model = tiny_decoder(f0_dropout_rate=1.0, cfg_dropout_rate=0.0).train()
     seen: list[torch.Tensor] = []
     backbone = model.backbone.forward
-    model.backbone.forward = lambda *a: seen.append(a[-1]) or backbone(*a)  # type: ignore[method-assign]
+    model.backbone.forward = lambda *a: seen.append(a[6]) or backbone(*a)  # type: ignore[method-assign]
 
     model(**_prosody_batch())
 
@@ -142,7 +142,7 @@ def test_flat_generation_uses_the_requested_pitch() -> None:
     flat = torch.where(batch["f0"] > 0, torch.full_like(batch["f0"], 165.0), torch.zeros_like(batch["f0"]))
     seen: list[torch.Tensor] = []
     backbone = model.backbone.forward
-    model.backbone.forward = lambda *a: seen.append(a[-1]) or backbone(*a)  # type: ignore[method-assign]
+    model.backbone.forward = lambda *a: seen.append(a[6]) or backbone(*a)  # type: ignore[method-assign]
 
     out = model.generate(
         batch["unit_ids"], batch["unit_id_lengths"], batch["speaker_ids"], steps=2,
