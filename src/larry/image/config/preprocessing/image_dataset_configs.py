@@ -130,6 +130,12 @@ class SmithsonianOpenAccessCachedDatasetConfig(FilteredMetadataCachedDatasetConf
         "Exhibition Label", "Label", "Caption", "Physical Description",
     ])
     unit_filters: dict[str, str] = dataclasses.field(default_factory=dict)
+    generation_excluded_units: dict[str, str] = dataclasses.field(default_factory=lambda: {
+        unit: "specimen" for unit in (
+            "nmnhanthro", "nmnhbirds", "nmnhbotany", "nmnheducation", "nmnhento", "nmnhfishes", "nmnhherps",
+            "nmnhinv", "nmnhmammals", "nmnhminsci", "nmnhpaleo",
+        )
+    })
     max_size: int = 960
     keep_raw_metadata: bool = False
 
@@ -200,15 +206,45 @@ class TePapaCachedDatasetConfig(PagedApiCachedDatasetConfig, ImageDatasetConfig)
     licenses: list[str] = dataclasses.field(default_factory=lambda: [
         "No Known Copyright Restrictions", "CC BY 4.0", "CC 0",
     ])
-    excluded_collections: list[str] = dataclasses.field(default_factory=lambda: ["TaongaMāori", "PacificCultures"])
-    excluded_subject_terms: list[str] = dataclasses.field(default_factory=lambda: [
-        "Māori", "Maori", "iwi", "hapū", "hapu", "marae", "wharenui", "wharekai", "kāinga", "kainga", "pā",
-        "rangatira", "ariki", "moko", "tā moko", "haka", "waka", "tūpuna", "tupuna", "tīpuna", "tipuna", "taonga",
-        "tangata whenua", "whakairo", "korowai", "hei tiki", "tiki", "taiaha", "pounamu", "tukutuku", "kōwhaiwhai",
-        "kowhaiwhai", "karakia",
-    ])
-    excluded_specimen_terms: list[str] = dataclasses.field(default_factory=lambda: [
-        "specimen", "specimens", "fossil", "fossils", "herbarium", "skeleton", "skeletons", "skull", "skulls",
-        "taxidermy", "x-ray", "x-rays", "radiograph", "radiographs",
-    ])
+    excluded_collections: list[str] = dataclasses.field(default_factory=list)
+    generation_excluded_collections: list[str] = dataclasses.field(
+        default_factory=lambda: ["TaongaMāori", "PacificCultures"]
+    )
+    generation_excluded_terms: dict[str, list[str]] = dataclasses.field(default_factory=lambda: {
+        "maori_subject": [
+            "Māori", "Maori", "iwi", "hapū", "hapu", "marae", "wharenui", "wharekai", "kāinga", "kainga", "pā",
+            "rangatira", "ariki", "moko", "tā moko", "haka", "waka", "tūpuna", "tupuna", "tīpuna", "tipuna",
+            "taonga", "tangata whenua", "whakairo", "korowai", "hei tiki", "tiki", "taiaha", "pounamu", "tukutuku",
+            "kōwhaiwhai", "kowhaiwhai", "karakia",
+        ],
+        "specimen": [
+            "specimen", "specimens", "fossil", "fossils", "herbarium", "skeleton", "skeletons", "skull", "skulls",
+            "taxidermy", "x-ray", "x-rays", "radiograph", "radiographs",
+        ],
+    })
     max_images_per_object: int | None = 4
+
+
+@dataclasses.dataclass(kw_only=True)
+class NASAImageLibraryCachedDatasetConfig(PagedApiCachedDatasetConfig, ImageDatasetConfig):
+    api_url: str = "https://images-api.nasa.gov"
+    site_url: str = "https://images.nasa.gov/details"
+    metadata_file: str = "nasa-images-filtered.parquet"
+
+    page_size: int = 100
+    max_results_per_query: int = 10000
+    min_request_interval: float = 0.25
+    first_year: int = 1950
+    last_year: int = 2026
+
+    centers: list[str] | None = None
+    split_centers: list[str] = dataclasses.field(default_factory=lambda: [
+        "ARC", "AFRC", "GRC", "GSFC", "HQ", "JPL", "JSC", "KSC", "LRC", "LARC", "MSFC", "SSC", "WSTF",
+    ])
+    excluded_terms: list[str] = dataclasses.field(default_factory=lambda: [
+        "logo", "logos", "logotype", "insignia", "meatball", "worm", "emblem", "seal", "patch", "patches", "decal",
+        "©", "copyright", "copyrighted", "courtesy",
+    ])
+    asset_url: str = "https://images-assets.nasa.gov/image"
+    size_preference: list[str] = dataclasses.field(default_factory=lambda: ["medium", "large", "orig", "small"])
+    resolve_asset_sizes: bool = True

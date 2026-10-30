@@ -5,7 +5,6 @@ import re
 import shutil
 import subprocess
 import tarfile
-import unicodedata
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import IO, Any, ClassVar
@@ -21,9 +20,11 @@ from larry.common.data.metadata_dataset_providers import (
     FilteredMetadataCachedDatasetProvider,
     PagedApiCachedDatasetProvider,
 )
+from larry.common.data.term_matching import TermMatcher
 from larry.image.config.preprocessing.image_dataset_configs import (
     ArtInstituteOfChicagoCachedDatasetConfig,
     GoogleDOCCIMediaCachedDatasetConfig,
+    NASAImageLibraryCachedDatasetConfig,
     SmithsonianOpenAccessCachedDatasetConfig,
     TePapaCachedDatasetConfig,
     WikimediaCommonsCachedDatasetConfig,
@@ -76,10 +77,8 @@ class WikimediaCommonsCachedDatasetProvider(FilteredMetadataCachedDatasetProvide
 
     def __init__(self, config: WikimediaCommonsCachedDatasetConfig) -> None:
         super().__init__(config)
-        unmapped = [q for q in config.licenses if q not in self.LICENSES]
-        unmapped += [q for q in config.copyright_statuses if q not in self.COPYRIGHT_STATUSES]
-        if unmapped:
-            raise ValueError(f"no canonical license is known for {unmapped}")
+        self.require_canonical_licenses(config.licenses, self.LICENSES)
+        self.require_canonical_licenses(config.copyright_statuses, self.COPYRIGHT_STATUSES)
 
         self.urls = WikimediaThumbnailUrls(config.upload_url, config.thumbnail_width)
         self.markers = [f'"{q}"'.encode() for q in (*config.licenses, *config.copyright_statuses)]
@@ -232,9 +231,7 @@ class SmithsonianOpenAccessCachedDatasetProvider(
 
     def __init__(self, config: SmithsonianOpenAccessCachedDatasetConfig) -> None:
         super().__init__(config)
-        unmapped = [usage for usage in config.usages if usage not in self.USAGES]
-        if unmapped:
-            raise ValueError(f"no canonical license is known for {unmapped}")
+        self.require_canonical_licenses(config.usages, self.USAGES)
 
         self.urls = SmithsonianIdsUrls(config.ids_url, config.max_size)
 
@@ -282,13 +279,9 @@ class SmithsonianOpenAccessCachedDatasetProvider(
 
         return None, None
 
-    @staticmethod
-    def clean_text(text: str | None) -> str | None:
-        return clean_text(text)
-
     def description(self, freetext: dict[str, Any]) -> str | None:
         notes = [
-            self.clean_text(n.get("content"))
+            clean_text(n.get("content"))
             for n in freetext.get("notes", [])
             if n.get("label") in self.config.description_labels
         ]
@@ -299,9 +292,9 @@ class SmithsonianOpenAccessCachedDatasetProvider(
         found = []
         for field, entries in freetext.items():
             for entry in entries if isinstance(entries, list) else []:
-                content = self.clean_text(entry.get("content")) if isinstance(entry, dict) else None
+                content = clean_text(entry.get("content")) if isinstance(entry, dict) else None
                 if content:
-                    found.append({"field": field, "label": self.clean_text(entry.get("label")), "content": content})
+                    found.append({"field": field, "label": clean_text(entry.get("label")), "content": content})
 
         return found
 
@@ -328,7 +321,7 @@ class SmithsonianOpenAccessCachedDatasetProvider(
                 "license_raw": usage,
                 "creator": self.creator(freetext),
                 "source_url": descriptive.get("guid"),
-                "title": self.clean_text(descriptive.get("title", {}).get("content")),
+                "title": clean_text(descriptive.get("title", {}).get("content")),
                 "description": self.description(freetext),
                 "image_url": self.urls.url(ids_id, width, height),
                 "width": width,
@@ -377,7 +370,7 @@ class SmithsonianOpenAccessCachedDatasetProvider(
     def with_text(self, table: pa.Table) -> pa.Table:
         freetexts = [json.loads(f) if f else {} for f in table.column("freetext").to_pylist()]
         columns = {
-            "title": [self.clean_text(t) for t in table.column("title").to_pylist()],
+            "title": [clean_text(t) for t in table.column("title").to_pylist()],
             "description": [self.description(f) for f in freetexts],
             "texts": [self.texts(f) for f in freetexts],
         }
@@ -388,8 +381,9 @@ class SmithsonianOpenAccessCachedDatasetProvider(
         return table
 
     def shard_tables(self, unit: str) -> Iterator[pa.Table]:
+        reason = self.config.generation_excluded_units.get(unit.split("/")[0])
         for table in self.filtered_shard_tables(unit):
-            yield self.with_text(table)
+            yield self.add_generation_exclusions(self.with_text(table), [reason] if reason else [])
 
     def after_shard(self, unit: str) -> None:
         if not self.config.keep_raw_metadata:
@@ -503,24 +497,15 @@ class TePapaCachedDatasetProvider(PagedApiCachedDatasetProvider[TePapaCachedData
 
     def __init__(self, config: TePapaCachedDatasetConfig) -> None:
         super().__init__(config)
-        unmapped = [title for title in config.licenses if title not in self.LICENSES]
-        if unmapped:
-            raise ValueError(f"no canonical license is known for {unmapped}")
-
-        excluded = [*config.excluded_subject_terms, *config.excluded_specimen_terms]
-        terms = sorted((self.normalize(t) for t in excluded), key=len, reverse=True)
-        self.subject_pattern = re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + r")\b") if terms else None
-
-    @staticmethod
-    def normalize(text: str) -> str:
-        return unicodedata.normalize("NFC", text).casefold()
+        self.require_canonical_licenses(config.licenses, self.LICENSES)
+        self.generation_terms = {reason: TermMatcher(terms) for reason, terms in config.generation_excluded_terms.items()}
 
     @property
     def query(self) -> str:
         licenses = " OR ".join(f'hasRepresentation.rights.title:"{title}"' for title in self.config.licenses)
         return f"type:Object AND ({licenses})"
 
-    def request(self, cursor: str | None) -> tuple[list[Any], str | None]:
+    def request(self, unit: str, cursor: str | None) -> tuple[list[Any], str | None]:
         headers = {"x-api-key": self.api_key or "", "Accept": "application/json"}
         if cursor is None:
             response = self.session.post(
@@ -554,38 +539,26 @@ class TePapaCachedDatasetProvider(PagedApiCachedDatasetProvider[TePapaCachedData
 
         return f"{self.config.api_url.rstrip('/')}/{location.lstrip('/')}"
 
-    def units(self) -> Iterator[str]:
-        yield "objects"
-
-    def rows(self, unit: str) -> Iterator[dict[str, Any]]:
-        cursor: str | None = None
-        while True:
-            records, cursor = self.fetch(cursor)
-            for record in records:
-                yield from self.rows_from_record(record)
-
-            if cursor is None:
-                return
-
     @staticmethod
     def titles(entries: Any) -> list[str]:
         return [e["title"] for e in entries or [] if isinstance(e, dict) and e.get("title")]
 
-    def depicts_excluded_subject(self, record: dict[str, Any]) -> bool:
-        if self.subject_pattern is None:
-            return False
+    def generation_exclusion_reasons(self, record: dict[str, Any]) -> list[str]:
+        reasons = []
+        collection = record.get("collection")
+        if collection in self.config.generation_excluded_collections:
+            reasons.append(f"collection:{collection}")
 
         texts = [record.get("title"), record.get("description"), record.get("caption")]
         texts += self.titles(record.get("depicts")) + self.titles(record.get("refersTo"))
-        return any(self.subject_pattern.search(self.normalize(t)) for t in texts if t)
+        reasons += [reason for reason, matcher in self.generation_terms.items() if matcher.matches(texts)]
+        return reasons
 
     def rows_from_record(self, record: Any) -> Iterable[dict[str, Any]]:
         if record.get("type") != "Object" or record.get("collection") in self.config.excluded_collections:
             return
 
-        if self.depicts_excluded_subject(record):
-            return
-
+        reasons = self.generation_exclusion_reasons(record)
         production = record.get("production") or []
         creators = [p["contributor"]["title"] for p in production if (p.get("contributor") or {}).get("title")]
         usable = [
@@ -600,6 +573,7 @@ class TePapaCachedDatasetProvider(PagedApiCachedDatasetProvider[TePapaCachedData
 
             yield {
                 "id": str(media["id"]),
+                "generation_exclusion_reasons": list(reasons),
                 "license": self.LICENSES[rights["title"]],
                 "license_raw": rights["title"],
                 "creator": "; ".join(dict.fromkeys(creators)) or None,
@@ -620,3 +594,132 @@ class TePapaCachedDatasetProvider(PagedApiCachedDatasetProvider[TePapaCachedData
                 "object_types": self.titles(record.get("isTypeOf")),
                 "production": self.titles(production),
             }
+
+
+class NASAImageLibraryCachedDatasetProvider(PagedApiCachedDatasetProvider[NASAImageLibraryCachedDatasetConfig]):
+    LICENSE_RAW = "NASA media usage guidelines"
+    EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
+        *IMAGE_FIELDS,
+        pa.field("center", pa.string()),
+        pa.field("date_created", pa.string()),
+        pa.field("keywords", pa.list_(pa.string())),
+        pa.field("photographer", pa.string()),
+        pa.field("secondary_creator", pa.string()),
+        pa.field("location", pa.string()),
+    ]
+
+    def __init__(self, config: NASAImageLibraryCachedDatasetConfig) -> None:
+        super().__init__(config)
+        self.excluded_terms = TermMatcher(config.excluded_terms)
+
+    @staticmethod
+    def unit_name(start: int, end: int, center: str | None = None) -> str:
+        years = f"{start}_{end}"
+        return years if center is None else f"{years}/{center}"
+
+    @staticmethod
+    def parse_unit(unit: str) -> dict[str, Any]:
+        years, _, center = unit.partition("/")
+        start, end = years.split("_")
+        return {"year_start": int(start), "year_end": int(end), **({"center": center} if center else {})}
+
+    def search_params(self, unit: str, page: int, page_size: int) -> dict[str, Any]:
+        return {"media_type": "image", "page": page, "page_size": page_size, **self.parse_unit(unit)}
+
+    def hits(self, unit: str) -> int:
+        response = self.call(lambda: self.get_json(f"{self.config.api_url}/search", self.search_params(unit, 1, 1)))
+        return int(response["collection"]["metadata"]["total_hits"])
+
+    def period_units(self, start: int, end: int) -> list[str]:
+        if self.config.centers is not None:
+            return [self.unit_name(start, end, c) for c in self.config.centers]
+
+        unit = self.unit_name(start, end)
+        total = self.hits(unit)
+        if total <= self.config.max_results_per_query:
+            return [unit] if total else []
+
+        split = [self.unit_name(start, end, c) for c in self.config.split_centers]
+        covered = sum(self.hits(u) for u in split)
+        if covered < total:
+            self.log.warning(f"{unit}: {total - covered} of {total} images are under centers not in split_centers")
+
+        return split
+
+    def units(self) -> Iterator[str]:
+        yield from self.period_units(1, self.config.first_year - 1)
+        for year in range(self.config.first_year, self.config.last_year + 1):
+            yield from self.period_units(year, year)
+
+    def request(self, unit: str, cursor: str | None) -> tuple[list[Any], str | None]:
+        page = int(cursor or 1)
+        params = self.search_params(unit, page, self.config.page_size)
+        collection = self.get_json(f"{self.config.api_url}/search", params)["collection"]
+        has_next = any(link.get("rel") == "next" for link in collection.get("links", []))
+        last_page = self.config.max_results_per_query // self.config.page_size
+        return collection.get("items", []), str(page + 1) if has_next and page < last_page else None
+
+    @staticmethod
+    def as_list(value: Any) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+
+        return [str(v) for v in value or []]
+
+    @staticmethod
+    def variants(urls: Iterable[str]) -> dict[str, str]:
+        found = {}
+        for url in urls:
+            stem, _, extension = url.rpartition(".")
+            if extension.lower() in ("jpg", "jpeg") and "~" in stem:
+                found.setdefault(stem.rpartition("~")[2], url.replace("http://", "https://", 1))
+
+        return found
+
+    def listed_assets(self, nasa_id: str) -> list[str]:
+        url = f"{self.config.asset_url}/{quote(nasa_id, safe='')}/collection.json"
+        return self.call(lambda: self.get_json(url))
+
+    def image_url(self, nasa_id: str, links: list[dict[str, Any]]) -> str | None:
+        variants = self.variants(link.get("href", "") for link in links if link.get("render") == "image")
+        preferred = self.config.size_preference[:2]
+        if self.config.resolve_asset_sizes and not any(name in variants for name in preferred):
+            variants = self.variants(self.listed_assets(nasa_id)) or variants
+
+        return next((variants[name] for name in self.config.size_preference if name in variants), None)
+
+    def rows_from_record(self, record: Any) -> Iterable[dict[str, Any]]:
+        data = (record.get("data") or [{}])[0]
+        if data.get("media_type") != "image" or not data.get("nasa_id"):
+            return
+
+        keywords = self.as_list(data.get("keywords"))
+        texts = [data.get("title"), data.get("description"), data.get("photographer"), data.get("secondary_creator")]
+        if self.excluded_terms.matches(texts + keywords):
+            return
+
+        links = record.get("links") or []
+        nasa_id = data["nasa_id"]
+        image_url = self.image_url(nasa_id, links)
+        if image_url is None:
+            return
+
+        canonical = next((li for li in links if li.get("rel") == "canonical"), {})
+        yield {
+            "id": nasa_id,
+            "license": License.US_GOVERNMENT,
+            "license_raw": self.LICENSE_RAW,
+            "creator": data.get("secondary_creator") or data.get("photographer") or data.get("center"),
+            "source_url": f"{self.config.site_url}/{quote(nasa_id, safe='')}",
+            "title": clean_text(data.get("title")),
+            "description": clean_text(data.get("description") or data.get("description_508")),
+            "image_url": image_url,
+            "width": canonical.get("width"),
+            "height": canonical.get("height"),
+            "center": data.get("center"),
+            "date_created": data.get("date_created"),
+            "keywords": keywords,
+            "photographer": data.get("photographer"),
+            "secondary_creator": data.get("secondary_creator"),
+            "location": data.get("location"),
+        }

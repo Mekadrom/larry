@@ -111,20 +111,35 @@ def test_only_downloadable_images_with_an_allowed_license_are_kept(tmp_path: Pat
     assert first["image_url"].endswith("/10/preview")
 
 
-@pytest.mark.parametrize("record", [
-    _object(1, _media(10), collection="TaongaMāori"),
-    _object(2, _media(20), collection="PacificCultures"),
-    _object(3, _media(30), title="Maori terraces"),
-    _object(4, _media(40), caption="Group at the marae, Ōtaki"),
-    _object(5, _media(50), refersTo=[{"title": "Māori people"}]),
-    _object(6, _media(60), description="A carved waka prow."),
-    _object(7, _media(70), title="Photos of Type Tert. fossils"),
-    _object(8, _media(80), refersTo=[{"title": "Herbarium specimens"}]),
+@pytest.mark.parametrize(("record", "reasons"), [
+    (_object(1, _media(10), collection="TaongaMāori"), ["collection:TaongaMāori", "maori_subject"]),
+    (_object(2, _media(20), collection="PacificCultures"), ["collection:PacificCultures"]),
+    (_object(3, _media(30), title="Maori terraces"), ["maori_subject"]),
+    (_object(4, _media(40), caption="Group at the marae, Ōtaki"), ["maori_subject"]),
+    (_object(5, _media(50), refersTo=[{"title": "Māori people"}]), ["maori_subject"]),
+    (_object(6, _media(60), description="A carved waka prow."), ["maori_subject"]),
+    (_object(7, _media(70), title="Photos of Type Tert. fossils"), ["specimen"]),
+    (_object(8, _media(80), refersTo=[{"title": "Herbarium specimens"}]), ["specimen"]),
 ])
-def test_taonga_pacific_collections_maori_subjects_and_specimens_are_excluded(
-        tmp_path: Path, record: dict[str, Any],
+def test_taonga_maori_subjects_and_specimens_are_kept_but_excluded_from_generation(
+        tmp_path: Path, record: dict[str, Any], reasons: list[str],
 ) -> None:
+    if record["collection"] == "TaongaMāori":
+        record["title"] = "Hei tiki"
     provider, _ = _provider(tmp_path, [Response(303, [record, _object(9, _media(90))]), Response(204)])
+
+    rows = {r["id"]: r for r in _rows(provider)}
+
+    flagged, plain = rows[str(record["hasRepresentation"][0]["id"])], rows["90"]
+    assert (flagged["generation_excluded"], flagged["generation_exclusion_reasons"]) == (True, reasons)
+    assert (plain["generation_excluded"], plain["generation_exclusion_reasons"]) == (False, [])
+
+
+def test_hard_excluded_collections_are_still_dropped(tmp_path: Path) -> None:
+    record = _object(1, _media(10), collection="History")
+    provider, _ = _provider(
+        tmp_path, [Response(303, [record, _object(9, _media(90))]), Response(204)], excluded_collections=["History"],
+    )
 
     assert [r["id"] for r in _rows(provider)] == ["90"]
 
@@ -133,7 +148,8 @@ def test_subject_terms_match_whole_words_only(tmp_path: Path) -> None:
     record = _object(1, _media(10), title="Papakura railway station, Waikanae")
     provider, _ = _provider(tmp_path, [Response(303, [record]), Response(204)])
 
-    assert [r["id"] for r in _rows(provider)] == ["10"]
+    rows = _rows(provider)
+    assert [(r["id"], r["generation_excluded"]) for r in rows] == [("10", False)]
 
 
 def test_a_failed_scroll_never_reports_the_key(tmp_path: Path) -> None:

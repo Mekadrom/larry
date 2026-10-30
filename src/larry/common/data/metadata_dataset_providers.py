@@ -1,10 +1,9 @@
 import functools
 import hashlib
-import json
 import os
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -18,6 +17,7 @@ from larry.common.config.data.preprocessing.dataset_configs import (
     PagedApiCachedDatasetConfig,
 )
 from larry.common.data.cached_dataset_providers import CachedDatasetProvider
+from larry.common.data.licenses import License
 from larry.common.data.utils import bot_user_agent
 
 
@@ -33,11 +33,15 @@ class FilteredMetadataCachedDatasetProvider[C: FilteredMetadataCachedDatasetConf
         pa.field("title", pa.string()),
         pa.field("description", pa.string()),
     ]
+    GENERATION_FIELDS: ClassVar[list[pa.Field]] = [
+        pa.field("generation_excluded", pa.bool_()),
+        pa.field("generation_exclusion_reasons", pa.list_(pa.string())),
+    ]
     EXTRA_FIELDS: ClassVar[list[pa.Field]] = []
 
     @functools.cached_property
     def schema(self) -> pa.Schema:
-        return pa.schema([*self.ATTRIBUTION_FIELDS, *self.EXTRA_FIELDS])
+        return pa.schema([*self.ATTRIBUTION_FIELDS, *self.GENERATION_FIELDS, *self.EXTRA_FIELDS])
 
     @property
     def metadata_path(self) -> Path:
@@ -45,6 +49,9 @@ class FilteredMetadataCachedDatasetProvider[C: FilteredMetadataCachedDatasetConf
 
     @property
     def shard_dir(self) -> Path:
+        if self.config.shards_dir is not None:
+            return Path(self.config.shards_dir).expanduser().resolve()
+
         return self.download_extract_cache_dir / "shards"
 
     @property
@@ -61,6 +68,12 @@ class FilteredMetadataCachedDatasetProvider[C: FilteredMetadataCachedDatasetConf
 
     def after_shard(self, unit: str) -> None:
         ...
+
+    @staticmethod
+    def require_canonical_licenses(configured: Iterable[str], known: Mapping[str, License]) -> None:
+        unmapped = [value for value in configured if value not in known]
+        if unmapped:
+            raise ValueError(f"no canonical license is known for {unmapped}")
 
     def sampled(self, row_id: str) -> bool:
         if self.config.sample_fraction >= 1.0:
@@ -89,6 +102,8 @@ class FilteredMetadataCachedDatasetProvider[C: FilteredMetadataCachedDatasetConf
                 if not self.sampled(row["id"]):
                     continue
 
+                reasons = row.setdefault("generation_exclusion_reasons", [])
+                row["generation_excluded"] = bool(reasons)
                 batch.append(row)
                 kept += 1
                 if len(batch) >= self.config.write_batch_rows:
@@ -108,7 +123,24 @@ class FilteredMetadataCachedDatasetProvider[C: FilteredMetadataCachedDatasetConf
             if field.name not in table.column_names:
                 table = table.append_column(field, pa.nulls(table.num_rows, field.type))
 
-        return table.select(self.schema.names).cast(self.schema)
+        table = table.select(self.schema.names).cast(self.schema)
+        reasons = table.column("generation_exclusion_reasons").to_pylist()
+        reasons = [r or [] for r in reasons]
+        table = self.set_column(table, "generation_exclusion_reasons", reasons)
+        return self.set_column(table, "generation_excluded", [bool(r) for r in reasons])
+
+    def set_column(self, table: pa.Table, name: str, values: list[Any]) -> pa.Table:
+        field = self.schema.field(name)
+        return table.set_column(self.schema.get_field_index(name), field, pa.array(values, field.type))
+
+    def add_generation_exclusions(self, table: pa.Table, reasons: list[str]) -> pa.Table:
+        if not reasons:
+            return table
+
+        existing = table.column("generation_exclusion_reasons").to_pylist()
+        merged = [list(dict.fromkeys([*(r or []), *reasons])) for r in existing]
+        table = self.set_column(table, "generation_exclusion_reasons", merged)
+        return self.set_column(table, "generation_excluded", [True] * table.num_rows)
 
     def shard_tables(self, unit: str) -> Iterator[pa.Table]:
         for batch in pq.ParquetFile(self.shard_path(unit)).iter_batches(self.config.write_batch_rows):
@@ -186,12 +218,8 @@ class PagedApiCachedDatasetProvider[C: PagedApiCachedDatasetConfig = PagedApiCac
 
         return key
 
-    @property
-    def cursors_path(self) -> Path:
-        return self.download_extract_cache_dir / "cursors.json"
-
     @abstractmethod
-    def request(self, cursor: str | None) -> tuple[list[Any], str | None]:
+    def request(self, unit: str, cursor: str | None) -> tuple[list[Any], str | None]:
         ...
 
     @abstractmethod
@@ -203,37 +231,10 @@ class PagedApiCachedDatasetProvider[C: PagedApiCachedDatasetConfig = PagedApiCac
         response.raise_for_status()
         return response.json()
 
-    def load_cursors(self) -> dict[str, str | None]:
-        if not self.cursors_path.exists():
-            return {}
+    def units(self) -> Iterable[str]:
+        return ["all"]
 
-        return json.loads(self.cursors_path.read_text())
-
-    def save_cursor(self, page: int, cursor: str | None) -> None:
-        cursors = self.load_cursors()
-        cursors[str(page)] = cursor
-        partial = self.cursors_path.with_name(f"{self.cursors_path.name}.part")
-        partial.write_text(json.dumps(cursors))
-        partial.rename(self.cursors_path)
-
-    @staticmethod
-    def unit_name(page: int) -> str:
-        return f"page-{page:08d}"
-
-    def units(self) -> Iterator[str]:
-        page = 0
-        while self.config.max_pages is None or page < self.config.max_pages:
-            yield self.unit_name(page)
-            cursors = self.load_cursors()
-            if str(page + 1) not in cursors:
-                raise RuntimeError(f"{self.unit_name(page)} has a shard but no saved cursor for the page after it")
-
-            if cursors[str(page + 1)] is None:
-                return
-
-            page += 1
-
-    def fetch(self, cursor: str | None) -> tuple[list[Any], str | None]:
+    def call[T](self, request: Callable[[], T]) -> T:
         attempt = 0
         while True:
             wait = self.config.min_request_interval - (time.monotonic() - self.last_request)
@@ -242,7 +243,7 @@ class PagedApiCachedDatasetProvider[C: PagedApiCachedDatasetConfig = PagedApiCac
 
             self.last_request = time.monotonic()
             try:
-                return self.request(cursor)
+                return request()
             except (requests.RequestException, ValueError) as e:
                 attempt += 1
                 response = getattr(e, "response", None)
@@ -254,10 +255,17 @@ class PagedApiCachedDatasetProvider[C: PagedApiCachedDatasetConfig = PagedApiCac
                 self.log.warning(f"request failed ({reason}); retry {attempt} in {delay:.0f}s")
                 time.sleep(delay)
 
+    def fetch(self, unit: str, cursor: str | None) -> tuple[list[Any], str | None]:
+        return self.call(lambda: self.request(unit, cursor))
+
     def rows(self, unit: str) -> Iterator[dict[str, Any]]:
-        page = int(unit.removeprefix("page-"))
-        cursor = self.load_cursors().get(str(page)) if page else None
-        records, next_cursor = self.fetch(cursor)
-        self.save_cursor(page + 1, next_cursor)
-        for record in records:
-            yield from self.rows_from_record(record)
+        cursor: str | None = None
+        pages = 0
+        while True:
+            records, cursor = self.fetch(unit, cursor)
+            pages += 1
+            for record in records:
+                yield from self.rows_from_record(record)
+
+            if cursor is None or (self.config.max_pages is not None and pages >= self.config.max_pages):
+                return

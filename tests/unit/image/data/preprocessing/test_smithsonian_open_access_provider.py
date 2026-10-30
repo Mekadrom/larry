@@ -6,7 +6,7 @@ from typing import Any
 import pyarrow.parquet as pq
 
 from larry.image.config.preprocessing.image_dataset_configs import SmithsonianOpenAccessCachedDatasetConfig
-from larry.image.data.preprocessing.image_dataset_providers import SmithsonianOpenAccessCachedDatasetProvider
+from larry.image.data.preprocessing.image_dataset_providers import SmithsonianOpenAccessCachedDatasetProvider, clean_text
 
 BUCKET = "https://smithsonian-open-access.s3-us-west-2.amazonaws.com"
 IDS = "https://ids.si.edu/ids/deliveryService"
@@ -178,9 +178,9 @@ def test_text_is_cleaned_of_markup_and_gathered_from_every_label(tmp_path: Path)
     ]}
 
     assert provider.description(freetext) == "A fine jar & lid.\n\nFront view."
-    assert provider.clean_text("<I>The Nation's Prayer Call</I>") == "The Nation's Prayer Call"
-    assert provider.clean_text("(Catlin, &lt;i&gt;Letters&lt;/i&gt;)") == "(Catlin, Letters)"
-    assert provider.clean_text("the letters <>IS in black") == "the letters <>IS in black"
+    assert clean_text("<I>The Nation's Prayer Call</I>") == "The Nation's Prayer Call"
+    assert clean_text("(Catlin, &lt;i&gt;Letters&lt;/i&gt;)") == "(Catlin, Letters)"
+    assert clean_text("the letters <>IS in black") == "the letters <>IS in black"
 
 
 def test_descriptions_are_rebuilt_from_stored_text_when_merging(tmp_path: Path) -> None:
@@ -213,3 +213,31 @@ def test_shards_written_before_a_column_existed_still_merge(tmp_path: Path) -> N
         pq.write_table(pq.read_table(shard).drop_columns(["texts"]), shard)
 
     assert _rows(provider)[0]["texts"][0]["content"] == "About nmah_1"
+
+
+def test_natural_history_units_are_kept_but_excluded_from_generation(tmp_path: Path) -> None:
+    rows = {r["id"]: r for r in _rows(_provider(tmp_path))}
+
+    botany, history = rows["ark:/65665/m3abc"], rows["NMAH-1"]
+    assert (botany["generation_excluded"], botany["generation_exclusion_reasons"]) == (True, ["specimen"])
+    assert (history["generation_excluded"], history["generation_exclusion_reasons"]) == (False, [])
+
+
+def test_two_configs_can_share_shards_and_split_units(tmp_path: Path) -> None:
+    main = _provider(tmp_path / "main", excluded_units=["nmnhbotany"])
+    main_rows = _rows(main)
+    herbarium = SmithsonianOpenAccessCachedDatasetProvider(dataclasses.replace(
+        main.config, download_extract_cache_dir=str(tmp_path / "herbarium"), shards_dir=str(main.shard_dir),
+        excluded_units=[], units=["nmnhbotany"],
+    ))
+    herbarium.config.metadata_prefix = main.config.metadata_prefix
+    for path in (tmp_path / "main" / main.config.metadata_prefix).rglob("index.txt"):
+        target = tmp_path / "herbarium" / path.relative_to(tmp_path / "main")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(path.read_text())
+
+    herbarium_rows = _rows(herbarium)
+
+    assert {r["unit_code"] for r in main_rows} == {"NMAH"}
+    assert {r["unit_code"] for r in herbarium_rows} == {"NMNHBOTANY"}
+    assert not (tmp_path / "herbarium" / "shards").exists()

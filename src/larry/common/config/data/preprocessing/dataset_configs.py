@@ -111,6 +111,7 @@ class MediaCachedDatasetConfig(CachedDatasetConfig, ABC):
 @dataclasses.dataclass(kw_only=True)
 class FilteredMetadataCachedDatasetConfig(CachedDatasetConfig, ABC):
     metadata_file: str
+    shards_dir: str | None = None
     sample_fraction: float = 1.0
     deduplicate_ids: bool = True
     write_batch_rows: int = 50000

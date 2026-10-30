@@ -1,0 +1,31 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: IndexedSourceDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/index/image/vae/smithsonian_open_access_herbarium-index-vae/
+  split_sources:
+    train: train
+  source_path: /home/zadar/.cache/larry/datasets/normalized/image/smithsonian_open_access_herbarium-normalized/
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/image/caption/smithsonian_open_access_herbarium-index-caption/
+pipeline:
+  extract_visual_description:
+    type: VisualDescriptionExtractingMapperConfig
+    input_column: description
+  select_caption:
+    type: CaptionSelectingMapperConfig
+    filter_null_outputs: true
+    caption_columns:
+      - visual_description
+      - media_caption
+      - title
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id
+      - caption
+      - caption_source
+      - generation_excluded
+      - generation_exclusion_reasons

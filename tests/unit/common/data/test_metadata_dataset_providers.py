@@ -133,21 +133,30 @@ class PagesConfig(PagedApiCachedDatasetConfig):
 
 
 class PagesProvider(PagedApiCachedDatasetProvider[PagesConfig], register=False):
-    PAGES = {None: (["a", "b"], "c2"), "c2": (["c"], "c3"), "c3": (["d", "a"], None)}
+    PAGES = {
+        "east": {None: (["a", "b"], "c2"), "c2": (["c"], "c3"), "c3": (["d", "a"], None)},
+        "west": {None: (["e"], None)},
+    }
 
-    def __init__(self, config: PagesConfig, failures: int = 0, fail_on: str | None = "c2") -> None:
+    def __init__(
+            self, config: PagesConfig, failures: int = 0, fail_on: str | None = "c2", units: tuple[str, ...] = ("east",),
+    ) -> None:
         super().__init__(config)
         self.failures = failures
         self.fail_on = fail_on
-        self.cursors: list[str | None] = []
+        self.unit_names = units
+        self.requests: list[tuple[str, str | None]] = []
 
-    def request(self, cursor: str | None) -> tuple[list[Any], str | None]:
-        self.cursors.append(cursor)
+    def units(self) -> Iterable[str]:
+        return list(self.unit_names)
+
+    def request(self, unit: str, cursor: str | None) -> tuple[list[Any], str | None]:
+        self.requests.append((unit, cursor))
         if cursor == self.fail_on and self.failures:
             self.failures -= 1
             raise requests.ConnectionError("https://example.org/api?key=secret")
 
-        records, next_cursor = self.PAGES[cursor]
+        records, next_cursor = self.PAGES[unit][cursor]
         return [{"key": r} for r in records], next_cursor
 
     def rows_from_record(self, record: Any) -> Iterable[dict[str, Any]]:
@@ -155,7 +164,8 @@ class PagesProvider(PagedApiCachedDatasetProvider[PagesConfig], register=False):
 
 
 def _pages(tmp_path: Path, **kwargs: Any) -> PagesProvider:
-    overrides = {k: kwargs.pop(k) for k in list(kwargs) if k not in ("failures", "fail_on")}
+    own = ("failures", "fail_on", "units")
+    overrides = {k: kwargs.pop(k) for k in list(kwargs) if k not in own}
     config = PagesConfig(**{"download_extract_cache_dir": str(tmp_path), "cache_dir": str(tmp_path / "hf"), **overrides})
     return PagesProvider(config, **kwargs)
 
@@ -164,24 +174,31 @@ def test_pages_are_followed_until_the_cursor_runs_out(tmp_path: Path) -> None:
     provider = _pages(tmp_path)
 
     assert [r["id"] for r in _read(provider)] == ["a", "b", "c", "d"]
-    assert provider.cursors == [None, "c2", "c3"]
+    assert provider.requests == [("east", None), ("east", "c2"), ("east", "c3")]
 
 
-def test_a_stopped_run_resumes_from_the_saved_cursor(tmp_path: Path) -> None:
-    first = _pages(tmp_path, max_pages=2)
-    _read(first)
+def test_each_unit_is_paged_on_its_own_and_finished_units_are_not_refetched(tmp_path: Path) -> None:
+    first = _pages(tmp_path, units=("east", "west"))
+    rows = _read(first)
     first.metadata_path.unlink()
-    second = _pages(tmp_path)
+    second = _pages(tmp_path, units=("east", "west"))
 
-    assert [r["id"] for r in _read(second)] == ["a", "b", "c", "d"]
-    assert second.cursors == ["c3"]
+    assert [r["id"] for r in rows] == ["a", "b", "c", "d", "e"]
+    assert [r["id"] for r in _read(second)] == ["a", "b", "c", "d", "e"]
+    assert second.requests == []
+
+
+def test_max_pages_limits_each_unit(tmp_path: Path) -> None:
+    provider = _pages(tmp_path, max_pages=2)
+
+    assert [r["id"] for r in _read(provider)] == ["a", "b", "c"]
 
 
 def test_failed_requests_are_retried(tmp_path: Path) -> None:
     provider = _pages(tmp_path, failures=2)
 
     assert [r["id"] for r in _read(provider)] == ["a", "b", "c", "d"]
-    assert provider.cursors == [None, "c2", "c2", "c2", "c3"]
+    assert [c for _, c in provider.requests] == [None, "c2", "c2", "c2", "c3"]
 
 
 def test_giving_up_does_not_leak_the_request_url(tmp_path: Path) -> None:

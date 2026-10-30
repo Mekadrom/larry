@@ -26,3 +26,5 @@ pipeline:
       - id
       - caption
       - caption_source
+      - generation_excluded
+      - generation_exclusion_reasons

@@ -1,0 +1,19 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: DefaultDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/index/image/latent/te_papa-index-latent/
+  name: ~
+  split: ~
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/image/generation/te_papa-index-generation/
+pipeline:
+  prune_generation_excluded:
+    type: ColumnValuesPrunerConfig
+    input_columns:
+      - generation_excluded
+    op: matches
+    op_config:
+      values:
+        - false
