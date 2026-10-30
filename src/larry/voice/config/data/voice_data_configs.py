@@ -22,6 +22,8 @@ class ASRSourceConfig(SpeechSourceConfig, TextSourceConfig):
 @dataclasses.dataclass(kw_only=True)
 class TTSSourceConfig(SpeechSourceConfig):
     unit_ids_column: str = "unit_ids"
+    f0_column: str | None = "f0"
+    aperiodicity_column: str | None = "aperiodicity"
 
 
 @dataclasses.dataclass(kw_only=True)

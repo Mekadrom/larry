@@ -18,6 +18,12 @@ pipeline:
   encode:
     type: LarrySpeechEncoderUnitIdExtractingMapperConfig
     speech_encoder_checkpoint_path: /home/zadar/.cache/larry/models/voice/larry-speech-encoder/
+  extract_world:
+    type: WorldFeatureExtractingMapperConfig
+    audio_column: audio
+    hop_length: 320
+    f0_method: dio
+    n_aperiodicity_bands: 8
   minify_index:
     type: SelectColumnsPreprocessorConfig
     keep_columns:
@@ -25,3 +31,5 @@ pipeline:
       - id
       - unit_ids
       - frame_lengths
+      - f0
+      - aperiodicity

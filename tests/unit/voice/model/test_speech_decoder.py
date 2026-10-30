@@ -185,11 +185,12 @@ def test_infill_is_off_by_default_and_keeps_the_two_input_architecture() -> None
     model = _model()
 
     assert not model.config.infill_enabled
-    assert model.backbone.embed.in_channels == 2 * 80
+    assert model.harmonics is not None
+    assert model.backbone.embed.in_channels == 2 * 80 + model.harmonics.channels
 
 
 def test_infill_hides_one_span_and_only_trains_on_it() -> None:
-    model = _model(infill_enabled=True, cfg_dropout_rate=0.0).train()
+    model = _model(infill_enabled=True, cfg_dropout_rate=0.0, prosody_conditioning=False).train()
     assert model.backbone.embed.in_channels == 3 * 80
 
     output = model(**_batch())

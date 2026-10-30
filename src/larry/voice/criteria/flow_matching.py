@@ -38,11 +38,22 @@ class SpeechDecoderCriterion(ConditionalFlowMatchingCriterion[SpeechDecoderModel
             **batch_kwargs: Any,
     ) -> dict[str, LossTerm]:
         kl = model_output.kl
-        return {
+        terms = {
             "flow": self.flow_term(model_output),
             "prior": self.prior_term(model_output),
             "kl": LossTerm(weight=self.kl_scale(step), sums=kl, counts=torch.ones_like(kl)),
         }
+        if model_output.f0_range is not None:
+            terms["f0_range"] = self.f0_range_term(model_output)
+
+        return terms
+
+    def f0_range_term(self, model_output: SpeechDecoderModelOutput) -> LossTerm:
+        assert model_output.f0_range is not None and model_output.f0_range_targets is not None
+        assert model_output.f0_range_mask is not None
+        mask = model_output.f0_range_mask.to(model_output.f0_range.dtype)
+        squared = (model_output.f0_range - model_output.f0_range_targets.to(model_output.f0_range.dtype)).pow(2)
+        return LossTerm(weight=self.config.f0_range_weight, sums=squared.sum(dim=1) * mask, counts=2 * mask)
 
 
 class VocoderCriterion(ConditionalFlowMatchingCriterion[LarryVocoderOutput, VocoderCriterionConfig]):

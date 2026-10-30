@@ -92,6 +92,16 @@ class SpeechDecoderModelConfig(
     infill_min_fraction: float = 0.7
     infill_max_fraction: float = 1.0
 
+    prosody_conditioning: bool = True
+    harmonic_mode: Literal["comb", "sinusoid"] = "comb"
+    n_harmonics: int = 8
+    comb_sharpness: float = 8.0
+    use_aperiodicity: bool = True
+    n_aperiodicity_bands: int = 8
+    f0_dropout_rate: float = 0.1
+    f0_range_hidden_dim: int = 256
+    true_f0_steps: int = 10_000
+
 
 @dataclasses.dataclass(kw_only=True)
 class LarryVocoderConfig(VoiceModelConfig, FlowMatchingConfig):

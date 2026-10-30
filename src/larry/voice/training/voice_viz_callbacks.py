@@ -1,3 +1,4 @@
+import math
 import textwrap
 from abc import ABC, abstractmethod
 from typing import Any, cast
@@ -287,12 +288,28 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
             cfg_scale: float = 2.0,
             sway_coefficient: float | None = -1.0,
             seed: int = 0,
+            flat_f0_hz: float = 165.0,
     ) -> None:
         super().__init__(trainer, viz_steps)
         self.generation_steps = generation_steps
         self.cfg_scale = cfg_scale
         self.sway_coefficient = sway_coefficient
         self.seed = seed
+        self.flat_f0_hz = flat_f0_hz
+
+    def prosody_variants(self, batch: dict[str, Any], device: torch.device) -> dict[str, dict[str, Any]]:
+        if "f0" not in batch:
+            return {"no_f0": {}}
+
+        f0 = batch["f0"].to(device)
+        aperiodicity = batch["aperiodicity"].to(device) if "aperiodicity" in batch else None
+        flat = torch.where(f0 > 0, torch.full_like(f0, self.flat_f0_hz), torch.zeros_like(f0))
+        flat_mean = torch.full((f0.shape[0],), math.log(self.flat_f0_hz), device=device)
+        return {
+            "true_f0": {"f0": f0, "aperiodicity": aperiodicity},
+            "no_f0": {},
+            "flat_f0": {"f0": flat, "aperiodicity": aperiodicity, "log_f0_mean": flat_mean},
+        }
 
     def _viz(
             self,
@@ -306,39 +323,43 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
         decoder = cast(SpeechDecoderModel, model)
         was_training = decoder.training
         decoder.eval()
+        generations = {}
         try:
             with torch.no_grad(), self.trainer.accelerator.autocast():
                 real, real_lengths = decoder.frontend(
                     batch["waveforms"].to(device), batch["waveform_lengths"].to(device)
                 )
-                generated = decoder.generate(
-                    batch["unit_ids"].to(device),
-                    batch["unit_id_lengths"].to(device),
-                    batch["speaker_ids"].to(device),
-                    steps=self.generation_steps,
-                    cfg_scale=self.cfg_scale,
-                    generator=torch.Generator(device=device).manual_seed(self.seed),
-                    sway_coefficient=self.sway_coefficient,
-                )
+                for name, prosody in self.prosody_variants(batch, device).items():
+                    generations[name] = decoder.generate(
+                        batch["unit_ids"].to(device),
+                        batch["unit_id_lengths"].to(device),
+                        batch["speaker_ids"].to(device),
+                        steps=self.generation_steps,
+                        cfg_scale=self.cfg_scale,
+                        generator=torch.Generator(device=device).manual_seed(self.seed),
+                        sway_coefficient=self.sway_coefficient,
+                        **prosody,
+                    )
         finally:
             decoder.train(was_training)
 
         frame_seconds = model_config.hop_length / model_config.sample_rate
-        l1s = []
-        for i, item in enumerate(items):
-            tag = f"viz/{i}/{self.trainer.config.mixture_config.eval_sources[item['source']].name}"
-            frames = int(torch.minimum(real_lengths[i], generated.mel_lengths[i]))
-            real_mel = real[i, :, :frames].float().cpu()
-            fake_mel = generated.mels[i, :, :frames].float().cpu()
-            l1 = float((fake_mel - real_mel).abs().mean())
-            l1s.append(l1)
+        for name, generated in generations.items():
+            l1s = []
+            for i, item in enumerate(items):
+                tag = f"viz/{i}/{self.trainer.config.mixture_config.eval_sources[item['source']].name}/{name}"
+                frames = int(torch.minimum(real_lengths[i], generated.mel_lengths[i]))
+                real_mel = real[i, :, :frames].float().cpu()
+                fake_mel = generated.mels[i, :, :frames].float().cpu()
+                l1 = float((fake_mel - real_mel).abs().mean())
+                l1s.append(l1)
 
-            self.trainer.metrics.add_figure(
-                f"{tag}/comparison", self.comparison_figure(real_mel, fake_mel, frame_seconds), step
-            )
-            self.trainer.metrics.add_scalar(f"{tag}/mel_l1", l1, step)
+                self.trainer.metrics.add_figure(
+                    f"{tag}/comparison", self.comparison_figure(real_mel, fake_mel, frame_seconds), step
+                )
+                self.trainer.metrics.add_scalar(f"{tag}/mel_l1", l1, step)
 
-        self.trainer.metrics.add_scalar("viz/mel_l1", sum(l1s) / max(len(l1s), 1), step)
+            self.trainer.metrics.add_scalar(f"viz/{name}/mel_l1", sum(l1s) / max(len(l1s), 1), step)
 
 
 class VocoderVizCallback(VoiceVizCallback):

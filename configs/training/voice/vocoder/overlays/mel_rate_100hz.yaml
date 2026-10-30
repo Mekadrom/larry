@@ -1,4 +1,0 @@
-model:
-  hop_length: 160
-  stft_hop_length: 160
-  stft_n_fft: 640

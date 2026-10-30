@@ -163,7 +163,7 @@ class SpeechDecoderCollator:
             source_ids.append(item["source"])
             speaker_ids.append(item["speaker_id"])
 
-        return {
+        batch = {
             "waveforms": pad_sequence(waveforms, batch_first=True),
             "waveform_lengths": torch.tensor(waveform_lengths),
             "unit_ids": pad_sequence(unit_ids, batch_first=True),
@@ -171,3 +171,8 @@ class SpeechDecoderCollator:
             "source_ids": torch.tensor(source_ids, dtype=torch.long),
             "speaker_ids": torch.tensor(speaker_ids, dtype=torch.long),
         }
+        for key in ("f0", "aperiodicity"):
+            if all(key in item for item in items):
+                batch[key] = pad_sequence([item[key] for item in items], batch_first=True)
+
+        return batch

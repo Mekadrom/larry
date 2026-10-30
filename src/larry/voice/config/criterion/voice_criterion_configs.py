@@ -20,6 +20,7 @@ class SpeechDecoderCriterionConfig(CriterionConfig):
     kl_weight: float = 1e-4
     kl_warmup_steps: int = 10_000
     prior_weight: float = 1.0
+    f0_range_weight: float = 1.0
 
 
 @dataclasses.dataclass(kw_only=True)

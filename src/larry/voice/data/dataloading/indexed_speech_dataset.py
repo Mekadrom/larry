@@ -105,12 +105,22 @@ class IndexedTTSDataset(IndexedSpeechDataset[TTSSourceConfig]):
         self.speaker_mapping = speaker_mapping
 
     def format_example_dict(self, source_idx: int, entry: dict[Any, Any], data: Any) -> dict[str, Any]:
-        col = self.configs[source_idx].speaker_id_column
+        config = self.configs[source_idx]
+        col = config.speaker_id_column
+
         speaker_id_raw = entry[col] if col is not None else None
-        speaker_id = self.speaker_mapping[SpeakerMapping.key(self.configs[source_idx], speaker_id_raw)]
-        return {
+        speaker_id = self.speaker_mapping[SpeakerMapping.key(config, speaker_id_raw)]
+        item = {
             "waveform": bytes_to_waveforms(data["bytes"], self.sample_rate)[0],
-            "unit_ids": entry[self.configs[source_idx].unit_ids_column],
+            "unit_ids": entry[config.unit_ids_column],
             "speaker_id": speaker_id,
             "source": source_idx,
         }
+
+        if config.f0_column is not None and entry.get(config.f0_column) is not None:
+            item["f0"] = torch.as_tensor(entry[config.f0_column], dtype=torch.float32)
+
+        if config.aperiodicity_column is not None and entry.get(config.aperiodicity_column) is not None:
+            item["aperiodicity"] = torch.as_tensor(entry[config.aperiodicity_column], dtype=torch.float32)
+
+        return item

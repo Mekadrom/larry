@@ -384,12 +384,16 @@ class SpeechDecoderTrainer(
         return voice_viz_callbacks.SpeechDecoderVizCallback(self, viz_steps)
 
     def _model_forward(self, batch: Mapping[str, Any]) -> SpeechDecoderModelOutput:
+        use_true_f0 = self.model.training and self.train_state.global_step < self.unwrapped_model.config.true_f0_steps
         return self.model(
             batch["unit_ids"],
             batch["unit_id_lengths"],
             batch["speaker_ids"],
             batch["waveforms"],
             batch["waveform_lengths"],
+            f0=batch.get("f0"),
+            aperiodicity=batch.get("aperiodicity"),
+            use_true_f0=use_true_f0,
         )
 
     def criterion_kwargs(self, batch: Mapping[str, Any]) -> dict[str, Any]:

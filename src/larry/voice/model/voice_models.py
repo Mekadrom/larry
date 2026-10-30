@@ -33,6 +33,10 @@ class SpeechDecoderModelOutput(LarryFlowMatchingOutput, LarryModelOutput):
     prior_targets: torch.Tensor
     frame_mask: torch.Tensor
 
+    f0_range: torch.Tensor | None = None
+    f0_range_targets: torch.Tensor | None = None
+    f0_range_mask: torch.Tensor | None = None
+
 
 @dataclasses.dataclass(kw_only=True)
 class LarryVocoderOutput(LarryFlowMatchingOutput):

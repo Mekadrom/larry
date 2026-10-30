@@ -31,24 +31,30 @@ class RecordingMetrics:
         self.scalars[tag] = value
 
 
-def _source(name: str, seconds: list[float]) -> Dataset:
-    return Dataset.from_dict({
+def _source(name: str, seconds: list[float], with_f0: bool = False) -> Dataset:
+    columns: dict[str, list[Any]] = {
         "id": [f"{name}{i}" for i in range(len(seconds))],
         "audio": [{"bytes": wav(s, 16_000, frequency=220 + 70 * i), "path": None} for i, s in enumerate(seconds)],
         "unit_ids": [[(i * 7 + k) % 81 for k in range(int(s * 25))] for i, s in enumerate(seconds)],
         "speaker_id": [f"s{i % 2}" for i in range(len(seconds))],
         "duration_s": seconds,
-    })
+    }
+    if with_f0:
+        frames = [int(s * 16_000) // 320 + 1 for s in seconds]
+        columns["f0"] = [[0.0 if k % 5 == 0 else 180.0 + 10 * (k % 3) for k in range(n)] for n in frames]
+        columns["aperiodicity"] = [[[0.2] * 8 for _ in range(n)] for n in frames]
+    return Dataset.from_dict(columns)
 
 
-def _trainer() -> tuple[SpeechDecoderTrainer, RecordingMetrics]:
+def _trainer(with_f0: bool = False) -> tuple[SpeechDecoderTrainer, RecordingMetrics]:
     torch.manual_seed(0)
     configs = [TTSSourceConfig(name="a", index_path="a"), TTSSourceConfig(name="b", index_path="b")]
     mapping = SpeakerMapping()
     for config in configs:
         for speaker in ("s0", "s1"):
             mapping.add_item(SpeakerMapping.key(config, speaker))
-    dataset = IndexedTTSDataset(configs, [_source("a", [1.2, 0.6]), _source("b", [0.9])], [None, None], 16_000, mapping)
+    sources = [_source("a", [1.2, 0.6], with_f0), _source("b", [0.9], with_f0)]
+    dataset = IndexedTTSDataset(configs, sources, [None, None], 16_000, mapping)
     metrics = RecordingMetrics()
     model = SpeechDecoderModel(tiny_config(n_speakers=len(mapping.items)))
     trainer = uninitialized(
@@ -128,7 +134,36 @@ def test_viz_logs_a_comparison_per_example_and_restores_training_mode() -> None:
 
     callback.viz(10)
 
-    assert sorted(metrics.figures) == ["viz/0/a/comparison", "viz/1/a/comparison", "viz/2/b/comparison"]
-    assert {"viz/0/a/mel_l1", "viz/mel_l1"} <= set(metrics.scalars)
+    assert sorted(metrics.figures) == [
+        "viz/0/a/no_f0/comparison", "viz/1/a/no_f0/comparison", "viz/2/b/no_f0/comparison",
+    ]
+    assert {"viz/0/a/no_f0/mel_l1", "viz/no_f0/mel_l1"} <= set(metrics.scalars)
     assert all(torch.isfinite(torch.tensor(v)) for v in metrics.scalars.values())
     assert trainer.model.training
+
+
+def test_viz_renders_true_flat_and_no_f0_versions_when_the_data_has_f0() -> None:
+    trainer, metrics = _trainer(with_f0=True)
+    callback = SpeechDecoderVizCallback(trainer, viz_steps=10, generation_steps=2)
+
+    callback.viz(10)
+
+    assert {f"viz/{name}/mel_l1" for name in ("true_f0", "no_f0", "flat_f0")} <= set(metrics.scalars)
+    assert "viz/2/b/flat_f0/comparison" in metrics.figures
+    assert all(torch.isfinite(torch.tensor(v)) for v in metrics.scalars.values())
+
+
+def test_training_with_f0_adds_the_range_term_and_uses_true_f0_only_during_warmup() -> None:
+    trainer, _ = _trainer(with_f0=True)
+    trainer.model.train()
+    batch = _eval_batch(trainer)
+    seen: list[bool] = []
+    forward = trainer.model.forward
+    trainer.model.forward = lambda *a, **k: seen.append(k["use_true_f0"]) or forward(*a, **k)
+
+    output = trainer._forward_pass(batch)
+    trainer.train_state.global_step = trainer.unwrapped_model.config.true_f0_steps
+
+    trainer._forward_pass(batch)
+    assert "f0_range" in (output.terms or {})
+    assert seen == [True, False]
