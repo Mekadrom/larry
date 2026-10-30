@@ -23,7 +23,7 @@ pipeline:
     writer_batch_size: 64
     busy_wait: 0.0
     filter_null_outputs: true
-    download_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/smithsonian_open_access_herbarium-normalized/images/
+    download_cache_dir: /home/zadar/.cache/larry/download_extract/normalized/image/smithsonian_open_access-normalized/images/
   resize_images:
     type: ImageResizingMapperConfig
     batch_size: 64

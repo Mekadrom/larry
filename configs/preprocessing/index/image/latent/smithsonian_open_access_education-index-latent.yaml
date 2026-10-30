@@ -1,0 +1,30 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: IndexedSourceDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/index/image/caption/smithsonian_open_access_education-index-caption/
+  split_sources:
+    train: train
+  source_path: /home/zadar/.cache/larry/datasets/normalized/image/smithsonian_open_access_education-normalized/
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/image/latent/smithsonian_open_access_education-index-latent/
+pipeline:
+  skip_image_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      image: image_no_decode
+  encode:
+    type: LarryImageVAELatentExtractingMapperConfig
+    vae_checkpoint_path: /home/zadar/.cache/larry/models/image/larry-image-vae/
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id
+      - caption
+      - caption_source
+      - generation_excluded
+      - generation_exclusion_reasons
+      - latents
+      - latent_shape

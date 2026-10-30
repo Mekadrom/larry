@@ -1,0 +1,25 @@
+preprocessor:
+  provenance:
+    id_columns:
+      - id
+dataset:
+  type: DefaultDatasetConfig
+  path: /home/zadar/.cache/larry/datasets/normalized/image/smithsonian_open_access_education-normalized/
+  name: ~
+  split: ~
+  cache_dir: /home/zadar/.cache/larry/intermediates/index/image/vae/smithsonian_open_access_education-index-vae/
+pipeline:
+  assign_row_index:
+    type: RowIndexAssigningPreprocessorConfig
+  skip_image_decoding:
+    type: ColumnCastingPreprocessorConfig
+    column_casts:
+      image: image_no_decode
+  prune_aspect_ratio:
+    type: ImageAspectRatioPrunerConfig
+    max_aspect_ratio: 4.0
+  minify_index:
+    type: SelectColumnsPreprocessorConfig
+    keep_columns:
+      - row
+      - id
