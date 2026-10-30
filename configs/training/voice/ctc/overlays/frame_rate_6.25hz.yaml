@@ -1,0 +1,6 @@
+model:
+  frame_merge: 4
+  n_premerge_layers: 3
+  merged_fsmn_kernel_size: 7
+  fsq_levels: [8, 8, 8, 5, 5, 5]
+  ctc_upsample: 4
