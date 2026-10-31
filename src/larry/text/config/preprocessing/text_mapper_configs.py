@@ -67,6 +67,7 @@ class CaptionSelectingMapperConfig(MapperConfig):
     output_column: str = "caption"
     source_output_column: str = "caption_source"
     min_characters: int = 1
+    item_key: str = "caption"
 
     def required_input_columns(self) -> list[str]:
         return list(self.caption_columns)

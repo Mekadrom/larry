@@ -36,3 +36,12 @@ def test_short_text_is_skipped_and_captionless_rows_can_be_filtered() -> None:
 
     assert mapped["caption"] == ["Unidentified Man"]
     assert mapped["caption_source"] == ["title"]
+
+
+def test_lists_of_caption_records_use_their_caption_field() -> None:
+    mapped = _select({"captions": [
+        [{"id": 1, "caption": " "}, {"id": 2, "caption": "A white vase with flowers."}],
+        [{"id": 3, "caption": None}],
+    ]}, ["captions"])
+
+    assert mapped["caption"] == ["A white vase with flowers.", None]

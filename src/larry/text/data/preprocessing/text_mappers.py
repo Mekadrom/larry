@@ -85,7 +85,8 @@ class VisualDescriptionExtractingMapper(Mapper[VisualDescriptionExtractingMapper
 class CaptionSelectingMapper(Mapper[CaptionSelectingMapperConfig]):
     def candidate(self, value: Any) -> str | None:
         if isinstance(value, list):
-            value = next((v for v in value if isinstance(v, str) and v.strip()), None)
+            items = (v.get(self.config.item_key) if isinstance(v, dict) else v for v in value)
+            value = next((v for v in items if isinstance(v, str) and v.strip()), None)
 
         if not isinstance(value, str):
             return None

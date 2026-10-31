@@ -96,6 +96,7 @@ All voice data as redistributed (again, where applicable) or trained on is filte
 All image data will be filtered by per-image licenses where necessary.
 
 Pretrain:
+- COCO 2017
 - Cleveland CC0 print images
 - Smithsonian Open Access (CC0 subset)
 - Art institute of Chicago dump
@@ -125,7 +126,6 @@ Pretrain:
 - CDC PHIL (public domain subset)
 - Custom Flickr crawl for PD/CC0 images, unfiltered
 - ~~Open Images~~ - rows filtered by proprietary image models, which is excluded for now
-- ~~COCO 2017~~
 - ~~Localized Narratives~~ - flickr crawl, individual images can be filtered
 - ~~iNaturalist~~ - while the images are CC0 or CC-BY, the distribution prohibits commercial and non-open source 
 derivatives
