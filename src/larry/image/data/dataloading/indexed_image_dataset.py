@@ -2,8 +2,8 @@ import itertools
 from typing import Any
 
 import torch
-from PIL import Image
 from datasets import Dataset as HFDataset
+from PIL import Image
 from torchcodec.decoders import ImageReadMode, decode_image
 from torchvision.transforms.v2 import functional as TVF
 

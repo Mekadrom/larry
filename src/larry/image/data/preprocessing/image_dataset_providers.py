@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 import html
 import json
 import re
@@ -8,7 +9,7 @@ import tarfile
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import IO, Any, ClassVar
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlparse
 
 import duckdb
 import pyarrow as pa
@@ -23,6 +24,7 @@ from larry.common.data.metadata_dataset_providers import (
 from larry.common.data.term_matching import TermMatcher
 from larry.image.config.preprocessing.image_dataset_configs import (
     ArtInstituteOfChicagoCachedDatasetConfig,
+    EuropeanaCachedDatasetConfig,
     GoogleDOCCIMediaCachedDatasetConfig,
     NASAImageLibraryCachedDatasetConfig,
     SmithsonianOpenAccessCachedDatasetConfig,
@@ -722,4 +724,142 @@ class NASAImageLibraryCachedDatasetProvider(PagedApiCachedDatasetProvider[NASAIm
             "photographer": data.get("photographer"),
             "secondary_creator": data.get("secondary_creator"),
             "location": data.get("location"),
+        }
+
+
+class EuropeanaCachedDatasetProvider(PagedApiCachedDatasetProvider[EuropeanaCachedDatasetConfig]):
+    LICENSES: ClassVar[dict[str, License]] = {
+        "http://creativecommons.org/publicdomain/zero/1.0/": License.CC0,
+        "http://creativecommons.org/publicdomain/mark/1.0/": License.PUBLIC_DOMAIN,
+    }
+    EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
+        *IMAGE_FIELDS,
+        pa.field("text_language", pa.string()),
+        pa.field("data_provider", pa.string()),
+        pa.field("aggregator", pa.string()),
+        pa.field("country", pa.string()),
+        pa.field("dataset_name", pa.string()),
+        pa.field("subjects", pa.list_(pa.string())),
+        pa.field("types", pa.list_(pa.string())),
+    ]
+
+    def __init__(self, config: EuropeanaCachedDatasetConfig) -> None:
+        super().__init__(config)
+        self.require_canonical_licenses(config.rights, self.LICENSES)
+        self.unit_providers: dict[str, str] = {}
+        self.provider_reasons = {
+            provider: [reason for reason, names in config.generation_excluded_providers.items() if provider in names]
+            for names in config.generation_excluded_providers.values()
+            for provider in names
+        }
+
+    @staticmethod
+    def unit_name(provider: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "_", provider.lower()).strip("_")[:60]
+        return f"{slug}-{hashlib.md5(provider.encode('utf-8')).hexdigest()[:8]}"
+
+    @staticmethod
+    def quoted(value: str) -> str:
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+
+    def filters(self) -> list[tuple[str, str]]:
+        filters = [("qf", "TYPE:IMAGE")]
+        filters += [("qf", f"RIGHTS:{self.quoted(right)}") for right in self.config.rights]
+        filters += [("qf", f"IMAGE_SIZE:{size}") for size in self.config.image_sizes]
+        return filters
+
+    def search(self, params: list[tuple[str, str]]) -> Any:
+        base = [("wskey", self.api_key or ""), ("query", "*"), ("media", "true"), *self.filters()]
+        return self.get_json(f"{self.config.api_url}/search.json", base + params)
+
+    def selected(self, provider: str) -> bool:
+        if provider in self.config.excluded_providers:
+            return False
+
+        return self.config.providers is None or provider in self.config.providers
+
+    def units(self) -> Iterator[str]:
+        response = self.call(lambda: self.search([
+            ("rows", "0"), ("profile", "facets"), ("facet", "DATA_PROVIDER"),
+            ("f.DATA_PROVIDER.facet.limit", str(self.config.max_provider_facets)),
+        ]))
+        fields = next((f["fields"] for f in response.get("facets", []) if f["name"] == "DATA_PROVIDER"), [])
+        if len(fields) >= self.config.max_provider_facets:
+            raise ValueError(f"{len(fields)} data providers reached max_provider_facets; raise it to list them all")
+
+        for field in fields:
+            provider = field["label"]
+            if self.selected(provider):
+                unit = self.unit_name(provider)
+                self.unit_providers[unit] = provider
+                yield unit
+
+    def request(self, unit: str, cursor: str | None) -> tuple[list[Any], str | None]:
+        response = self.search([
+            ("qf", f"DATA_PROVIDER:{self.quoted(self.unit_providers[unit])}"),
+            ("rows", str(self.config.page_size)),
+            ("profile", "rich"),
+            ("cursor", cursor or "*"),
+        ])
+        items = response.get("items") or []
+        return items, response.get("nextCursor") if items else None
+
+    @staticmethod
+    def original(values: Mapping[str, list[str]] | None, language: str | None) -> list[str]:
+        if not values:
+            return []
+
+        for key in (language, "def"):
+            if key is not None and values.get(key):
+                return [v for v in dict.fromkeys(values[key]) if v and not v.startswith(("http://", "https://"))]
+
+        return []
+
+    @staticmethod
+    def first(values: list[str] | None) -> str | None:
+        return values[0] if values else None
+
+    def image_url(self, record: dict[str, Any]) -> str | None:
+        shown_by = self.first(record.get("edmIsShownBy"))
+        if shown_by is not None:
+            return shown_by
+
+        preview = self.first(record.get("edmPreview"))
+        if preview is None:
+            return None
+
+        return self.first(parse_qs(urlparse(preview).query).get("uri"))
+
+    def rows_from_record(self, record: Any) -> Iterable[dict[str, Any]]:
+        rights = self.first(record.get("rights"))
+        image_url = self.image_url(record)
+        provider = self.first(record.get("dataProvider"))
+        if rights not in self.config.rights or image_url is None or provider is None:
+            return
+
+        language = self.first(record.get("language"))
+        titles = self.original(record.get("dcTitleLangAware"), language)
+        descriptions = self.original(record.get("dcDescriptionLangAware"), language)
+        creators = self.original(record.get("dcCreatorLangAware"), language)
+        record_id = record["id"].lstrip("/")
+        yield {
+            "id": record_id,
+            "generation_exclusion_reasons": list(self.provider_reasons.get(provider, [])),
+            "license": self.LICENSES[rights],
+            "license_raw": rights,
+            "creator": "; ".join(creators) or None,
+            "source_url": self.first(record.get("edmIsShownAt")) or f"{self.config.site_url}/{record_id}",
+            "title": clean_text(self.first(titles)),
+            "description": clean_text(" ".join(descriptions)),
+            "image_url": image_url,
+            "width": None,
+            "height": None,
+            "text_language": language,
+            "data_provider": provider,
+            "aggregator": self.first(record.get("provider")),
+            "country": self.first(record.get("country")),
+            "dataset_name": self.first(record.get("edmDatasetName")),
+            "subjects": self.original(record.get("dcSubjectLangAware"), language),
+            "types": self.original(record.get("dcTypeLangAware"), language),
         }

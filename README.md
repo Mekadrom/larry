@@ -102,6 +102,7 @@ Pretrain:
 - Art institute of Chicago dump
 - Te Papa
 - NASA Image Library
+- Europeana
 - Rijkmuseum
 - Museums Victoria of Melbourne
 - The Met Open Access

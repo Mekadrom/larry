@@ -248,3 +248,29 @@ class NASAImageLibraryCachedDatasetConfig(PagedApiCachedDatasetConfig, ImageData
     asset_url: str = "https://images-assets.nasa.gov/image"
     size_preference: list[str] = dataclasses.field(default_factory=lambda: ["medium", "large", "orig", "small"])
     resolve_asset_sizes: bool = True
+
+
+@dataclasses.dataclass(kw_only=True)
+class EuropeanaCachedDatasetConfig(PagedApiCachedDatasetConfig, ImageDatasetConfig):
+    api_url: str = "https://api.europeana.eu/record/v2"
+    api_key_env_var: str | None = "EUROPEANA_API_KEY"
+    api_key_file: str | None = "~/.config/larry/europeana_api_key"
+    site_url: str = "https://www.europeana.eu/item"
+    metadata_file: str = "europeana-images-filtered.parquet"
+
+    page_size: int = 100
+    min_request_interval: float = 0.25
+    max_provider_facets: int = 5000
+
+    rights: list[str] = dataclasses.field(default_factory=lambda: [
+        "http://creativecommons.org/publicdomain/zero/1.0/",
+        "http://creativecommons.org/publicdomain/mark/1.0/",
+    ])
+    image_sizes: list[str] = dataclasses.field(default_factory=lambda: ["medium", "large", "extra_large"])
+    providers: list[str] | None = None
+    excluded_providers: list[str] = dataclasses.field(default_factory=lambda: [
+        "Rijksmuseum", "National Gallery of Denmark",
+    ])
+    generation_excluded_providers: dict[str, list[str]] = dataclasses.field(default_factory=lambda: {
+        "specimen": ["Naturalis Biodiversity Center", "Royal Botanic Garden Edinburgh"],
+    })
