@@ -10,6 +10,12 @@ dataset:
   excluded_providers:
     - Rijksmuseum
     - National Gallery of Denmark
+    - National Archives of the Netherlands
+    - Finnish National Gallery
+    - Nationalmuseum Sweden
+    - Palais Galliera - Musée de la Mode de la Ville de Paris
+    - Smithsonian Institution
+    - Library of Congress
     - Naturalis Biodiversity Center
     - Royal Botanic Garden Edinburgh
 pipeline:

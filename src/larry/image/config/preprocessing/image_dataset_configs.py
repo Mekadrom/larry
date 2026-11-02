@@ -269,7 +269,14 @@ class EuropeanaCachedDatasetConfig(PagedApiCachedDatasetConfig, ImageDatasetConf
     image_sizes: list[str] = dataclasses.field(default_factory=lambda: ["medium", "large", "extra_large"])
     providers: list[str] | None = None
     excluded_providers: list[str] = dataclasses.field(default_factory=lambda: [
-        "Rijksmuseum", "National Gallery of Denmark",
+        "Rijksmuseum",
+        "National Gallery of Denmark",
+        "National Archives of the Netherlands",
+        "Finnish National Gallery",
+        "Nationalmuseum Sweden",
+        "Palais Galliera - Musée de la Mode de la Ville de Paris",
+        "Smithsonian Institution",
+        "Library of Congress",
     ])
     generation_excluded_providers: dict[str, list[str]] = dataclasses.field(default_factory=lambda: {
         "specimen": ["Naturalis Biodiversity Center", "Royal Botanic Garden Edinburgh"],

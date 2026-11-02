@@ -118,7 +118,6 @@ Pretrain:
 - Yale Center for British Art / Yale University Art Gallery
 - Princeton University Art Museum
 - Getty Museum Open Content
-- Nationaal Archief (CC0 subset)
 - US National Archives (NARA)
 - DVIDS (public domain subset)
 - NPS NPGallery, USFWS National Digital Library, USDA
