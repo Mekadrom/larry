@@ -4,7 +4,7 @@ preprocessor:
       - id
 dataset:
   type: DefaultDatasetConfig
-  path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mythicinfinity_libriheavy-test_clean_large-normalized-asr/
+  path: thelarryproject/libriheavy-test-clean-large-normalized-asr
   name: ~
   split: ~
   cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/vocoder/mythicinfinity_libriheavy-test_clean_large-index-vocoder/

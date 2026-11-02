@@ -12,7 +12,7 @@ trainer:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/thelarryproject_vctk-index-tts/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
+        source_path: thelarryproject/vctk-normalized-asr
         split: train
         weight: 0.02
       cv27-tts:
@@ -26,7 +26,7 @@ trainer:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mikhailt_hifi-tts-all-index-tts/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+        source_path: thelarryproject/hifi-tts-all-normalized-asr
         split: train.clean
         source_split: train.clean
         weight: 0.012
@@ -34,7 +34,7 @@ trainer:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mikhailt_hifi-tts-all-index-tts/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+        source_path: thelarryproject/hifi-tts-all-normalized-asr
         split: train.other
         source_split: train.other
         weight: 0.018
@@ -42,7 +42,7 @@ trainer:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mikhailt_lj-speech-index-tts/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
+        source_path: thelarryproject/lj-speech-normalized-asr
         weight: 0.01
       libriheavy-large-index-tts:
         task: text_voice
@@ -64,7 +64,7 @@ trainer:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/thelarryproject_vctk-index-tts/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
+        source_path: thelarryproject/vctk-normalized-asr
         split: validation
         source_split: validation
       cv27-tts:
@@ -78,28 +78,28 @@ trainer:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mikhailt_hifi-tts-all-index-tts/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+        source_path: thelarryproject/hifi-tts-all-normalized-asr
         split: dev.clean
         source_split: dev.clean
       hifi-tts-all-other-tts:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mikhailt_hifi-tts-all-index-tts/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+        source_path: thelarryproject/hifi-tts-all-normalized-asr
         split: dev.other
         source_split: dev.other
       librispeech-asr-tts:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/openslr_librispeech-asr-index-tts-validation/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/openslr_librispeech-asr-normalized-validation/
+        source_path: thelarryproject/librispeech-asr-validation
       libriheavy-test-clean-large-tts:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mythicinfinity_libriheavy-test_clean_large-index-tts/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mythicinfinity_libriheavy-test_clean_large-normalized-asr/
+        source_path: thelarryproject/libriheavy-test-clean-large-normalized-asr
       libriheavy-test-other-large-tts:
         task: text_voice
         text_column: text_normalized
         index_path: /home/zadar/.cache/larry/datasets/index/voice/tts/mythicinfinity_libriheavy-test_other_large-index-tts/
-        source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mythicinfinity_libriheavy-test_other_large-normalized-asr/
+        source_path: thelarryproject/libriheavy-test-other-large-normalized-asr

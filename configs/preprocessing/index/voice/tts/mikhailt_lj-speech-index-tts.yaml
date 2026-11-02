@@ -7,7 +7,7 @@ dataset:
   path: /home/zadar/.cache/larry/datasets/index/voice/vocoder/mikhailt_lj-speech-index-vocoder/
   split_sources:
     train: train
-  source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
+  source_path: thelarryproject/lj-speech-normalized-asr
   cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/mikhailt_lj-speech-index-tts/
 pipeline:
   skip_audio_decoding:

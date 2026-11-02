@@ -4,7 +4,7 @@ preprocessor:
       - id
 dataset:
   type: DefaultDatasetConfig
-  path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+  path: thelarryproject/hifi-tts-all-normalized-asr
   name: ~
   split: ~
   cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/vocoder/mikhailt_hifi-tts-all-index-vocoder/

@@ -4,7 +4,7 @@ preprocessor:
       - id
 dataset:
   type: DefaultDatasetConfig
-  path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_lj-speech-normalized-asr/
+  path: thelarryproject/lj-speech-normalized-asr
   name: ~
   split: ~
   cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/vocoder/mikhailt_lj-speech-index-vocoder/

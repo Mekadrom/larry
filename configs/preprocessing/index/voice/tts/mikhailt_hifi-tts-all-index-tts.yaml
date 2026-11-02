@@ -10,7 +10,7 @@ dataset:
     train.other: train.other
     dev.clean: dev.clean
     dev.other: dev.other
-  source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/mikhailt_hifi-tts-all-normalized-asr/
+  source_path: thelarryproject/hifi-tts-all-normalized-asr
   cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/mikhailt_hifi-tts-all-index-tts/
 pipeline:
   skip_audio_decoding:

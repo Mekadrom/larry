@@ -8,7 +8,7 @@ dataset:
   split_sources:
     train: train
     validation: validation
-  source_path: /home/zadar/.cache/larry/datasets/normalized/voice/asr/thelarryproject_vctk-normalized-asr/
+  source_path: thelarryproject/vctk-normalized-asr
   cache_dir: /home/zadar/.cache/larry/intermediates/index/voice/tts/thelarryproject_vctk-index-tts/
 pipeline:
   skip_audio_decoding:
