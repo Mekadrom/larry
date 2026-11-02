@@ -102,8 +102,9 @@ Pretrain:
 - Art institute of Chicago dump
 - Te Papa
 - NASA Image Library
-- Europeana
-- Rijkmuseum
+- Europeana (PD/CC0 rights subset)
+- Rijksmuseum
+- National Gallery of Denmark (SMK)
 - Museums Victoria of Melbourne
 - The Met Open Access
 - Library of Congress "Free to Use"
@@ -111,7 +112,6 @@ Pretrain:
 - National Gallery of Art Open Data
 - NYPL Public Domain Collections
 - Paris Musées (CC0 subset)
-- Statens Museum for Kunst
 - Nationalmuseum Sweden
 - Finnish National Gallery (CC0 subset)
 - Walters Art Museum
@@ -119,7 +119,6 @@ Pretrain:
 - Princeton University Art Museum
 - Getty Museum Open Content
 - Nationaal Archief (CC0 subset)
-- Europeana (PD/CC0 rights subset)
 - US National Archives (NARA)
 - DVIDS (public domain subset)
 - NPS NPGallery, USFWS National Digital Library, USDA

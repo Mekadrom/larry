@@ -196,6 +196,7 @@ class PagedApiCachedDatasetProvider[C: PagedApiCachedDatasetConfig = PagedApiCac
     def __init__(self, config: C) -> None:
         super().__init__(config)
         self.last_request = 0.0
+        self.unit_sizes: dict[str, int] = {}
 
     @functools.cached_property
     def session(self) -> requests.Session:
@@ -233,6 +234,36 @@ class PagedApiCachedDatasetProvider[C: PagedApiCachedDatasetConfig = PagedApiCac
 
     def units(self) -> Iterable[str]:
         return ["all"]
+
+    def unit_size(self, unit: str) -> int:
+        raise NotImplementedError(f"{type(self).__name__} doesn't count the records in a unit")
+
+    def split_unit(self, unit: str) -> list[str]:
+        return []
+
+    def sized(self, unit: str) -> int:
+        if unit not in self.unit_sizes:
+            self.unit_sizes[unit] = self.call(lambda: self.unit_size(unit))
+
+        return self.unit_sizes[unit]
+
+    def bounded_units(self, unit: str, limit: int) -> Iterator[str]:
+        size = self.sized(unit)
+        if size == 0:
+            return
+
+        if size <= limit:
+            yield unit
+            return
+
+        parts = self.split_unit(unit)
+        if not parts:
+            self.log.warning(f"{unit}: {size} records exceed {limit} and the unit can't be split further")
+            yield unit
+            return
+
+        for part in parts:
+            yield from self.bounded_units(part, limit)
 
     def call[T](self, request: Callable[[], T]) -> T:
         attempt = 0

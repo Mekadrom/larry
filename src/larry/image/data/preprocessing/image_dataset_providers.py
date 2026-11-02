@@ -1,3 +1,4 @@
+import dataclasses
 import gzip
 import hashlib
 import html
@@ -6,7 +7,9 @@ import re
 import shutil
 import subprocess
 import tarfile
+import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator, Mapping
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO, Any, ClassVar
 from urllib.parse import parse_qs, quote, urlparse
@@ -27,7 +30,9 @@ from larry.image.config.preprocessing.image_dataset_configs import (
     EuropeanaCachedDatasetConfig,
     GoogleDOCCIMediaCachedDatasetConfig,
     NASAImageLibraryCachedDatasetConfig,
+    RijksmuseumCachedDatasetConfig,
     SmithsonianOpenAccessCachedDatasetConfig,
+    SMKCachedDatasetConfig,
     TePapaCachedDatasetConfig,
     WikimediaCommonsCachedDatasetConfig,
 )
@@ -42,6 +47,47 @@ def clean_text(text: str | None) -> str | None:
 
     cleaned = " ".join(TAG.sub("", html.unescape(text)).split())
     return cleaned or None
+
+
+@dataclasses.dataclass(frozen=True)
+class LanguageText:
+    text: str | None = None
+    language: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class DateWindow:
+    NAME_FORMAT: ClassVar[str] = "%Y%m%dT%H%M%SZ"
+    OAI_FORMAT: ClassVar[str] = "%Y-%m-%dT%H:%M:%SZ"
+
+    start: datetime
+    end: datetime
+
+    @classmethod
+    def month(cls, year: int, month: int) -> DateWindow:
+        start = datetime(year, month, 1, tzinfo=UTC)
+        following = datetime(year + month // 12, month % 12 + 1, 1, tzinfo=UTC)
+        return cls(start=start, end=following - timedelta(seconds=1))
+
+    @classmethod
+    def parse(cls, name: str) -> DateWindow:
+        start, end = (datetime.strptime(part, cls.NAME_FORMAT).replace(tzinfo=UTC) for part in name.split("_"))
+        return cls(start=start, end=end)
+
+    @property
+    def name(self) -> str:
+        return f"{self.start.strftime(self.NAME_FORMAT)}_{self.end.strftime(self.NAME_FORMAT)}"
+
+    def oai_params(self) -> dict[str, str]:
+        return {"from": self.start.strftime(self.OAI_FORMAT), "until": self.end.strftime(self.OAI_FORMAT)}
+
+    def halves(self) -> list[DateWindow]:
+        seconds = int((self.end - self.start).total_seconds())
+        if seconds < 1:
+            return []
+
+        middle = self.start + timedelta(seconds=seconds // 2)
+        return [DateWindow(start=self.start, end=middle), DateWindow(start=middle + timedelta(seconds=1), end=self.end)]
 
 
 IMAGE_FIELDS = [
@@ -628,25 +674,27 @@ class NASAImageLibraryCachedDatasetProvider(PagedApiCachedDatasetProvider[NASAIm
     def search_params(self, unit: str, page: int, page_size: int) -> dict[str, Any]:
         return {"media_type": "image", "page": page, "page_size": page_size, **self.parse_unit(unit)}
 
-    def hits(self, unit: str) -> int:
-        response = self.call(lambda: self.get_json(f"{self.config.api_url}/search", self.search_params(unit, 1, 1)))
+    def unit_size(self, unit: str) -> int:
+        response = self.get_json(f"{self.config.api_url}/search", self.search_params(unit, 1, 1))
         return int(response["collection"]["metadata"]["total_hits"])
+
+    def split_unit(self, unit: str) -> list[str]:
+        if "/" in unit:
+            return []
+
+        bounds = self.parse_unit(unit)
+        split = [self.unit_name(bounds["year_start"], bounds["year_end"], c) for c in self.config.split_centers]
+        total, covered = self.sized(unit), sum(self.sized(u) for u in split)
+        if covered < total:
+            self.log.warning(f"{unit}: {total - covered} of {total} images are under centers not in split_centers")
+
+        return split
 
     def period_units(self, start: int, end: int) -> list[str]:
         if self.config.centers is not None:
             return [self.unit_name(start, end, c) for c in self.config.centers]
 
-        unit = self.unit_name(start, end)
-        total = self.hits(unit)
-        if total <= self.config.max_results_per_query:
-            return [unit] if total else []
-
-        split = [self.unit_name(start, end, c) for c in self.config.split_centers]
-        covered = sum(self.hits(u) for u in split)
-        if covered < total:
-            self.log.warning(f"{unit}: {total - covered} of {total} images are under centers not in split_centers")
-
-        return split
+        return list(self.bounded_units(self.unit_name(start, end), self.config.max_results_per_query))
 
     def units(self) -> Iterator[str]:
         yield from self.period_units(1, self.config.first_year - 1)
@@ -862,4 +910,269 @@ class EuropeanaCachedDatasetProvider(PagedApiCachedDatasetProvider[EuropeanaCach
             "dataset_name": self.first(record.get("edmDatasetName")),
             "subjects": self.original(record.get("dcSubjectLangAware"), language),
             "types": self.original(record.get("dcTypeLangAware"), language),
+        }
+
+
+class RijksmuseumCachedDatasetProvider(PagedApiCachedDatasetProvider[RijksmuseumCachedDatasetConfig]):
+    LICENSES: ClassVar[dict[str, License]] = {
+        "http://creativecommons.org/publicdomain/zero/1.0/": License.CC0,
+        "http://creativecommons.org/publicdomain/mark/1.0/": License.PUBLIC_DOMAIN,
+    }
+    NS: ClassVar[dict[str, str]] = {
+        "oai": "http://www.openarchives.org/OAI/2.0/",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "dc": "http://purl.org/dc/elements/1.1/",
+        "dcterms": "http://purl.org/dc/terms/",
+        "edm": "http://www.europeana.eu/schemas/edm/",
+        "edmfp": "http://www.europeanafashion.eu/edmfp/",
+        "ore": "http://www.openarchives.org/ore/terms/",
+        "skos": "http://www.w3.org/2004/02/skos/core#",
+        "svcs": "http://rdfs.org/sioc/services#",
+    }
+    RESOURCE = f"{{{NS['rdf']}}}resource"
+    ABOUT = f"{{{NS['rdf']}}}about"
+    LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+    EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
+        *IMAGE_FIELDS,
+        pa.field("text_language", pa.string()),
+        pa.field("object_number", pa.string()),
+        pa.field("title_en", pa.string()),
+        pa.field("title_nl", pa.string()),
+        pa.field("description_en", pa.string()),
+        pa.field("description_nl", pa.string()),
+        pa.field("date", pa.string()),
+        pa.field("types", pa.list_(pa.string())),
+        pa.field("subjects", pa.list_(pa.string())),
+        pa.field("materials", pa.list_(pa.string())),
+        pa.field("techniques", pa.list_(pa.string())),
+    ]
+
+    def __init__(self, config: RijksmuseumCachedDatasetConfig) -> None:
+        super().__init__(config)
+        self.require_canonical_licenses(config.rights, self.LICENSES)
+        self.urls = IIIFImageUrls(config.max_size)
+
+    def get_xml(self, params: Mapping[str, str]) -> ET.Element:
+        response = self.session.get(self.config.api_url, params=params, timeout=self.config.request_timeout)
+        response.raise_for_status()
+        return ET.fromstring(response.content)
+
+    def units(self) -> Iterator[str]:
+        identify = self.call(lambda: self.get_xml({"verb": "Identify"}))
+        earliest = identify.findtext("oai:Identify/oai:earliestDatestamp", namespaces=self.NS)
+        if earliest is None:
+            raise ValueError("the OAI-PMH endpoint reported no earliestDatestamp")
+
+        year, month = int(earliest[:4]), int(earliest[5:7])
+        now = datetime.now(UTC)
+        while (year, month) <= (now.year, now.month):
+            yield from self.bounded_units(DateWindow.month(year, month).name, self.config.max_records_per_unit)
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+
+    def unit_size(self, unit: str) -> int:
+        params = {"verb": "ListIdentifiers", "metadataPrefix": self.config.metadata_prefix}
+        root = self.checked(self.get_xml({**params, **DateWindow.parse(unit).oai_params()}))
+        if root is None:
+            return 0
+
+        token = root.find("oai:ListIdentifiers/oai:resumptionToken", self.NS)
+        if token is None or not token.text:
+            return len(root.findall("oai:ListIdentifiers/oai:header", self.NS))
+
+        size = token.get("completeListSize")
+        if size is None:
+            raise ValueError("the OAI-PMH endpoint reported no completeListSize; units can't be bounded")
+
+        return int(size)
+
+    def split_unit(self, unit: str) -> list[str]:
+        return [window.name for window in DateWindow.parse(unit).halves()]
+
+    def checked(self, root: ET.Element) -> ET.Element | None:
+        error = root.find("oai:error", self.NS)
+        if error is None:
+            return root
+
+        if error.get("code") == "noRecordsMatch":
+            return None
+
+        raise ValueError(f"OAI-PMH error {error.get('code')}: {error.text}")
+
+    def request(self, unit: str, cursor: str | None) -> tuple[list[Any], str | None]:
+        if cursor is None:
+            params = {
+                "verb": "ListRecords", "metadataPrefix": self.config.metadata_prefix,
+                **DateWindow.parse(unit).oai_params(),
+            }
+        else:
+            params = {"verb": "ListRecords", "resumptionToken": cursor}
+
+        root = self.checked(self.get_xml(params))
+        if root is None:
+            return [], None
+
+        records = root.findall("oai:ListRecords/oai:record", self.NS)
+        token = root.findtext("oai:ListRecords/oai:resumptionToken", namespaces=self.NS)
+        return records, token or None
+
+    def by_language(self, elements: Iterable[ET.Element]) -> dict[str, str]:
+        found: dict[str, list[str]] = {}
+        for element in elements:
+            text = clean_text(element.text)
+            if text:
+                found.setdefault(element.get(self.LANG) or "def", []).append(text)
+
+        return {language: " ".join(dict.fromkeys(texts)) for language, texts in found.items()}
+
+    def preferred(self, texts: Mapping[str, str]) -> LanguageText:
+        for language in [*self.config.languages, "def"]:
+            if texts.get(language):
+                return LanguageText(text=texts[language], language=language)
+
+        return LanguageText()
+
+    def labels(self, rdf: ET.Element) -> dict[str, dict[str, str]]:
+        labels = {}
+        for element in rdf:
+            about = element.get(self.ABOUT)
+            if about is not None:
+                labels[about] = self.by_language(element.findall("skos:prefLabel", self.NS))
+
+        return labels
+
+    def resolved(self, cho: ET.Element, path: str, labels: Mapping[str, dict[str, str]]) -> list[str]:
+        names = []
+        for element in cho.findall(path, self.NS):
+            label = self.preferred(labels.get(element.get(self.RESOURCE) or "", {}))
+            if label.text:
+                names.append(label.text)
+
+        return list(dict.fromkeys(names))
+
+    def rows_from_record(self, record: Any) -> Iterable[dict[str, Any]]:
+        header = record.find("oai:header", self.NS)
+        rdf = record.find("oai:metadata/rdf:RDF", self.NS)
+        if header is None or header.get("status") == "deleted" or rdf is None:
+            return
+
+        aggregation = rdf.find("ore:Aggregation", self.NS)
+        cho = rdf.find("edm:ProvidedCHO", self.NS)
+        if aggregation is None or cho is None:
+            return
+
+        def resource(element: ET.Element, path: str) -> str | None:
+            found = element.find(path, self.NS)
+            return found.get(self.RESOURCE) if found is not None else None
+
+        rights = resource(aggregation, "edm:rights")
+        shown_by = resource(aggregation, "edm:isShownBy")
+        if rights not in self.config.rights or shown_by is None:
+            return
+
+        web = next((w for w in rdf.findall("edm:WebResource", self.NS) if w.get(self.ABOUT) == shown_by), None)
+        service = resource(web, "svcs:has_service") if web is not None else None
+        labels = self.labels(rdf)
+        titles = self.by_language(cho.findall("dc:title", self.NS))
+        descriptions = self.by_language(cho.findall("dc:description", self.NS))
+        title = self.preferred(titles)
+        description = self.preferred(descriptions)
+        created = self.preferred(self.by_language(cho.findall("dcterms:created", self.NS)))
+        yield {
+            "id": cho.get(self.ABOUT) or header.findtext("oai:identifier", namespaces=self.NS),
+            "license": self.LICENSES[rights],
+            "license_raw": rights,
+            "creator": "; ".join(self.resolved(cho, "dc:creator", labels)) or None,
+            "source_url": resource(aggregation, "edm:isShownAt"),
+            "title": title.text,
+            "description": description.text,
+            "image_url": self.urls.url(service, None, None) if service else shown_by,
+            "width": None,
+            "height": None,
+            "text_language": description.language or title.language,
+            "object_number": cho.findtext("dc:identifier", namespaces=self.NS),
+            "title_en": titles.get("en"),
+            "title_nl": titles.get("nl"),
+            "description_en": descriptions.get("en"),
+            "description_nl": descriptions.get("nl"),
+            "date": created.text,
+            "types": self.resolved(cho, "dc:type", labels),
+            "subjects": self.resolved(cho, "dc:subject", labels),
+            "materials": self.resolved(cho, "dcterms:medium", labels),
+            "techniques": self.resolved(cho, "edmfp:technique", labels),
+        }
+
+
+class SMKCachedDatasetProvider(PagedApiCachedDatasetProvider[SMKCachedDatasetConfig]):
+    LICENSES: ClassVar[dict[str, License]] = {
+        "https://creativecommons.org/publicdomain/mark/1.0/": License.PUBLIC_DOMAIN,
+        "https://creativecommons.org/publicdomain/zero/1.0/": License.CC0,
+    }
+    EXTRA_FIELDS: ClassVar[list[pa.Field]] = [
+        *IMAGE_FIELDS,
+        pa.field("text_language", pa.string()),
+        pa.field("object_number", pa.string()),
+        pa.field("object_names", pa.list_(pa.string())),
+        pa.field("techniques", pa.list_(pa.string())),
+        pa.field("materials", pa.list_(pa.string())),
+        pa.field("collection", pa.list_(pa.string())),
+        pa.field("date", pa.string()),
+    ]
+
+    def __init__(self, config: SMKCachedDatasetConfig) -> None:
+        super().__init__(config)
+        self.require_canonical_licenses(config.rights, self.LICENSES)
+
+    def request(self, unit: str, cursor: str | None) -> tuple[list[Any], str | None]:
+        offset = int(cursor or 0)
+        response = self.get_json(self.config.api_url, {
+            "keys": "*", "filters": self.config.filters, "offset": offset, "rows": self.config.page_size,
+        })
+        items = response.get("items") or []
+        found = int(response.get("found") or 0)
+        following = offset + len(items)
+        return items, str(following) if items and following < found else None
+
+    def language_code(self, language: str | None) -> str | None:
+        return self.config.language_codes.get((language or "").strip().lower())
+
+    def title(self, titles: list[dict[str, Any]]) -> LanguageText:
+        by_language: dict[str | None, str] = {}
+        for entry in titles:
+            if entry.get("title"):
+                by_language.setdefault(self.language_code(entry.get("language")), entry["title"])
+
+        for language in [*self.config.title_languages, *by_language]:
+            if by_language.get(language):
+                return LanguageText(text=clean_text(by_language[language]), language=language)
+
+        return LanguageText()
+
+    def rows_from_record(self, record: Any) -> Iterable[dict[str, Any]]:
+        rights = record.get("rights")
+        thumbnail = record.get("image_thumbnail")
+        if rights not in self.config.rights or not record.get("public_domain") or not thumbnail:
+            return
+
+        title = self.title(record.get("titles") or [])
+        creators = [p["creator"] for p in record.get("production") or [] if p.get("creator")]
+        dates = [d.get("period") for d in record.get("production_date") or [] if d.get("period")]
+        width, height = record.get("image_width"), record.get("image_height")
+        yield {
+            "id": record["object_number"],
+            "license": self.LICENSES[rights],
+            "license_raw": rights,
+            "creator": "; ".join(dict.fromkeys(creators)) or None,
+            "source_url": record.get("frontend_url"),
+            "title": title.text,
+            "description": clean_text(" ".join(record.get("content_description") or [])),
+            "image_url": thumbnail,
+            "width": width,
+            "height": height,
+            "text_language": title.language,
+            "object_number": record["object_number"],
+            "object_names": [n["name"] for n in record.get("object_names") or [] if n.get("name")],
+            "techniques": list(record.get("techniques") or []),
+            "materials": list(record.get("materials") or []),
+            "collection": list(record.get("collection") or []),
+            "date": dates[0] if dates else None,
         }

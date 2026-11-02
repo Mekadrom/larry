@@ -274,3 +274,44 @@ class EuropeanaCachedDatasetConfig(PagedApiCachedDatasetConfig, ImageDatasetConf
     generation_excluded_providers: dict[str, list[str]] = dataclasses.field(default_factory=lambda: {
         "specimen": ["Naturalis Biodiversity Center", "Royal Botanic Garden Edinburgh"],
     })
+
+
+@dataclasses.dataclass(kw_only=True)
+class RijksmuseumCachedDatasetConfig(PagedApiCachedDatasetConfig, ImageDatasetConfig):
+    api_url: str = "https://data.rijksmuseum.nl/oai"
+    metadata_file: str = "rijksmuseum-objects-filtered.parquet"
+    metadata_prefix: str = "edm"
+
+    min_request_interval: float = 0.5
+    request_timeout: float = 120.0
+    max_size: int = 960
+    max_records_per_unit: int = 50000
+
+    rights: list[str] = dataclasses.field(default_factory=lambda: [
+        "http://creativecommons.org/publicdomain/zero/1.0/",
+        "http://creativecommons.org/publicdomain/mark/1.0/",
+    ])
+    languages: list[str] = dataclasses.field(default_factory=lambda: ["en", "nl"])
+
+
+@dataclasses.dataclass(kw_only=True)
+class SMKCachedDatasetConfig(PagedApiCachedDatasetConfig, ImageDatasetConfig):
+    api_url: str = "https://api.smk.dk/api/v1/art/search/"
+    metadata_file: str = "smk-objects-filtered.parquet"
+
+    page_size: int = 500
+    min_request_interval: float = 0.5
+    request_timeout: float = 120.0
+
+    filters: str = "[has_image:true],[public_domain:true]"
+    rights: list[str] = dataclasses.field(default_factory=lambda: [
+        "https://creativecommons.org/publicdomain/mark/1.0/",
+        "https://creativecommons.org/publicdomain/zero/1.0/",
+    ])
+    title_languages: list[str] = dataclasses.field(default_factory=lambda: ["en", "da"])
+    language_codes: dict[str, str] = dataclasses.field(default_factory=lambda: {
+        "dansk": "da", "danish": "da", "engelsk": "en", "english": "en", "fransk": "fr", "french": "fr",
+        "tysk": "de", "german": "de", "italiensk": "it", "italian": "it", "latin": "la", "spansk": "es",
+        "spanish": "es", "hollandsk": "nl", "nederlandsk": "nl", "dutch": "nl", "svensk": "sv", "swedish": "sv",
+        "norsk": "no", "norwegian": "no", "græsk": "el", "greek": "el", "portugisisk": "pt", "russisk": "ru",
+    })
