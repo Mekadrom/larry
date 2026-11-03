@@ -96,7 +96,7 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str 
                 headers = self.request_headers(example)
                 try:
                     response = session.get(example, timeout=self.config.timeout, headers=headers)
-                except (requests.ConnectionError, requests.Timeout):
+                except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError):
                     self.log.warning(f"network error (attempt {attempt + 1}) for {example}", exc_info=True)
                     continue
 

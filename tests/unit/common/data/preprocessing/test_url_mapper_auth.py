@@ -114,3 +114,34 @@ def test_the_token_stays_out_of_the_mappers_state(tmp_path: Path) -> None:
 
     assert TOKEN not in repr(vars(mapper))
     assert TOKEN not in repr(mapper.config)
+
+
+def test_a_connection_reset_mid_body_is_retried(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    mapper = _mapper(tmp_path, max_retries=1, bearer_token_env_var=None, bearer_token_file=None, bearer_token_hosts=[])
+    session = requests.Session()
+    attempts = iter([requests.exceptions.ChunkedEncodingError("Connection broken"), _response()])
+
+    def get(url: str, timeout: float, headers: dict[str, str]) -> requests.Response:
+        outcome = next(attempts)
+        if isinstance(outcome, Exception):
+            raise outcome
+
+        return outcome
+
+    monkeypatch.setattr(session, "get", get)
+    monkeypatch.setattr(mapper, "_lazy_get_session", lambda: session)
+
+    assert mapper.preprocess_example("https://example.org/a.jpg") == b"payload"
+
+
+def test_a_connection_that_keeps_resetting_drops_the_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    mapper = _mapper(tmp_path, max_retries=1, bearer_token_env_var=None, bearer_token_file=None, bearer_token_hosts=[])
+    session = requests.Session()
+
+    def get(url: str, timeout: float, headers: dict[str, str]) -> requests.Response:
+        raise requests.exceptions.ChunkedEncodingError("Connection broken")
+
+    monkeypatch.setattr(session, "get", get)
+    monkeypatch.setattr(mapper, "_lazy_get_session", lambda: session)
+
+    assert mapper.preprocess_example("https://example.org/a.jpg") is None
