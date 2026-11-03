@@ -101,7 +101,6 @@ Pretrain:
 - Cleveland CC0 print images
   - 
 - Smithsonian Open Access (CC0 subset)
-- Art institute of Chicago dump
 - Te Papa
 - NASA Image Library
 - Europeana (PD/CC0 rights subset)
@@ -126,6 +125,7 @@ Pretrain:
 - Landsat (USGS EarthExplorer)
 - CDC PHIL (public domain subset)
 - Custom Flickr crawl for PD/CC0 images, unfiltered
+- ~~Art institute of Chicago dump~~ - ip banned for now
 - ~~Open Images~~ - rows filtered by proprietary image models, which is excluded for now
 - ~~Localized Narratives~~ - flickr crawl, individual images can be filtered
 - ~~iNaturalist~~ - while the images are CC0 or CC-BY, the distribution prohibits commercial and non-open source 
