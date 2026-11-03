@@ -1,0 +1,11 @@
+{
+  "mythicinfinity/libriheavy": {
+    "models": ["Zengwei/icefall-asr-librispeech-zipformer-2023-05-15"]
+  },
+  "Zengwei/icefall-asr-librispeech-zipformer-2023-05-15": {
+    "datasets": ["openslr/librispeech_asr"]
+  },
+  "facebook/wav2vec2-large-960h-lv60-self": {
+    "datasets": ["https://github.com/facebookresearch/libri-light", "openslr/librispeech_asr"]
+  }
+}
