@@ -42,7 +42,7 @@ class VoiceModuleConfig(VocabularyConfig, LLMBlockModuleConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class VoicePreludeConfig(VoiceModuleConfig):
-    fsq_levels: list[int] = dataclasses.field(default_factory=lambda: [3] * 8)
+    fsq_levels: list[int] = dataclasses.field(default_factory=lambda: [8, 8, 8, 6, 5])
     conv_kernel_size: int = 4
     group_combine: Literal["concat", "sum"] = "concat"
 

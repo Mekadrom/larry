@@ -17,6 +17,7 @@ from larry.common.data.preprocessing.mappers import SingleColumnMapper
 from larry.common.data.utils import bot_user_agent
 
 _SESSIONS: dict[str, requests.Session] = {}
+_BEARER_TOKENS: dict[tuple[str | None, str | None], str] = {}
 
 
 class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str | None, O | None, C], ABC):
@@ -33,6 +34,9 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str 
 
         self.throttle_tokens = 0.0
         self.throttle_checked: float | None = None
+        configured = self.config.bearer_token_env_var is not None or self.config.bearer_token_file is not None
+        if configured and not self.config.bearer_token_hosts:
+            raise ValueError("bearer_token_hosts must list the hosts that may receive the bearer token")
 
     def throttle(self, size: int) -> None:
         """For throttling based on download speed; required by wikimedia and probably some other servers."""
@@ -89,11 +93,18 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str 
                 sleep = self.config.busy_wait + (self.config.retry_backoff * 2 ** (attempt - 1) if attempt else 0)
                 time.sleep(sleep)
 
+                headers = self.request_headers(example)
                 try:
-                    response = session.get(example, timeout=self.config.timeout)
+                    response = session.get(example, timeout=self.config.timeout, headers=headers)
                 except (requests.ConnectionError, requests.Timeout):
                     self.log.warning(f"network error (attempt {attempt + 1}) for {example}", exc_info=True)
                     continue
+
+                if headers and response.status_code in (401, 403):
+                    raise ValueError(
+                        f"{response.status_code} from {urlparse(example).hostname} with a bearer token: the token may be "
+                        "invalid, expired, or missing a grant - preprocessing has been cancelled."
+                    )
 
                 # unretryable; stop immediately so reconfiguration and waiting can occur
                 if response.status_code == 403:
@@ -166,6 +177,31 @@ class UrlMapper[O, C: UrlMapperConfig = UrlMapperConfig](SingleColumnMapper[str 
         if retry_at.tzinfo is None:
             retry_at = retry_at.replace(tzinfo=datetime.UTC)
         return max(0.0, (retry_at - datetime.datetime.now(datetime.UTC)).total_seconds())
+
+    def request_headers(self, url: str) -> dict[str, str]:
+        host = urlparse(url).hostname or ""
+        if not any(host == allowed or host.endswith(f".{allowed}") for allowed in self.config.bearer_token_hosts):
+            return {}
+
+        token = self._lazy_get_bearer_token()
+        return {"Authorization": f"Bearer {token}"} if token is not None else {}
+
+    def _lazy_get_bearer_token(self) -> str | None:
+        name, path = self.config.bearer_token_env_var, self.config.bearer_token_file
+        if name is None and path is None:
+            return None
+
+        if (name, path) not in _BEARER_TOKENS:
+            token = os.environ.get(name) if name is not None else None
+            if not token and path is not None and Path(path).expanduser().is_file():
+                token = Path(path).expanduser().read_text().strip()
+
+            if not token:
+                raise ValueError(f"no bearer token in environment variable {name} or file {path}")
+
+            _BEARER_TOKENS[(name, path)] = token
+
+        return _BEARER_TOKENS[(name, path)]
 
     def _lazy_get_session(self) -> requests.Session:
         """Helper for caching to basically take the ``Session`` object out of the mapper's fingerprint state."""

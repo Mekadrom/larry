@@ -71,8 +71,8 @@ N/A
 ## Text
 TBD
 ## Voice
-All voice data as redistributed (again, where applicable) or trained on is filtered using standard quality and <20s clip
- criteria for TTS and/or ASR. 
+All voice data as redistributed (again, where applicable) or trained on is filtered using standard quality and <25s clip
+ criteria for TTS and/or ASR. Total is ~40,438.4 hours of training data and ~17.9 hours of validation data.
 - Libriheavy
   - ~37k hours for training
   - ~7 hours for val
@@ -97,7 +97,9 @@ All image data will be filtered by per-image licenses where necessary.
 
 Pretrain:
 - COCO 2017
+  - 41919 images
 - Cleveland CC0 print images
+  - 
 - Smithsonian Open Access (CC0 subset)
 - Art institute of Chicago dump
 - Te Papa

@@ -19,7 +19,7 @@ class VoiceModelConfig(ModelConfig, MelsConfig):
 
 @dataclasses.dataclass(kw_only=True)
 class SpeechEncoderDecoderModelConfig(VoiceModelConfig, LLMBlockModuleConfig):
-    fsq_levels: list[int] = dataclasses.field(default_factory=lambda: [3] * 8)
+    fsq_levels: list[int] = dataclasses.field(default_factory=lambda: [8, 8, 8, 6, 5])
     fsq_eps: float = 1e-3
 
     @property

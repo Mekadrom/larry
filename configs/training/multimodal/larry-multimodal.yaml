@@ -15,8 +15,8 @@ model:
     max_seq_len: 2048
     n_layers: 2
   voice_prelude_config:
-    vocab_size: 6561
-    fsq_levels: [3, 3, 3, 3, 3, 3, 3, 3]
+    vocab_size: 15360
+    fsq_levels: [8, 8, 8, 6, 5]
     d_model: 1024
     max_seq_len: 2048
     n_layers: 2
@@ -30,7 +30,7 @@ model:
     max_seq_len: 2048
     n_layers: 2
   voice_coda_config:
-    vocab_size: 6562
+    vocab_size: 15361
     d_model: 1024
     max_seq_len: 2048
     n_layers: 2

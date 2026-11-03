@@ -100,6 +100,9 @@ class UrlMapperConfig(SingleColumnMapperConfig):
     max_retries: int = 2
     respect_opt_out_headers: bool = True
     max_bytes_per_second: float | None = None
+    bearer_token_env_var: str | None = None
+    bearer_token_file: str | None = None
+    bearer_token_hosts: list[str] = dataclasses.field(default_factory=list)
 
     download_cache_dir: str = "/tmp/larry/url_mapper"
 

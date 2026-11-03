@@ -1,3 +1,0 @@
-model:
-  weight_init: scaled_normal
-  init_std: 0.02

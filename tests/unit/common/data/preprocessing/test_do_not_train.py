@@ -81,7 +81,7 @@ def test_downloads_that_opt_out_in_their_headers_are_dropped(
     config = UrlBytesMapperConfig(download_cache_dir=str(tmp_path / "cache"), busy_wait=0.0)
     mapper = UrlBytesMapper(provenance(), config)
     session = requests.Session()
-    monkeypatch.setattr(session, "get", lambda url, timeout: _response(headers))
+    monkeypatch.setattr(session, "get", lambda url, timeout, **kwargs: _response(headers))
     monkeypatch.setattr(mapper, "_lazy_get_session", lambda: session)
 
     result = mapper.preprocess_example("https://a.example/1.jpg")
@@ -96,7 +96,7 @@ def test_header_checks_can_be_disabled(tmp_path: Path, monkeypatch: pytest.Monke
     )
     mapper = UrlBytesMapper(provenance(), config)
     session = requests.Session()
-    monkeypatch.setattr(session, "get", lambda url, timeout: _response({"X-Robots-Tag": "noai"}))
+    monkeypatch.setattr(session, "get", lambda url, timeout, **kwargs: _response({"X-Robots-Tag": "noai"}))
     monkeypatch.setattr(mapper, "_lazy_get_session", lambda: session)
 
     assert mapper.preprocess_example("https://a.example/1.jpg") is not None

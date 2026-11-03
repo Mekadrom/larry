@@ -29,6 +29,10 @@ pipeline:
     writer_batch_size: 64
     busy_wait: 0.0
     max_bytes_per_second: 1500000
+    bearer_token_env_var: WIKIMEDIA_ACCESS_TOKEN
+    bearer_token_file: ~/.config/larry/wikimedia_access_token
+    bearer_token_hosts:
+      - wikimedia.org
     filter_null_outputs: true
     download_cache_dir: /mnt/nasbro/hdd/archive/wikimedia-commons/images/
   resize_images:

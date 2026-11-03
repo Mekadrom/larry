@@ -68,11 +68,8 @@ def test_speech_encoder_scaled_normal_init() -> None:
     assert block.self_attn.o_proj.weight.std().item() == pytest.approx(0.02 / math.sqrt(2), rel=0.1)
 
 
-def test_the_scaled_init_overlay_turns_it_on() -> None:
-    values = ConfigValues([
-        CONFIG_ROOT / "training/voice/ctc/larry-speech-encoder.yaml",
-        CONFIG_ROOT / "training/voice/ctc/overlays/scaled_init.yaml",
-    ]).merged()
+def test_the_speech_encoder_config_uses_scaled_init() -> None:
+    values = ConfigValues([CONFIG_ROOT / "training/voice/ctc/larry-speech-encoder.yaml"]).merged()
 
     config = SpeechEncoderModelConfig.from_dict({k: v for k, v in values["model"].items() if k != "type"})
 
