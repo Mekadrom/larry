@@ -75,23 +75,26 @@ All voice data as redistributed (again, where applicable) or trained on is filte
  criteria for TTS and/or ASR. Total is ~40,438.4 hours of training data and ~17.9 hours of validation data.
 - Libriheavy
   - ~37k hours for training
-  - ~7 hours for val
+  - ~166.8 hours for val
 - Common Voice 27.0
-  - ~2k hours for training
-  - ~3.1 hours for val
+  - ~1.8k hours for training
+  - ~25.4 hours for val
 - scotus
   - ~1.1k hours for training
-  - ~6 hours for val
+  - ~1.8 hours for val
   - manually built by taking scotus proceedings audio and official government transcripts (PD0) and force-aligning using
  the above seed model aligner.
 - VCTK
-  - 24.9 hours for training
-  - 1.2 hours for val
+  - 39.3 hours for training
+  - 2 hours for val
 - LJSpeech
   - 23.7 hours for training
 - HiFi-TTS v1
   - 289.8 hours for training
   - 0.6 hours for val
+- librispeech-asr
+  - no hours used for training
+  - ~10.1 hours for val
 ## Image
 All image data will be filtered by per-image licenses where necessary.
 
