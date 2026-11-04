@@ -102,10 +102,12 @@ Pretrain:
 - COCO 2017
   - 41919 images
 - Cleveland CC0 print images
-  - 
+  - 40642 images
 - Smithsonian Open Access (CC0 subset)
 - Te Papa
+  - 85283 images
 - NASA Image Library
+  - 28447 images
 - Europeana (PD/CC0 rights subset)
 - Rijksmuseum
 - National Gallery of Denmark (SMK)
