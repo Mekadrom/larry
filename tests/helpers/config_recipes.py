@@ -34,6 +34,10 @@ TRAINING_RECIPES: dict[str, list[str]] = {
         f"larry-vocoder+{overlay.stem}": [*VOCODER, str(overlay.relative_to(CONFIG_ROOT))]
         for overlay in sorted((CONFIG_ROOT / "training/voice/vocoder/overlays").glob("*.yaml"))
     },
+    **{
+        f"larry-vocoder+{overlay.stem}": [*VOCODER, str(overlay.relative_to(CONFIG_ROOT))]
+        for overlay in sorted((CONFIG_ROOT / "training/common/overlays").glob("*.yaml"))
+    },
     "larry-image-vae": IMAGE_VAE,
     **{
         f"larry-image-vae+{overlay.stem}": [*IMAGE_VAE, str(overlay.relative_to(CONFIG_ROOT))]

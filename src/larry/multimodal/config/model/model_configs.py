@@ -15,6 +15,19 @@ from larry.common.config.model.model_configs import (
 @dataclasses.dataclass(kw_only=True)
 class TextModuleConfig(VocabularyConfig, LLMBlockModuleConfig):
     n_layers: int = 2
+    embedding_dim: int | None = 256
+
+    def __post_init__(self) -> None:
+        if self.embedding_dim is not None and self.embedding_dim <= 0:
+            raise ValueError(f"embedding_dim must be positive or null, got {self.embedding_dim}")
+
+    @property
+    def factorized(self) -> bool:
+        return self.embedding_dim is not None and self.embedding_dim < self.d_model
+
+    @property
+    def table_dim(self) -> int:
+        return self.embedding_dim if self.factorized and self.embedding_dim is not None else self.d_model
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -73,6 +86,9 @@ class LarryMultimodalModelConfig(ModelConfig):
     def __post_init__(self) -> None:
         if self.text_coda_config.vocab_size != self.text_prelude_config.vocab_size:
             raise ValueError("the text coda's lm_head is tied to the text prelude's wte; their vocab sizes must match")
+
+        if self.text_coda_config.embedding_dim != self.text_prelude_config.embedding_dim:
+            raise ValueError("the text coda's lm_head is tied to the text prelude's wte; their embedding_dim must match")
 
         modules = [
             self.text_prelude_config,

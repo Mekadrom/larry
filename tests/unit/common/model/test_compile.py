@@ -125,8 +125,9 @@ def test_the_multimodal_trainer_refuses_whole_model_compilation() -> None:
 
 
 def test_the_overlay_turns_on_block_compilation() -> None:
-    assert load_training("larry-speech-encoder+compile_blocks").trainer.compile.mode == "blocks"
-    assert load_training("larry-speech-encoder").trainer.compile.mode == "none"
+    assert load_training("larry-vocoder+compile_blocks").trainer.compile.mode == "blocks"
+    assert load_training("larry-vocoder").trainer.compile.mode == "none"
+    assert load_training("larry-speech-encoder").trainer.compile.mode == "blocks"
 
 
 @pytest.mark.parametrize("training", [False, True])

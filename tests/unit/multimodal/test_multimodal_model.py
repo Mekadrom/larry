@@ -35,11 +35,12 @@ SPLIT = {"use_split_rope": True, "split_rope_local_axes": 2}
 
 
 def _config(text_vocab_size: int, **overrides: Any) -> LarryMultimodalModelConfig:
-    text = TextModuleConfig(vocab_size=text_vocab_size, n_layers=1, **BLOCK, **SPLIT)
+    text = TextModuleConfig(vocab_size=text_vocab_size, n_layers=1, embedding_dim=16, **BLOCK, **SPLIT)
+    coda = TextModuleConfig(vocab_size=text_vocab_size, n_layers=1, embedding_dim=16, **BLOCK, **SPLIT)
     return LarryMultimodalModelConfig(**{
         "d_model": D_MODEL,
         "text_prelude_config": text,
-        "text_coda_config": TextModuleConfig(vocab_size=text_vocab_size, n_layers=1, **BLOCK, **SPLIT),
+        "text_coda_config": coda,
         "voice_prelude_config": VoicePreludeConfig(vocab_size=N_UNITS, fsq_levels=[3, 3], n_layers=1, **BLOCK),
         "voice_coda_config": VoiceCodaConfig(vocab_size=N_UNITS + 1, n_layers=1, **BLOCK, **SPLIT),
         "recurrent_trunk_config": LarryRecurrentTrunkConfig(
@@ -214,7 +215,7 @@ def test_position_ids_index_voice_units_and_image_rows_and_columns(collator: Pre
 
 def test_vocab_sizes_are_validated(collator: PretrainingMultimodalCollator) -> None:
     with pytest.raises(ValueError, match="tied"):
-        _config(40, text_coda_config=TextModuleConfig(vocab_size=41, **BLOCK))
+        _config(40, text_coda_config=TextModuleConfig(vocab_size=41, embedding_dim=16, **BLOCK))
     with pytest.raises(ValueError, match="eov"):
         _config(40, voice_coda_config=VoiceModuleConfig(vocab_size=N_UNITS, **BLOCK))
 

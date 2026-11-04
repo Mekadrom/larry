@@ -172,7 +172,12 @@ class LarryModalityModule(nn.Module):
 class TextPrelude(LarryModalityModule):
     def __init__(self, config: TextModuleConfig) -> None:
         super().__init__(config, config.n_layers)
-        self.wte = nn.Embedding(config.vocab_size, config.d_model)
+        self.wte = nn.Embedding(config.vocab_size, config.table_dim)
+        self.embed_proj = nn.Linear(config.table_dim, config.d_model, bias=False) if config.factorized else None
+
+    def embed(self, input_ids: torch.Tensor) -> torch.Tensor:
+        x = self.wte(input_ids)
+        return x if self.embed_proj is None else self.embed_proj(x)
 
     def forward(
             self,
@@ -183,7 +188,7 @@ class TextPrelude(LarryModalityModule):
             position_offset: int = 0,
             use_cache: bool = False,
     ) -> LarryModalityModuleOutput:
-        return self.run_blocks(self.wte(input_ids), attention_mask, position_ids, kv_cache, position_offset, use_cache)
+        return self.run_blocks(self.embed(input_ids), attention_mask, position_ids, kv_cache, position_offset, use_cache)
 
 
 class ImagePrelude(LarryModalityModule):
@@ -274,7 +279,8 @@ class TextCoda(LarryModalityModule):
     def __init__(self, config: TextModuleConfig) -> None:
         super().__init__(config, config.n_layers)
         self.norm = nn.RMSNorm(config.d_model)
-        self.lm_head = nn.Linear(config.d_model, config.vocab_size)
+        self.head_proj = nn.Linear(config.d_model, config.table_dim, bias=False) if config.factorized else None
+        self.lm_head = nn.Linear(config.table_dim, config.vocab_size)
 
     def forward(
             self,
@@ -288,7 +294,8 @@ class TextCoda(LarryModalityModule):
         return self.run_blocks(x, attention_mask, position_ids, kv_cache, position_offset, use_cache)
 
     def head(self, x: torch.Tensor) -> torch.Tensor:
-        return self.lm_head(self.norm(x))
+        x = self.norm(x)
+        return self.lm_head(x if self.head_proj is None else self.head_proj(x))
 
 
 class ImageCoda(nn.Module):
@@ -539,6 +546,10 @@ class LarryMultimodalModel(LarryModel[LarryMultimodalModelConfig], PyTorchModelH
         for blocks, depth in self._block_stacks():
             initializer.scale_residuals(blocks, depth)
 
+        if self.text_prelude.embed_proj is not None:
+            nn.init.normal_(self.text_prelude.embed_proj.weight, std=1 / math.sqrt(self.text_prelude.wte.embedding_dim))
+        if self.text_coda.head_proj is not None:
+            nn.init.normal_(self.text_coda.head_proj.weight, std=1 / math.sqrt(self.text_coda.head_proj.in_features))
         if self.voice_coda is not None:
             nn.init.normal_(self.voice_coda.eov, std=INIT_STD)
         if self.image_coda is not None:

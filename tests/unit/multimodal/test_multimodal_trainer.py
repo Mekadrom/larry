@@ -103,8 +103,8 @@ def test_muon_leaves_embeddings_and_the_velocity_output_to_adamw(
     muon, adamw = trainer.optimizers
     model = trainer.accelerator.unwrap_model(trainer.model)
     in_muon = {id(p) for group in muon.param_groups for p in group["params"]}
-    for name in ("text_prelude.wte.weight", "voice_prelude.ute.weight", "image_coda.row_queries.weight",
-                 "image_coda.out.weight"):
+    for name in ("text_prelude.wte.weight", "text_prelude.embed_proj.weight", "text_coda.head_proj.weight",
+                 "voice_prelude.ute.weight", "image_coda.row_queries.weight", "image_coda.out.weight"):
         assert id(model.get_parameter(name)) not in in_muon, name
     assert id(model.get_parameter("recurrent_block.blocks.0.self_attn.q_proj.weight")) in in_muon
     assert adamw.param_groups

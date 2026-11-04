@@ -150,7 +150,10 @@ class LarryMultimodalTrainer(
         embeddings = [f"{name}.weight" for name, module in model.named_modules() if isinstance(module, nn.Embedding)]
         image_coda = getattr(model, "image_coda", None)
         image_output = ["image_coda.out.weight"] if image_coda is not None else []
-        return super().muon_excluded_names(model) + embeddings + image_output
+        parameters = dict(model.named_parameters())
+        projections = ("text_prelude.embed_proj.weight", "text_coda.head_proj.weight")
+        text_projections = [name for name in projections if name in parameters]
+        return super().muon_excluded_names(model) + embeddings + image_output + text_projections
 
     @staticmethod
     def used_columns(config: MultimodalSourceConfig) -> list[str]:
