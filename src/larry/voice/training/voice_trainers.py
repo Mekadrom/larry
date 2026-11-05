@@ -15,7 +15,6 @@ from rapidfuzz.distance import Levenshtein
 from torch.utils.data import Sampler
 from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
 
-from larry.common.config.data.data_configs import DatasetSourceConfig
 from larry.common.criteria import criterion
 from larry.common.criteria.criterion import Criterion
 from larry.common.data.dataloading.indexed_dataset import IndexedDataset
@@ -88,7 +87,7 @@ def error_counts(hypothesis: str, reference: str) -> ErrorCounts:
 class VoiceTrainer[
 M: VoiceModel,
 C: VoiceTrainerConfig[Any] = VoiceTrainerConfig[Any],
-S: DatasetSourceConfig = DatasetSourceConfig,
+S: SpeechSourceConfig = SpeechSourceConfig,
 D: IndexedDataset[Any] = IndexedDataset[Any],
 ](LarryTrainer[M, C, S, D], ABC):
     """Superclass for voice trainers."""
@@ -97,6 +96,18 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
     def mixture(self) -> SpeechMixtureConfig[Any]:
         # the trainer config's mixture parameter is erased to Any by the config bound; every voice mixture is one of these
         return self.config.mixture_config
+
+    def make_dataset_dict(self) -> Mapping[str, D]:
+        if self.unwrapped_model.config.sample_rate != self.mixture.sample_rate:
+            raise ValueError(
+                f"sample_rates do not match: model_config={self.unwrapped_model.config.sample_rate}, "
+                f"mixture_config={self.mixture.sample_rate}"
+            )
+
+        return super().make_dataset_dict()
+
+    def transform_as_source(self, config: S, dataset: HFDataset) -> HFDataset:
+        return dataset.cast_column(config.audio_column, Audio(decode=False))
 
     def duration_batches(self, lengths: torch.Tensor) -> list[list[int]]:
         return length_batches(torch.argsort(lengths).tolist(), lengths, self.mixture.max_batch_seconds)
@@ -121,19 +132,6 @@ D: IndexedSpeechDataset[Any] = IndexedSpeechDataset[Any],
 O: LarryModelOutput = LarryModelOutput,
 ](VoiceTrainer[M, T, S, D], ABC):
     """Trainer for ``SpeechTokenizerModel`` that trains for CTC ASR."""
-
-    def make_dataset_dict(self) -> Mapping[str, D]:
-        """Loads the indexed dataset sources from config for this ``SpeechTokenizerTrainer``."""
-        if self.unwrapped_model.config.sample_rate != self.mixture.sample_rate:
-            raise ValueError(
-                f"sample_rates do not match: model_config={self.unwrapped_model.config.sample_rate}, "
-                f"mixture_config={self.mixture.sample_rate}"
-            )
-
-        return super().make_dataset_dict()
-
-    def transform_as_source(self, config: S, dataset: HFDataset) -> HFDataset:
-        return dataset.cast_column(config.audio_column, Audio(decode=False))
 
     def make_train_sampler(self, dataset: D, weights: list[float]) -> WeightedBatchSampler:
         source_ids, durations = dataset.source_ids_and_durations()
