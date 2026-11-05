@@ -24,9 +24,9 @@ from larry.multimodal.model.multimodal_model import (
     VoiceProsody,
 )
 from larry.multimodal.processor.processor import EOS, EOV, ImagePlaceholder, VoicePlaceholder
+from larry.voice.evaluation.transcripts import error_counts
 from larry.voice.model.speech_decoder import SpeechDecoderModel
 from larry.voice.model.vocoder import LarryVocoder
-from larry.voice.training.voice_trainers import error_counts
 from larry.voice.training.voice_viz_callbacks import VoiceVizCallback
 
 VOICE = VoicePlaceholder.placeholder()

@@ -1,6 +1,5 @@
 import dataclasses
 import functools
-import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
@@ -10,8 +9,6 @@ import torch
 from accelerate import PartialState
 from datasets import Audio
 from datasets import Dataset as HFDataset
-from huggingface_hub import hf_hub_download
-from rapidfuzz.distance import Levenshtein
 from torch import nn
 from torch.utils.data import Sampler
 from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
@@ -50,6 +47,13 @@ from larry.voice.data.dataloading.voice_dataloading import (
     WaveformCollator,
 )
 from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
+from larry.voice.evaluation.speech_recognition import SpeechRecognizer
+from larry.voice.evaluation.transcripts import (
+    error_counts,
+    load_whisper_normalizer,
+)
+from larry.voice.evaluation.transcripts import normalize_for_scoring as _normalize_for_scoring
+from larry.voice.evaluation.transcripts import normalize_reference_for_scoring as _normalize_reference_for_scoring
 from larry.voice.model.fsq import code_counts, codebook_statistics
 from larry.voice.model.speech_decoder import SpeechDecoderModel
 from larry.voice.model.speech_encoder import SpeechEncoderModel
@@ -58,31 +62,6 @@ from larry.voice.model.voice_models import SpeechDecoderModelOutput, SpeechEncod
 from larry.voice.model.voice_modules import MelAugmenter
 from larry.voice.training import voice_callbacks, voice_viz_callbacks
 from larry.voice.utils import collapse_ctc_emissions
-
-WHISPER_NORMALIZER_REPO = "openai/whisper-small"
-WHISPER_NORMALIZER_REVISION = "973afd24965f72e36ca33b3055d56a652f456b4d"
-
-
-@dataclasses.dataclass
-class ErrorCounts:
-    """Helper dataclass for containing the results of an evaluation from the configured whisper model."""
-
-    word_errors: int
-    words: int
-    char_errors: int
-    chars: int
-
-
-def error_counts(hypothesis: str, reference: str) -> ErrorCounts:
-    """Word and character edit distances of ``hypothesis`` against ``reference``, with the reference lengths."""
-    reference_words = reference.split()
-    reference_chars = " ".join(reference_words)
-    return ErrorCounts(
-        word_errors=Levenshtein.distance(hypothesis.split(), reference_words),
-        words=len(reference_words),
-        char_errors=Levenshtein.distance(" ".join(hypothesis.split()), reference_chars),
-        chars=len(reference_chars),
-    )
 
 
 class VoiceTrainer[
@@ -112,17 +91,6 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
 
     def duration_batches(self, lengths: torch.Tensor) -> list[list[int]]:
         return length_batches(torch.argsort(lengths).tolist(), lengths, self.mixture.max_batch_seconds)
-
-
-def _normalize_for_scoring(whisper_normalizer: EnglishTextNormalizer, text: str) -> str:
-    """Whisper normalization: lowercase, fillers dropped, numbers as digits, American spellings, no punctuation."""
-    return whisper_normalizer(text)
-
-
-@functools.cache
-def _normalize_reference_for_scoring(whisper_normalizer: EnglishTextNormalizer, text: str) -> str:
-    """``normalize_for_scoring`` for references, which repeat at every eval."""
-    return _normalize_for_scoring(whisper_normalizer, text)
 
 
 class SpeechEncoderDecoderTrainerBase[
@@ -189,9 +157,7 @@ class SpeechEncoderTrainer(
     @functools.cached_property
     def whisper_normalizer(self) -> EnglishTextNormalizer:
         """Downloads, initializes, and caches an instance of the EnglishTextNormalizer used by whisper."""
-        path = hf_hub_download(WHISPER_NORMALIZER_REPO, "normalizer.json", revision=WHISPER_NORMALIZER_REVISION)
-        with open(path, encoding="utf-8") as f:
-            return EnglishTextNormalizer(json.load(f))
+        return load_whisper_normalizer()
 
     def add_training_callbacks(self) -> None:
         """Adds the default training callbacks as well as an infrequent callback for training speaker leakage probes."""
@@ -486,4 +452,14 @@ class VocoderTrainer(VoiceTrainer[LarryVocoder, VocoderTrainerConfig, SpeechSour
             sway_coefficient=viz.sway_coefficient,
             seed=viz.seed,
             world=viz.world,
+            recognizers=self.make_recognizers(),
+            intelligibility_clips_per_source=viz.intelligibility_clips_per_source,
+            intelligibility_batch_size=viz.intelligibility_batch_size,
+            transcript_column=viz.transcript_column,
         )
+
+    def make_recognizers(self) -> list[SpeechRecognizer]:
+        if not self.accelerator.is_main_process:
+            return []
+
+        return [SpeechRecognizer.from_config(config, self.accelerator.device) for config in self.config.viz.recognizers]

@@ -7,13 +7,10 @@ from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
 from larry.common.metrics.metrics import MetricDict
 from larry.common.training.trainers import StepOutput
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
-from larry.voice.training.voice_trainers import (
-    ErrorCounts,
-    SpeechEncoderTrainer,
-    _normalize_for_scoring,
-    _normalize_reference_for_scoring,
-    error_counts,
-)
+from larry.voice.evaluation.transcripts import ErrorCounts, error_counts
+from larry.voice.evaluation.transcripts import normalize_for_scoring as _normalize_for_scoring
+from larry.voice.evaluation.transcripts import normalize_reference_for_scoring as _normalize_reference_for_scoring
+from larry.voice.training.voice_trainers import SpeechEncoderTrainer
 from tests.helpers.common import uninitialized
 from tests.helpers.voice import LETTERS, CharTokenizer, ctc_output
 

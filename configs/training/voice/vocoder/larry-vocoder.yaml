@@ -22,3 +22,7 @@ trainer:
   compile:
     mode: blocks
   ddp_comm_hook: bf16
+  viz:
+    recognizers:
+      - type: LarrySpeechEncoderRecognizerConfig
+      - type: Wav2Vec2RecognizerConfig

@@ -99,6 +99,10 @@ class IndexedDataset[S: DatasetSourceConfig = DatasetSourceConfig](Dataset[dict[
 
     def __getitem__(self, k: int) -> dict[str, Any]:
         """Returns a single item as a dictionary from the requested index, determining which source it falls in."""
+        source_idx, entry = self.entry(k)
+        return self.format_example_dict(source_idx, entry, self.get_data(source_idx, entry))
+
+    def entry(self, k: int) -> tuple[int, dict[str, Any]]:
         source_idx = bisect.bisect_right(self.offsets, k) - 1
         config = self.configs[source_idx]
         entry = self.indexes[source_idx][k - self.offsets[source_idx]]
@@ -110,7 +114,7 @@ class IndexedDataset[S: DatasetSourceConfig = DatasetSourceConfig](Dataset[dict[
                 raise KeyError(f"{config.name} row {entry['row']} is {row['id']}, index expects {entry['id']}")
             entry = {**row, **entry}
 
-        return self.format_example_dict(source_idx, entry, self.get_data(source_idx, entry))
+        return source_idx, entry
 
     def column(self, source_idx: int, name: str) -> pa.ChunkedArray:
         return indexed_column(self.indexes[source_idx], self.sources[source_idx], name)

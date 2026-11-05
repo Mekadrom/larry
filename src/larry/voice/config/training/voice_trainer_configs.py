@@ -10,6 +10,7 @@ from larry.voice.config.data.voice_data_configs import (
     TTSMixtureConfig,
     VocoderMixtureConfig,
 )
+from larry.voice.config.evaluation.recognizer_configs import SpeechRecognizerConfig
 from larry.voice.config.preprocessing.voice_configs import WorldConfig
 
 
@@ -61,6 +62,10 @@ class VocoderVizConfig(Config):
     sway_coefficient: float | None = -1.0
     seed: int = 0
     world: WorldConfig = dataclasses.field(default_factory=WorldConfig)
+    recognizers: list[SpeechRecognizerConfig] = dataclasses.field(default_factory=list)
+    intelligibility_clips_per_source: int = 32
+    intelligibility_batch_size: int = 16
+    transcript_column: str = "text_normalized"
 
 
 @dataclasses.dataclass(kw_only=True)
