@@ -17,8 +17,8 @@ trainer:
   eval_steps: 5000
   viz_steps: 2000
   crop_seconds: 2.0
-  crops_per_clip: 4
-  clips_per_batch: 32
+  crops_per_clip: 8
+  clips_per_batch: 128
   compile:
     mode: blocks
   ddp_comm_hook: bf16

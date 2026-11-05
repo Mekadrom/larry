@@ -29,4 +29,5 @@ class VocoderCriterionConfig(CriterionConfig):
     stft_weight: float = 0.0
     mel_weight: float = 0.0
     stft_fft_sizes: list[int] = dataclasses.field(default_factory=lambda: [512, 1024, 2048])
+    stft_chunk_rows: int = 128
     estimate_t_power: float = 1.0

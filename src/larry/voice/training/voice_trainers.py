@@ -12,6 +12,7 @@ from datasets import Audio
 from datasets import Dataset as HFDataset
 from huggingface_hub import hf_hub_download
 from rapidfuzz.distance import Levenshtein
+from torch import nn
 from torch.utils.data import Sampler
 from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
 
@@ -403,6 +404,10 @@ class SpeechDecoderTrainer(
 
 
 class VocoderTrainer(VoiceTrainer[LarryVocoder, VocoderTrainerConfig, SpeechSourceConfig, IndexedSpeechDataset]):
+    def muon_excluded_names(self, model: nn.Module) -> list[str]:
+        shortcut = ["backbone.shortcut.weight"] if "backbone.shortcut.weight" in dict(model.named_parameters()) else []
+        return super().muon_excluded_names(model) + shortcut
+
     def load_indexed(
             self,
             configs: list[SpeechSourceConfig],

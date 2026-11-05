@@ -822,12 +822,14 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
             for source in self.config.mixture_config.train_sources
         ]
         sampler = self.make_train_sampler(train, weights)
+        workers = self.config.num_dataloader_workers
         return DataLoader(
             train,
             batch_sampler=sampler,
             collate_fn=self.make_collate_fn(),
-            num_workers=self.config.num_dataloader_workers,
-            persistent_workers=self.config.num_dataloader_workers > 0,
+            num_workers=workers,
+            persistent_workers=workers > 0,
+            prefetch_factor=self.config.train_prefetch_factor if workers > 0 else None,
         )
 
     def make_eval_dataloader(self, dataset: Dataset | Mapping[str, D]) -> DataLoader:

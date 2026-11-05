@@ -62,7 +62,7 @@ class VocoderCriterion(ConditionalFlowMatchingCriterion[LarryVocoderOutput, Voco
         self.frontend = TTSLogMelFrontend(
             model_config.sample_rate, model_config.n_mels, model_config.n_fft, model_config.hop_length
         )
-        self.stft = MultiResolutionSTFTLoss(config.stft_fft_sizes)
+        self.stft = MultiResolutionSTFTLoss(config.stft_fft_sizes, chunk_rows=config.stft_chunk_rows)
 
     @staticmethod
     def gradients_for(weight: float) -> contextlib.AbstractContextManager[Any]:

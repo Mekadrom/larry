@@ -5,23 +5,21 @@ from larry.common.model.masks import make_non_pad_mask
 
 
 class MultiResolutionSTFTLoss(nn.Module):
-    def __init__(self, fft_sizes: list[int], eps: float = 1e-5) -> None:
+    def __init__(self, fft_sizes: list[int], eps: float = 1e-5, chunk_rows: int | None = None) -> None:
         super().__init__()
         self.fft_sizes = fft_sizes
         self.eps = eps
+        self.chunk_rows = chunk_rows
         for n_fft in fft_sizes:
             self.register_buffer(f"window_{n_fft}", torch.hann_window(n_fft))
 
     def magnitudes(self, waveforms: torch.Tensor, n_fft: int) -> torch.Tensor:
         window = self.get_buffer(f"window_{n_fft}")
-        return torch.stft(
-            waveforms.float(),
-            n_fft,
-            n_fft // 4,
-            window=window,
-            center=True,
-            return_complex=True,
-        ).abs()
+        rows = max(1, waveforms.shape[0] if self.chunk_rows is None else self.chunk_rows)
+        return torch.cat([
+            torch.stft(chunk.float(), n_fft, n_fft // 4, window=window, center=True, return_complex=True).abs()
+            for chunk in waveforms.split(rows)
+        ])
 
     def resolution_loss(
             self,

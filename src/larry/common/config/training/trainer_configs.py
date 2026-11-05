@@ -36,6 +36,7 @@ class LarryTrainerConfig[M: DatasetMixtureConfig[Any] = DatasetMixtureConfig](Ta
     train_batch_size: int = 64
     eval_batch_size: int = 64
     num_dataloader_workers: int = 8
+    train_prefetch_factor: int = 2
 
     max_steps: int
     seed: int = 42

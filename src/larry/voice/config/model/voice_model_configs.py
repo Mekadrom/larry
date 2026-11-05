@@ -120,3 +120,5 @@ class LarryVocoderConfig(VoiceModelConfig, FlowMatchingConfig):
 
     stft_alpha: float = 0.5
     stft_scale: float = 1.0
+    istft_chunk_rows: int = 128
+    xt_shortcut: bool = False

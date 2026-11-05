@@ -67,7 +67,9 @@ class ConditionalConvNeXtBlock(nn.Module):
 
 
 class VocoderVelocityNetwork(nn.Module):
-    def __init__(self, n_mels: int, n_bins: int, d_model: int, d_inner: int, n_layers: int) -> None:
+    def __init__(
+            self, n_mels: int, n_bins: int, d_model: int, d_inner: int, n_layers: int, xt_shortcut: bool = False,
+    ) -> None:
         super().__init__()
         self.embed = nn.Conv1d(n_mels + 2 * n_bins, d_model, kernel_size=7, padding=3)
         self.time = TimestepEmbedding(d_model)
@@ -76,8 +78,15 @@ class VocoderVelocityNetwork(nn.Module):
         ])
         self.final_norm = AdaLayerNorm(d_model, d_model)
         self.out = nn.Linear(d_model, 2 * n_bins)
-        nn.init.zeros_(self.out.weight)
-        nn.init.zeros_(self.out.bias)
+        self.shortcut = nn.Linear(d_model, 2 * n_bins) if xt_shortcut else None
+        self.zero_outputs()
+
+    @torch.no_grad()
+    def zero_outputs(self) -> None:
+        for layer in (self.out, self.shortcut):
+            if layer is not None:
+                nn.init.zeros_(layer.weight)
+                nn.init.zeros_(layer.bias)
 
     def forward(self, xt: torch.Tensor, t: torch.Tensor, mels: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         cond = self.time(t)
@@ -85,7 +94,11 @@ class VocoderVelocityNetwork(nn.Module):
         for block in self.blocks:
             x = block(x, cond, mask)
 
-        return self.out(self.final_norm(x.transpose(-2, -1), cond)).transpose(-2, -1) * mask.unsqueeze(1)
+        velocity = self.out(self.final_norm(x.transpose(-2, -1), cond)).transpose(-2, -1)
+        if self.shortcut is not None:
+            velocity = velocity + self.shortcut(cond).unsqueeze(-1) * xt
+
+        return velocity * mask.unsqueeze(1)
 
 
 class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, ConditionalFlowMatching):
@@ -121,15 +134,15 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
             n_bins=self.n_bins,
             d_model=config.d_model,
             d_inner=config.d_inner,
-            n_layers=config.n_layers
+            n_layers=config.n_layers,
+            xt_shortcut=config.xt_shortcut,
         )
         self.init_weights()
 
     @torch.no_grad()
     def init_weights(self) -> None:
         WeightInitializer("trunc_normal", 0.02).apply(self)
-        nn.init.zeros_(self.backbone.out.weight)
-        nn.init.zeros_(self.backbone.out.bias)
+        self.backbone.zero_outputs()
 
     def upsample_mels(self, mels: torch.Tensor, frames: int) -> torch.Tensor:
         if self.mel_upsampler is None:
@@ -173,7 +186,10 @@ class LarryVocoder(VoiceModel[LarryVocoderConfig], PyTorchModelHubMixin, Conditi
     def one_step_waveforms(self, xt: torch.Tensor, t: torch.Tensor, velocity: torch.Tensor) -> torch.Tensor:
         with torch.autocast(device_type=xt.device.type, enabled=False):
             spec = xt.float() + (1 - t.float()).view(-1, 1, 1) * velocity.float()
-            return self.codec.decode(spec, (spec.shape[-1] - 1) * self.config.stft_hop_length)
+            length = (spec.shape[-1] - 1) * self.config.stft_hop_length
+            return torch.cat([
+                self.codec.decode(chunk, length) for chunk in spec.split(self.config.istft_chunk_rows)
+            ])
 
     def generate(
             self,
