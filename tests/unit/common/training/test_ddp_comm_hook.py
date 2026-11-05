@@ -42,6 +42,7 @@ def test_a_hook_merges_into_the_trainers_own_ddp_handler(monkeypatch: pytest.Mon
 
 
 def test_the_overlay_turns_on_bf16_gradient_compression() -> None:
-    assert load_training("larry-vocoder+ddp_bf16_comm").trainer.ddp_comm_hook == "bf16"
-    assert load_training("larry-vocoder").trainer.ddp_comm_hook == "no"
+    assert load_training("larry-speech-decoder+ddp_bf16_comm").trainer.ddp_comm_hook == "bf16"
+    assert load_training("larry-speech-decoder").trainer.ddp_comm_hook == "no"
     assert load_training("larry-speech-encoder").trainer.ddp_comm_hook == "bf16"
+    assert load_training("larry-vocoder").trainer.ddp_comm_hook == "bf16"
