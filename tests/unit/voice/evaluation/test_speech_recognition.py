@@ -2,7 +2,6 @@ import dataclasses
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 import torch
@@ -13,14 +12,11 @@ from larry.voice.config.evaluation.recognizer_configs import (
     SpeechRecognizerConfig,
     Wav2Vec2RecognizerConfig,
 )
-from larry.voice.config.training.voice_trainer_configs import VocoderVizConfig
-from larry.voice.evaluation.intelligibility import IntelligibilityScorer
 from larry.voice.evaluation.speech_recognition import (
     LarrySpeechEncoderRecognizer,
     SpeechRecognizer,
     Wav2Vec2Recognizer,
 )
-from larry.voice.training.voice_viz_callbacks import VocoderVizCallback
 from tests.helpers.voice import CharTokenizer
 
 
@@ -108,58 +104,3 @@ def test_the_wav2vec2_recognizer_transcribes_each_clip_of_a_padded_batch(wav2vec
 
     assert len(batched) == 3 and all(isinstance(text, str) for text in batched)
     assert batched[0] == alone[0]
-
-
-def test_the_scorer_reports_both_error_rates_and_their_gap_per_group() -> None:
-    scorer = IntelligibilityScorer(str.lower)
-    references = ["the cat sat", "a dog ran", "hello there"]
-    originals = ["the cat sat", "a dog ran", "hello where"]
-    regenerated = ["the bat sat", "a dog", "hello where"]
-
-    scores = scorer.compare(references, originals, regenerated, ["clean", "clean", "noisy"])
-
-    assert scores["wer_original"] == pytest.approx(1 / 8)
-    assert scores["wer_generated"] == pytest.approx(3 / 8)
-    assert scores["wer_gap"] == pytest.approx(2 / 8)
-    assert scores["wer_gap/clean"] == pytest.approx(2 / 6)
-    assert scores["wer_gap/noisy"] == 0
-    assert scores["cer_original/clean"] == 0
-
-
-def test_viz_configs_choose_recognizers_by_type() -> None:
-    config = VocoderVizConfig.from_dict({"recognizers": [
-        {"type": "LarrySpeechEncoderRecognizerConfig", "model_path": "local/encoder"},
-        {"type": "Wav2Vec2RecognizerConfig"},
-    ]})
-
-    assert [type(r) for r in config.recognizers] == [LarrySpeechEncoderRecognizerConfig, Wav2Vec2RecognizerConfig]
-    assert config.recognizers[0].model_path == "local/encoder"
-    assert VocoderVizConfig().recognizers == []
-
-
-class Metrics:
-    def __init__(self) -> None:
-        self.scalars: dict[str, float] = {}
-
-    def add_scalar(self, tag: str, value: float, step: int) -> None:
-        self.scalars[tag] = value
-
-
-def test_viz_scores_every_injected_recognizer_and_transcribes_originals_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    callback = object.__new__(VocoderVizCallback)
-    callback.recognizers = [EchoRecognizer(EchoRecognizerConfig(), torch.device("cpu"))]
-    callback.original_transcripts = {}
-    callback.trainer = SimpleNamespace(metrics=Metrics())
-    callback.__dict__["scorer"] = IntelligibilityScorer(str.lower)
-    callback.__dict__["intelligibility_references"] = (["len 4", "len 3"], ["vctk", "scotus"])
-    clips = ([torch.zeros(4), torch.zeros(3)], [torch.zeros(4), torch.zeros(2)])
-    monkeypatch.setattr(callback, "regenerate", lambda model, device: clips)
-    model: Any = SimpleNamespace(config=SimpleNamespace(sample_rate=16000))
-
-    callback.log_intelligibility(10, model, torch.device("cpu"))
-    callback.log_intelligibility(20, model, torch.device("cpu"))
-
-    scalars = callback.trainer.metrics.scalars
-    assert scalars["viz/intelligibility/echo/wer_original"] == 0
-    assert scalars["viz/intelligibility/echo/wer_gap/scotus"] == pytest.approx(0.5)
-    assert len(callback.recognizers[0].batches) == 3

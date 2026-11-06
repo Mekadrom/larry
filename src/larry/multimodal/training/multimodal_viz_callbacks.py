@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from rapidfuzz.distance import Levenshtein
 
+from larry.common.model.pretrained import load_pretrained
 from larry.common.training import trainers
 from larry.common.training.viz_callbacks import VizCallback, pick_rows
 from larry.multimodal.config.data.dataloading.dataloading_configs import InferenceMultimodalCollatorConfig
@@ -24,9 +25,10 @@ from larry.multimodal.model.multimodal_model import (
     VoiceProsody,
 )
 from larry.multimodal.processor.processor import EOS, EOV, ImagePlaceholder, VoicePlaceholder
+from larry.voice.config.evaluation.evaluation_configs import PretrainedVocoderConfig
 from larry.voice.evaluation.transcripts import error_counts
+from larry.voice.evaluation.vocoding import MelVocoder
 from larry.voice.model.speech_decoder import SpeechDecoderModel
-from larry.voice.model.vocoder import LarryVocoder
 from larry.voice.training.voice_viz_callbacks import VoiceVizCallback
 
 VOICE = VoicePlaceholder.placeholder()
@@ -117,11 +119,21 @@ class UnitVocalizer:
 
     @functools.cached_property
     def decoder(self) -> SpeechDecoderModel:
-        return SpeechDecoderModel.from_pretrained(self.decoder_model_path).to(self.device).eval()
+        return load_pretrained(SpeechDecoderModel, self.decoder_model_path).to(self.device).eval()
 
     @functools.cached_property
-    def vocoder(self) -> LarryVocoder:
-        return LarryVocoder.from_pretrained(self.vocoder_model_path).to(self.device).eval()
+    def vocoder(self) -> MelVocoder:
+        vocoder = MelVocoder.from_config(
+            PretrainedVocoderConfig(
+                model_path=self.vocoder_model_path,
+                steps=self.config.vocoder_steps,
+                seed=self.config.seed,
+                sway_coefficient=None,
+            ),
+            self.device,
+        )
+        vocoder.check_compatible(self.decoder.config)
+        return vocoder
 
     @torch.no_grad()
     def audio(self, units: torch.Tensor, prosody: VoiceProsody | None = None) -> Vocalization:
@@ -144,21 +156,12 @@ class UnitVocalizer:
             generator=generator,
             **flat,
         )
-        waveforms = self.vocoder.generate(
-            mels.mels,
-            mels.mel_lengths,
-            steps=self.config.vocoder_steps,
-            generator=generator
-        )
-
-        n_samples = int(waveforms.waveform_lengths[0])
         frames = int(mels.mel_lengths[0])
-        vocoder_config = self.vocoder.config
         return Vocalization(
-            waveform=waveforms.waveforms[0, :n_samples].float().cpu(),
+            waveform=self.vocoder.clips(mels.mels, mels.mel_lengths)[0],
             mels=mels.mels[0, :, :frames].float().cpu(),
-            sample_rate=vocoder_config.sample_rate,
-            frame_seconds=vocoder_config.hop_length / vocoder_config.sample_rate,
+            sample_rate=self.vocoder.sample_rate,
+            frame_seconds=self.vocoder.frame_seconds,
         )
 
 

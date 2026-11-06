@@ -113,7 +113,7 @@ class _Response:
         self.body = body
         self.status_code = status_code
 
-    def __enter__(self) -> "_Response":
+    def __enter__(self) -> _Response:
         return self
 
     def __exit__(self, *args: object) -> None:

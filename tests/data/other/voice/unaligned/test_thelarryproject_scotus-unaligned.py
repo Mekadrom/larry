@@ -53,7 +53,7 @@ def test_words_per_second(con):
                          SELECT min(len(string_split(transcript, ' ')) / duration_s),
                                 max(len(string_split(transcript, ' ')) / duration_s)
                          FROM t""").fetchone()
-    assert 1.8 < lo and hi < 4.0, (lo, hi)
+    assert lo > 1.8 and hi < 4.0, (lo, hi)
 
 
 KNOWN_RARE = {

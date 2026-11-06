@@ -8,21 +8,29 @@ from datasets import Dataset
 
 from larry.voice.config.criterion.voice_criterion_configs import SpeechDecoderCriterionConfig
 from larry.voice.config.data.voice_data_configs import TTSSourceConfig
+from larry.voice.config.model.voice_model_configs import LarryVocoderConfig
 from larry.voice.criteria.flow_matching import SpeechDecoderCriterion
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedTTSDataset
 from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
+from larry.voice.evaluation.vocoding import MelVocoder
 from larry.voice.model.speech_decoder import SpeechDecoderModel
+from larry.voice.model.vocoder import LarryVocoder
 from larry.voice.training.voice_trainers import SpeechDecoderTrainer
 from larry.voice.training.voice_viz_callbacks import SpeechDecoderVizCallback
 from tests.helpers.audio import wav
 from tests.helpers.common import uninitialized
 from tests.unit.voice.model.test_speech_decoder import tiny_config
+from tests.unit.voice.training.test_intelligibility_probe import echo_probe
 
 
 class RecordingMetrics:
     def __init__(self) -> None:
         self.figures: list[str] = []
         self.scalars: dict[str, float] = {}
+        self.audio: dict[str, torch.Tensor] = {}
+
+    def add_audio(self, tag: str, waveform: torch.Tensor, step: int, **kwargs: Any) -> None:
+        self.audio[tag] = waveform
 
     def add_figure(self, tag: str, figure: Any, step: int, **kwargs: Any) -> None:
         self.figures.append(tag)
@@ -38,6 +46,7 @@ def _source(name: str, seconds: list[float], with_f0: bool = False) -> Dataset:
         "unit_ids": [[(i * 7 + k) % 81 for k in range(int(s * 25))] for i, s in enumerate(seconds)],
         "speaker_id": [f"s{i % 2}" for i in range(len(seconds))],
         "duration_s": seconds,
+        "text_normalized": [f"LEN {int(s * 16_000)}" for s in seconds],
     }
     if with_f0:
         frames = [int(s * 16_000) // 320 + 1 for s in seconds]
@@ -151,6 +160,54 @@ def test_viz_renders_true_flat_and_no_f0_versions_when_the_data_has_f0() -> None
     assert {f"viz/{name}/mel_l1" for name in ("true_f0", "no_f0", "flat_f0")} <= set(metrics.scalars)
     assert "viz/2/b/flat_f0/comparison" in metrics.figures
     assert all(torch.isfinite(torch.tensor(v)) for v in metrics.scalars.values())
+
+
+def _vocalized_callback(with_f0: bool) -> tuple[SpeechDecoderVizCallback, RecordingMetrics]:
+    trainer, metrics = _trainer(with_f0=with_f0)
+    torch.manual_seed(1)
+    vocoder = MelVocoder(LarryVocoder(LarryVocoderConfig(d_model=32, d_inner=64, n_layers=2)).eval(), steps=2)
+    probe = echo_probe(trainer.eval_loader.dataset, ["a", "b"], trainer.make_collate_fn())
+    callback = SpeechDecoderVizCallback(trainer, viz_steps=10, generation_steps=2, vocoder=vocoder, intelligibility=probe)
+    return callback, metrics
+
+
+def test_viz_vocalizes_each_variant_and_logs_the_real_audio_once() -> None:
+    callback, metrics = _vocalized_callback(with_f0=True)
+
+    callback.viz(10)
+    first = set(metrics.audio)
+    metrics.audio.clear()
+    callback.viz(20)
+
+    variants = ("true_f0", "no_f0", "flat_f0")
+    logged_once = (*variants, "original", "vocoded")
+    assert {f"viz/{i}/{s}/{v}/audio" for i, s in ((0, "a"), (2, "b")) for v in logged_once} <= first
+    assert set(metrics.audio) == {f"viz/{i}/{s}/{v}/audio" for i, s in ((0, "a"), (1, "a"), (2, "b")) for v in variants}
+
+
+def test_viz_scores_each_variant_against_the_vocoded_real_mels() -> None:
+    callback, metrics = _vocalized_callback(with_f0=True)
+    recognizer = callback.intelligibility.recognizers[0]
+
+    callback.viz(10)
+    after_first = len(recognizer.batches)
+    callback.viz(20)
+
+    assert len(recognizer.batches) - after_first == 3 * 2
+    assert metrics.scalars["viz/intelligibility/echo/wer_original"] == 0
+    for name in ("vocoded", "true_f0", "no_f0", "flat_f0"):
+        assert f"viz/intelligibility/echo/wer_{name}/b" in metrics.scalars
+    for name in ("original", "true_f0", "no_f0", "flat_f0"):
+        assert f"viz/intelligibility/echo/cer_gap_{name}" in metrics.scalars
+    assert "viz/intelligibility/echo/wer_gap_vocoded" not in metrics.scalars
+
+
+def test_viz_without_a_vocoder_cannot_score_intelligibility() -> None:
+    trainer, _ = _trainer()
+    probe = echo_probe(trainer.eval_loader.dataset, ["a", "b"], trainer.make_collate_fn())
+
+    with pytest.raises(ValueError, match="vocoder"):
+        SpeechDecoderVizCallback(trainer, viz_steps=10, intelligibility=probe)
 
 
 def test_training_with_f0_adds_the_range_term_and_uses_true_f0_only_during_warmup() -> None:

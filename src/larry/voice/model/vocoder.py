@@ -14,12 +14,16 @@ from larry.common.training.training_model import GenerationOutput
 from larry.voice.config.model.voice_model_configs import LarryVocoderConfig
 from larry.voice.model.voice_models import LarryVocoderOutput, VoiceModel
 from larry.voice.model.voice_modules import TTSLogMelFrontend
+from larry.voice.utils import unpad
 
 
 @dataclasses.dataclass(kw_only=True)
 class LarryVocoderGeneration(GenerationOutput):
     waveforms: torch.Tensor
     waveform_lengths: torch.Tensor
+
+    def clips(self) -> list[torch.Tensor]:
+        return unpad(self.waveforms, self.waveform_lengths)
 
 
 class CompressedSTFT(nn.Module):

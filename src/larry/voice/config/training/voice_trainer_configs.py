@@ -10,7 +10,7 @@ from larry.voice.config.data.voice_data_configs import (
     TTSMixtureConfig,
     VocoderMixtureConfig,
 )
-from larry.voice.config.evaluation.recognizer_configs import SpeechRecognizerConfig
+from larry.voice.config.evaluation.evaluation_configs import IntelligibilityConfig, PretrainedVocoderConfig
 from larry.voice.config.preprocessing.voice_configs import WorldConfig
 
 
@@ -55,17 +55,29 @@ class MelAugmentConfig(Config):
 
 
 @dataclasses.dataclass(kw_only=True)
-class VocoderVizConfig(Config):
+class SpeechGenerationVizConfig(Config):
     examples_per_source: int = 2
     generation_steps: int = 32
-    step_sweep: list[int] = dataclasses.field(default_factory=lambda: [4, 8, 16, 32])
     sway_coefficient: float | None = -1.0
     seed: int = 0
+    intelligibility: IntelligibilityConfig = dataclasses.field(default_factory=IntelligibilityConfig)
+
+
+@dataclasses.dataclass(kw_only=True)
+class VocoderVizConfig(SpeechGenerationVizConfig):
+    step_sweep: list[int] = dataclasses.field(default_factory=lambda: [4, 8, 16, 32])
     world: WorldConfig = dataclasses.field(default_factory=WorldConfig)
-    recognizers: list[SpeechRecognizerConfig] = dataclasses.field(default_factory=list)
-    intelligibility_clips_per_source: int = 32
-    intelligibility_batch_size: int = 16
-    transcript_column: str = "text_normalized"
+
+
+@dataclasses.dataclass(kw_only=True)
+class SpeechDecoderVizConfig(SpeechGenerationVizConfig):
+    cfg_scale: float = 2.0
+    flat_f0_hz: float = 165.0
+    vocoder: PretrainedVocoderConfig | None = None
+
+    def __post_init__(self) -> None:
+        if self.intelligibility.recognizers and self.vocoder is None:
+            raise ValueError("intelligibility recognizers need a vocoder to turn generated mels into audio")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -103,3 +115,4 @@ class SpeechDecoderTrainerConfig(SpeechEncoderDecoderTrainerConfig[TTSMixtureCon
     """Config for ``SpeechDecoderTrainer``."""
 
     criterion: SpeechDecoderCriterionConfig = dataclasses.field(default_factory=SpeechDecoderCriterionConfig)
+    viz: SpeechDecoderVizConfig = dataclasses.field(default_factory=SpeechDecoderVizConfig)

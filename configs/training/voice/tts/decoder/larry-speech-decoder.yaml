@@ -30,3 +30,10 @@ trainer:
   criterion:
     kl_weight: 1.0e-04
     kl_warmup_steps: 10000
+  viz:
+    vocoder:
+      model_path: /home/zadar/.cache/larry/models/voice/larry-vocoder/
+    intelligibility:
+      recognizers:
+        - type: LarrySpeechEncoderRecognizerConfig
+        - type: Wav2Vec2RecognizerConfig

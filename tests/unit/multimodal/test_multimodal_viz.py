@@ -141,7 +141,9 @@ def test_voice_callbacks_share_one_vocalizer_that_loads_on_first_use(
     loads: list[str] = []
     for cls in (SpeechDecoderModel, LarryVocoder):
         load = cls.from_pretrained
-        monkeypatch.setattr(cls, "from_pretrained", lambda path, load=load: loads.append(path) or load(path))
+        monkeypatch.setattr(
+            cls, "from_pretrained", lambda path, load=load, **kwargs: loads.append(path) or load(path, **kwargs)
+        )
 
     callbacks = MultimodalVizCallbacks(trainer, 1, config).callbacks
     vocalizers = {id(callback.vocalizer) for callback in callbacks}

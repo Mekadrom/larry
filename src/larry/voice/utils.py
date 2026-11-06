@@ -22,3 +22,7 @@ def collapse_ctc_emissions(frames: torch.Tensor, blank: int) -> list[int]:
     """Collapses consecutive values into single frames and removes blank indices."""
     ids = torch.unique_consecutive(frames)
     return ids[ids != blank].tolist()
+
+
+def unpad(padded: torch.Tensor, lengths: torch.Tensor) -> list[torch.Tensor]:
+    return [padded[i, ..., :n].float().cpu() for i, n in enumerate(lengths.tolist())]

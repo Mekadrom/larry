@@ -126,7 +126,7 @@ def test_large_files_use_a_standard_thumbnail_and_small_ones_the_original(tmp_pa
         f"https://upload.wikimedia.org/wikipedia/commons/thumb/{digest[0]}/{digest[:2]}/"
         "Public_domain_photo.jpg/960px-Public_domain_photo.jpg"
     )
-    small = hashlib.md5("Small_CC0_(scan).png".encode()).hexdigest()
+    small = hashlib.md5(b"Small_CC0_(scan).png").hexdigest()
     assert rows[1]["image_url"] == (
         f"https://upload.wikimedia.org/wikipedia/commons/{small[0]}/{small[:2]}/Small_CC0_(scan).png"
     )

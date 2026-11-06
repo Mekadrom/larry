@@ -28,6 +28,7 @@ from larry.voice.config.data.voice_data_configs import (
     SpeechSourceConfig,
     TTSSourceConfig,
 )
+from larry.voice.config.evaluation.evaluation_configs import IntelligibilityConfig
 from larry.voice.config.training.voice_trainer_configs import (
     SpeechDecoderTrainerConfig,
     SpeechEncoderDecoderTrainerConfig,
@@ -47,13 +48,13 @@ from larry.voice.data.dataloading.voice_dataloading import (
     WaveformCollator,
 )
 from larry.voice.data.preprocessing.speaker_mapping import SpeakerMapping
-from larry.voice.evaluation.speech_recognition import SpeechRecognizer
 from larry.voice.evaluation.transcripts import (
     error_counts,
     load_whisper_normalizer,
 )
 from larry.voice.evaluation.transcripts import normalize_for_scoring as _normalize_for_scoring
 from larry.voice.evaluation.transcripts import normalize_reference_for_scoring as _normalize_reference_for_scoring
+from larry.voice.evaluation.vocoding import MelVocoder
 from larry.voice.model.fsq import code_counts, codebook_statistics
 from larry.voice.model.speech_decoder import SpeechDecoderModel
 from larry.voice.model.speech_encoder import SpeechEncoderModel
@@ -61,6 +62,7 @@ from larry.voice.model.vocoder import LarryVocoder
 from larry.voice.model.voice_models import SpeechDecoderModelOutput, SpeechEncoderModelOutput, VoiceModel
 from larry.voice.model.voice_modules import MelAugmenter
 from larry.voice.training import voice_callbacks, voice_viz_callbacks
+from larry.voice.training.intelligibility_probe import IntelligibilityProbe
 from larry.voice.utils import collapse_ctc_emissions
 
 
@@ -76,6 +78,22 @@ D: IndexedDataset[Any] = IndexedDataset[Any],
     def mixture(self) -> SpeechMixtureConfig[Any]:
         # the trainer config's mixture parameter is erased to Any by the config bound; every voice mixture is one of these
         return self.config.mixture_config
+
+    def make_intelligibility_probe(
+            self,
+            config: IntelligibilityConfig,
+            collate_fn: Callable[[list[Any]], dict[str, Any]],
+    ) -> IntelligibilityProbe | None:
+        if not self.accelerator.is_main_process:
+            return None
+
+        return IntelligibilityProbe.from_config(
+            config,
+            self.eval_loader.dataset,
+            [source.name for source in self.mixture.eval_sources],
+            collate_fn,
+            self.accelerator.device,
+        )
 
     def make_dataset_dict(self) -> Mapping[str, D]:
         if self.unwrapped_model.config.sample_rate != self.mixture.sample_rate:
@@ -346,7 +364,24 @@ class SpeechDecoderTrainer(
         return SpeechDecoderCriterion(self.config.criterion)
 
     def make_viz_callback(self, viz_steps: int) -> VizCallback:
-        return voice_viz_callbacks.SpeechDecoderVizCallback(self, viz_steps)
+        viz = self.config.viz
+        vocoder = None
+        if viz.vocoder is not None and self.accelerator.is_main_process:
+            vocoder = MelVocoder.from_config(viz.vocoder, self.accelerator.device)
+            vocoder.check_compatible(self.unwrapped_model.config)
+
+        return voice_viz_callbacks.SpeechDecoderVizCallback(
+            self,
+            viz_steps,
+            generation_steps=viz.generation_steps,
+            cfg_scale=viz.cfg_scale,
+            sway_coefficient=viz.sway_coefficient,
+            seed=viz.seed,
+            flat_f0_hz=viz.flat_f0_hz,
+            examples_per_source=viz.examples_per_source,
+            vocoder=vocoder,
+            intelligibility=self.make_intelligibility_probe(viz.intelligibility, SpeechDecoderCollator()),
+        )
 
     def _model_forward(self, batch: Mapping[str, Any]) -> SpeechDecoderModelOutput:
         use_true_f0 = self.model.training and self.train_state.global_step < self.unwrapped_model.config.true_f0_steps
@@ -452,14 +487,5 @@ class VocoderTrainer(VoiceTrainer[LarryVocoder, VocoderTrainerConfig, SpeechSour
             sway_coefficient=viz.sway_coefficient,
             seed=viz.seed,
             world=viz.world,
-            recognizers=self.make_recognizers(),
-            intelligibility_clips_per_source=viz.intelligibility_clips_per_source,
-            intelligibility_batch_size=viz.intelligibility_batch_size,
-            transcript_column=viz.transcript_column,
+            intelligibility=self.make_intelligibility_probe(viz.intelligibility, WaveformCollator()),
         )
-
-    def make_recognizers(self) -> list[SpeechRecognizer]:
-        if not self.accelerator.is_main_process:
-            return []
-
-        return [SpeechRecognizer.from_config(config, self.accelerator.device) for config in self.config.viz.recognizers]

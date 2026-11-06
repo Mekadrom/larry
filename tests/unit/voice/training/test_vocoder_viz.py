@@ -8,11 +8,13 @@ from datasets import Dataset
 from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.config.model.voice_model_configs import LarryVocoderConfig
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
+from larry.voice.data.dataloading.voice_dataloading import WaveformCollator
 from larry.voice.model.vocoder import LarryVocoder
 from larry.voice.training.voice_trainers import VocoderTrainer
 from larry.voice.training.voice_viz_callbacks import VocoderVizCallback
 from tests.helpers.audio import wav
 from tests.helpers.common import uninitialized
+from tests.unit.voice.training.test_intelligibility_probe import echo_probe
 
 
 class RecordingMetrics:
@@ -36,10 +38,11 @@ def _dataset(name: str, seconds: list[float]) -> Dataset:
         "id": [f"{name}{i}" for i in range(len(seconds))],
         "audio": [{"bytes": wav(s, 16_000, frequency=200 + 90 * i), "path": None} for i, s in enumerate(seconds)],
         "duration_s": seconds,
+        "text_normalized": [f"LEN {int(s * 16_000)}" for s in seconds],
     })
 
 
-def _callback() -> tuple[VocoderVizCallback, RecordingMetrics]:
+def _callback(probe: bool = False) -> tuple[VocoderVizCallback, RecordingMetrics]:
     torch.manual_seed(0)
     configs = [SpeechSourceConfig(name="a", index_path="a"), SpeechSourceConfig(name="b", index_path="b")]
     dataset = IndexedSpeechDataset(configs, [_dataset("a", [1.3, 0.6]), _dataset("b", [0.9])], [None, None], 16_000)
@@ -57,7 +60,11 @@ def _callback() -> tuple[VocoderVizCallback, RecordingMetrics]:
             autocast=contextlib.nullcontext,
         ),
     )
-    return VocoderVizCallback(trainer, viz_steps=10, generation_steps=2, step_sweep=(1, 2)), metrics
+    intelligibility = echo_probe(dataset, ["a", "b"], WaveformCollator()) if probe else None
+    callback = VocoderVizCallback(
+        trainer, viz_steps=10, generation_steps=2, step_sweep=(1, 2), intelligibility=intelligibility
+    )
+    return callback, metrics
 
 
 def test_viz_logs_audio_figures_and_scalars_for_every_example() -> None:
@@ -111,3 +118,19 @@ def test_viz_logs_pesq_and_world_metrics_with_averages() -> None:
         metrics.scalars
     )
     assert any(tag.startswith("viz/pesq_wb_by_steps/") for tag in metrics.scalars) == ("viz/pesq_wb" in metrics.scalars)
+
+
+def test_viz_scores_regenerated_audio_against_the_originals_transcribed_once() -> None:
+    callback, metrics = _callback(probe=True)
+    recognizer = callback.intelligibility.recognizers[0]
+
+    callback.viz(10)
+    after_first = len(recognizer.batches)
+    callback.viz(20)
+
+    assert len(recognizer.batches) - after_first == 2
+    assert metrics.scalars["viz/intelligibility/echo/wer_original"] == 0
+    assert {"viz/intelligibility/echo/wer_gap_generated", "viz/intelligibility/echo/cer_generated/b"} <= set(
+        metrics.scalars
+    )
+    assert callback.trainer.model.training

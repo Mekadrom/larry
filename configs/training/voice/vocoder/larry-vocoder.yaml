@@ -3,6 +3,7 @@ training:
 model:
   type: LarryVocoderConfig
   stft_scale: 2.72
+  xt_shortcut: true
 trainer:
   type: VocoderTrainerConfig
   muon_last_layer_names:
@@ -13,7 +14,7 @@ trainer:
   warmup_steps: 2000
   decay_start_step: 25000
   weight_decay: 0.1
-  max_steps: 100000
+  max_steps: 200000
   eval_steps: 5000
   viz_steps: 2000
   crop_seconds: 2.0
@@ -23,6 +24,7 @@ trainer:
     mode: blocks
   ddp_comm_hook: bf16
   viz:
-    recognizers:
-      - type: LarrySpeechEncoderRecognizerConfig
-      - type: Wav2Vec2RecognizerConfig
+    intelligibility:
+      recognizers:
+        - type: LarrySpeechEncoderRecognizerConfig
+        - type: Wav2Vec2RecognizerConfig

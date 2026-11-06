@@ -36,6 +36,7 @@ from larry.common.metrics.metrics import MetricDict, Metrics, ScalarMetricEntry
 from larry.common.model.compile import ModelCompiler
 from larry.common.model.flow import ConditionalFlowMatching
 from larry.common.model.model import LarryModelOutput
+from larry.common.model.pretrained import MODEL_CONFIG_FILE
 from larry.common.training.callbacks import ModelInitLoggingCallback, TrainingCallback, TrainLossByTokens
 from larry.common.training.qk_clip import QKClipCallback, QKClipHandler
 from larry.common.training.training_model import LarryModel
@@ -49,8 +50,6 @@ def _reduce_sum(accelerator: Accelerator, tensor: torch.Tensor) -> torch.Tensor:
     """Minor helper for casting the output of an accelerator tensor reduction to a tensor."""
     return cast(torch.Tensor, accelerator.reduce(tensor, reduction="sum"))
 
-
-MODEL_CONFIG_FILE = "config.json"
 
 
 @dataclasses.dataclass(kw_only=True)

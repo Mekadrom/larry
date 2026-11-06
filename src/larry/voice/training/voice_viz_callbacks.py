@@ -1,8 +1,6 @@
-import functools
 import math
 import textwrap
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 from typing import Any, cast
 
 import torch
@@ -16,20 +14,29 @@ from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.model.voice_model_configs import SpeechEncoderDecoderModelConfig
 from larry.voice.config.preprocessing.voice_configs import WorldConfig
 from larry.voice.data.dataloading.voice_dataloading import WaveformCollator
-from larry.voice.evaluation.intelligibility import IntelligibilityScorer
 from larry.voice.evaluation.speech_metrics import pesq_wb
-from larry.voice.evaluation.speech_recognition import SpeechRecognizer
-from larry.voice.evaluation.transcripts import load_whisper_normalizer, normalize_for_scoring
+from larry.voice.evaluation.vocoding import MelVocoder
 from larry.voice.features.world import WorldAnalyzer
-from larry.voice.model.speech_decoder import SpeechDecoderModel
+from larry.voice.model.speech_decoder import SpeechDecoderGeneration, SpeechDecoderModel
 from larry.voice.model.speech_encoder import SpeechEncoderModel, SpeechEncoderPreBottleneck
 from larry.voice.model.vocoder import LarryVocoder, LarryVocoderGeneration
 from larry.voice.training import voice_trainers
-from larry.voice.utils import collapse_ctc_emissions
+from larry.voice.training.intelligibility_probe import IntelligibilityProbe
+from larry.voice.utils import collapse_ctc_emissions, unpad
 
 
 class VoiceVizCallback(trainers.VizCallback, ABC):
     """Superclass for voice viz callbacks."""
+
+    def source_name(self, item: dict[str, Any]) -> str:
+        return self.trainer.config.mixture_config.eval_sources[item["source"]].name
+
+    def source_names(self) -> list[str]:
+        return [source.name for source in self.trainer.config.mixture_config.eval_sources]
+
+    def log_intelligibility(self, scores: dict[str, float], step: int) -> None:
+        for name, value in scores.items():
+            self.trainer.metrics.add_scalar(f"viz/intelligibility/{name}", value, step)
 
     @staticmethod
     def comparison_figure(real_mel: torch.Tensor, fake_mel: torch.Tensor, frame_seconds: float) -> Figure:
@@ -166,7 +173,7 @@ class SpeechEncoderVizCallback(SpeechEncoderDecoderVizCallback):
             greedy = log_probs.argmax(-1)
             forced = self._forced_path(log_probs, target)
 
-            tag = f"viz/{i}/{self.trainer.config.mixture_config.eval_sources[item['source']].name}"
+            tag = f"viz/{i}/{self.source_name(item)}"
             if not self.audio_logged:
                 self.trainer.metrics.add_audio(
                     f"{tag}/audio",
@@ -294,13 +301,20 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
             sway_coefficient: float | None = -1.0,
             seed: int = 0,
             flat_f0_hz: float = 165.0,
+            examples_per_source: int = 2,
+            vocoder: MelVocoder | None = None,
+            intelligibility: IntelligibilityProbe | None = None,
     ) -> None:
-        super().__init__(trainer, viz_steps)
+        super().__init__(trainer, viz_steps, examples_per_source=examples_per_source)
         self.generation_steps = generation_steps
         self.cfg_scale = cfg_scale
         self.sway_coefficient = sway_coefficient
         self.seed = seed
         self.flat_f0_hz = flat_f0_hz
+        self.vocoder = vocoder
+        self.intelligibility = intelligibility
+        if intelligibility is not None and vocoder is None:
+            raise ValueError("intelligibility needs a vocoder to turn generated mels into audio")
 
     def prosody_variants(self, batch: dict[str, Any], device: torch.device) -> dict[str, dict[str, Any]]:
         if "f0" not in batch:
@@ -316,6 +330,36 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
             "flat_f0": {"f0": flat, "aperiodicity": aperiodicity, "log_f0_mean": flat_mean},
         }
 
+    def generate(
+            self,
+            decoder: SpeechDecoderModel,
+            batch: dict[str, Any],
+            device: torch.device,
+    ) -> dict[str, SpeechDecoderGeneration]:
+        return {
+            name: decoder.generate(
+                batch["unit_ids"].to(device),
+                batch["unit_id_lengths"].to(device),
+                batch["speaker_ids"].to(device),
+                steps=self.generation_steps,
+                cfg_scale=self.cfg_scale,
+                generator=torch.Generator(device=device).manual_seed(self.seed),
+                sway_coefficient=self.sway_coefficient,
+                **prosody,
+            )
+            for name, prosody in self.prosody_variants(batch, device).items()
+        }
+
+    def real_clips(
+            self,
+            vocoder: MelVocoder,
+            batch: dict[str, Any],
+            device: torch.device,
+    ) -> dict[str, list[torch.Tensor]]:
+        waveforms, waveform_lengths = batch["waveforms"].to(device), batch["waveform_lengths"].to(device)
+        mels, mel_lengths = vocoder.frontend(waveforms, waveform_lengths)
+        return {"original": unpad(waveforms, waveform_lengths), "vocoded": vocoder.clips(mels, mel_lengths)}
+
     def _viz(
             self,
             items: list[Any],
@@ -328,23 +372,22 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
         decoder = cast(SpeechDecoderModel, model)
         was_training = decoder.training
         decoder.eval()
-        generations = {}
+        rendered: dict[str, list[torch.Tensor]] = {}
         try:
             with torch.no_grad(), self.trainer.accelerator.autocast():
                 real, real_lengths = decoder.frontend(
                     batch["waveforms"].to(device), batch["waveform_lengths"].to(device)
                 )
-                for name, prosody in self.prosody_variants(batch, device).items():
-                    generations[name] = decoder.generate(
-                        batch["unit_ids"].to(device),
-                        batch["unit_id_lengths"].to(device),
-                        batch["speaker_ids"].to(device),
-                        steps=self.generation_steps,
-                        cfg_scale=self.cfg_scale,
-                        generator=torch.Generator(device=device).manual_seed(self.seed),
-                        sway_coefficient=self.sway_coefficient,
-                        **prosody,
-                    )
+                generations = self.generate(decoder, batch, device)
+                if self.vocoder is not None:
+                    rendered = {
+                        name: self.vocoder.clips(generated.mels, generated.mel_lengths)
+                        for name, generated in generations.items()
+                    }
+                    if not self.audio_logged:
+                        rendered |= self.real_clips(self.vocoder, batch, device)
+
+            scores = self.score(decoder, device) if self.intelligibility is not None else {}
         finally:
             decoder.train(was_training)
 
@@ -352,7 +395,7 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
         for name, generated in generations.items():
             l1s = []
             for i, item in enumerate(items):
-                tag = f"viz/{i}/{self.trainer.config.mixture_config.eval_sources[item['source']].name}/{name}"
+                tag = f"viz/{i}/{self.source_name(item)}/{name}"
                 frames = int(torch.minimum(real_lengths[i], generated.mel_lengths[i]))
                 real_mel = real[i, :, :frames].float().cpu()
                 fake_mel = generated.mels[i, :, :frames].float().cpu()
@@ -366,6 +409,36 @@ class SpeechDecoderVizCallback(SpeechEncoderDecoderVizCallback):
 
             self.trainer.metrics.add_scalar(f"viz/{name}/mel_l1", sum(l1s) / max(len(l1s), 1), step)
 
+        if self.vocoder is not None:
+            for name, clips in rendered.items():
+                for i, item in enumerate(items):
+                    self.trainer.metrics.add_audio(
+                        f"viz/{i}/{self.source_name(item)}/{name}/audio",
+                        clips[i],
+                        step,
+                        sample_rate=self.vocoder.sample_rate,
+                    )
+
+            self.audio_logged = True
+
+        self.log_intelligibility(scores, step)
+
+    def score(self, decoder: SpeechDecoderModel, device: torch.device) -> dict[str, float]:
+        probe, vocoder = cast(IntelligibilityProbe, self.intelligibility), cast(MelVocoder, self.vocoder)
+
+        def render(batch: dict[str, Any]) -> dict[str, list[torch.Tensor]]:
+            with self.trainer.accelerator.autocast():
+                return {
+                    name: vocoder.clips(generated.mels, generated.mel_lengths)
+                    for name, generated in self.generate(decoder, batch, device).items()
+                }
+
+        def fixed(batch: dict[str, Any]) -> dict[str, list[torch.Tensor]]:
+            with self.trainer.accelerator.autocast():
+                return self.real_clips(vocoder, batch, device)
+
+        return probe.score(render, vocoder.sample_rate, baseline="vocoded", fixed=fixed)
+
 
 class VocoderVizCallback(VoiceVizCallback):
     def __init__(
@@ -378,16 +451,10 @@ class VocoderVizCallback(VoiceVizCallback):
             sway_coefficient: float | None = -1.0,
             seed: int = 0,
             world: WorldConfig | None = None,
-            recognizers: Sequence[SpeechRecognizer] = (),
-            intelligibility_clips_per_source: int = 32,
-            intelligibility_batch_size: int = 16,
-            transcript_column: str = "text_normalized",
+            intelligibility: IntelligibilityProbe | None = None,
     ) -> None:
         super().__init__(trainer, viz_steps)
-        self.recognizers = list(recognizers)
-        self.intelligibility_batch_size = intelligibility_batch_size
-        self.transcript_column = transcript_column
-        self.original_transcripts: dict[str, list[str]] = {}
+        self.intelligibility = intelligibility
         self.generation_steps = generation_steps
         self.step_sweep = step_sweep
         self.sway_coefficient = sway_coefficient
@@ -395,7 +462,6 @@ class VocoderVizCallback(VoiceVizCallback):
         self.world = WorldAnalyzer(world or WorldConfig())
         self.dataset = trainer.eval_loader.dataset
         self.rows = pick_rows(self.dataset.offsets, examples_per_source)
-        self.intelligibility_rows = pick_rows(self.dataset.offsets, intelligibility_clips_per_source)
         self.reference_logged = False
 
     def viz(self, step: int) -> None:
@@ -410,6 +476,7 @@ class VocoderVizCallback(VoiceVizCallback):
         items = [self.dataset[k] for k in self.rows]
         batch = WaveformCollator()(items)
         model = cast(LarryVocoder, self.trainer.accelerator.unwrap_model(self.trainer.model))
+        vocoder = MelVocoder(model, self.generation_steps, self.seed, self.sway_coefficient)
         device = self.trainer.accelerator.device
         waveforms = batch["waveforms"].to(device)
         waveform_lengths = batch["waveform_lengths"].to(device)
@@ -417,19 +484,21 @@ class VocoderVizCallback(VoiceVizCallback):
         was_training = model.training
         model.eval()
         try:
-            with torch.no_grad():
+            with torch.no_grad(), self.trainer.accelerator.autocast():
                 mels, mel_lengths = model.frontend(waveforms, waveform_lengths)
-                generated = self._generate(model, mels, mel_lengths, self.generation_steps, device)
+                generated = vocoder.generate(mels, mel_lengths)
                 fake_mels, fake_lengths = model.frontend(generated.waveforms, generated.waveform_lengths)
-                sweep = {n: self._generate(model, mels, mel_lengths, n, device) for n in self.step_sweep}
+                sweep = {n: vocoder.generate(mels, mel_lengths, steps=n) for n in self.step_sweep}
                 sweep_mel_l1 = {n: self._mel_l1(model, mels, mel_lengths, swept) for n, swept in sweep.items()}
+
+            scores = self.score(vocoder, device) if self.intelligibility is not None else {}
         finally:
             model.train(was_training)
 
         sample_rate = model.config.sample_rate
         totals: dict[str, list[float]] = {}
         for i, item in enumerate(items):
-            tag = f"viz/{i}/{self.trainer.config.mixture_config.eval_sources[item['source']].name}"
+            tag = f"viz/{i}/{self.source_name(item)}"
             n = int(generated.waveform_lengths[i])
             frames = int(torch.minimum(fake_lengths[i], mel_lengths[i]))
             real = waveforms[i, :n].float().cpu()
@@ -457,82 +526,30 @@ class VocoderVizCallback(VoiceVizCallback):
             self.trainer.metrics.add_scalar(f"viz/mel_l1_by_steps/{n}", value, step)
 
         for n, swept in sweep.items():
-            scores = [
+            pesqs = [
                 score for i in range(len(items))
                 if (score := self.pesq(waveforms[i], swept, i, sample_rate)) is not None
             ]
-            if scores:
-                self.trainer.metrics.add_scalar(f"viz/pesq_wb_by_steps/{n}", sum(scores) / len(scores), step)
+            if pesqs:
+                self.trainer.metrics.add_scalar(f"viz/pesq_wb_by_steps/{n}", sum(pesqs) / len(pesqs), step)
 
         self.reference_logged = True
-        if self.recognizers:
-            self.log_intelligibility(step, model, device)
+        self.log_intelligibility(scores, step)
 
-    @functools.cached_property
-    def scorer(self) -> IntelligibilityScorer:
-        normalizer = load_whisper_normalizer()
-        return IntelligibilityScorer(lambda text: normalize_for_scoring(normalizer, text))
+    def score(self, vocoder: MelVocoder, device: torch.device) -> dict[str, float]:
+        probe = cast(IntelligibilityProbe, self.intelligibility)
 
-    @functools.cached_property
-    def intelligibility_references(self) -> tuple[list[str], list[str]]:
-        sources = self.trainer.config.mixture_config.eval_sources
-        references, groups = [], []
-        for k in self.intelligibility_rows:
-            source_idx, entry = self.dataset.entry(k)
-            references.append(entry[self.transcript_column])
-            groups.append(sources[source_idx].name)
+        def render(batch: dict[str, Any]) -> dict[str, list[torch.Tensor]]:
+            mels, mel_lengths = vocoder.frontend(batch["waveforms"].to(device), batch["waveform_lengths"].to(device))
+            with self.trainer.accelerator.autocast():
+                return {"generated": vocoder.clips(mels, mel_lengths)}
 
-        return references, groups
-
-    def regenerate(self, model: LarryVocoder, device: torch.device) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
-        originals: list[torch.Tensor] = []
-        regenerated: list[torch.Tensor] = []
-        rows = self.intelligibility_rows
-        was_training = model.training
-        model.eval()
-        try:
-            for start in range(0, len(rows), self.intelligibility_batch_size):
-                chunk = rows[start:start + self.intelligibility_batch_size]
-                batch = WaveformCollator()([self.dataset[k] for k in chunk])
-                waveforms = batch["waveforms"].to(device)
-                with torch.no_grad():
-                    mels, mel_lengths = model.frontend(waveforms, batch["waveform_lengths"].to(device))
-                    generated = self._generate(model, mels, mel_lengths, self.generation_steps, device)
-
-                for i, n in enumerate(generated.waveform_lengths.tolist()):
-                    originals.append(waveforms[i, :n].float().cpu())
-                    regenerated.append(generated.waveforms[i, :n].float().cpu())
-        finally:
-            model.train(was_training)
-
-        return originals, regenerated
-
-    def log_intelligibility(self, step: int, model: LarryVocoder, device: torch.device) -> None:
-        references, groups = self.intelligibility_references
-        originals, regenerated = self.regenerate(model, device)
-        sample_rate = model.config.sample_rate
-        for recognizer in self.recognizers:
-            if recognizer.name not in self.original_transcripts:
-                self.original_transcripts[recognizer.name] = recognizer.transcribe(originals, sample_rate)
-
-            heard = recognizer.transcribe(regenerated, sample_rate)
-            scores = self.scorer.compare(references, self.original_transcripts[recognizer.name], heard, groups)
-            for name, value in scores.items():
-                self.trainer.metrics.add_scalar(f"viz/intelligibility/{recognizer.name}/{name}", value, step)
-
-    def _generate(
-            self,
-            model: LarryVocoder,
-            mels: torch.Tensor,
-            mel_lengths: torch.Tensor,
-            steps: int,
-            device: torch.device,
-    ) -> LarryVocoderGeneration:
-        generator = torch.Generator(device=device).manual_seed(self.seed)
-        with self.trainer.accelerator.autocast():
-            return model.generate(
-                mels, mel_lengths, steps=steps, generator=generator, sway_coefficient=self.sway_coefficient
-            )
+        return probe.score(
+            render,
+            vocoder.sample_rate,
+            baseline="original",
+            fixed=lambda batch: {"original": unpad(batch["waveforms"], batch["waveform_lengths"])},
+        )
 
     @staticmethod
     def pesq(real: torch.Tensor, generated: LarryVocoderGeneration, i: int, sample_rate: int) -> float | None:

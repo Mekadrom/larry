@@ -41,8 +41,9 @@ class VizCallback(callbacks.TrainingCallback, ABC):
         Doesn't return a MetricDict, for some reason choosing to log metrics to the trainer directly instead of
         collecting them.
         """
-        if step % self.viz_steps == 0:
-            self.viz(step)
+        completed = step + 1
+        if completed % self.viz_steps == 0:
+            self.viz(completed)
 
     @abstractmethod
     def viz(self, step: int) -> None:
