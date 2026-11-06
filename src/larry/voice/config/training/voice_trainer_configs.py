@@ -11,7 +11,7 @@ from larry.voice.config.data.voice_data_configs import (
     VocoderMixtureConfig,
 )
 from larry.voice.config.evaluation.evaluation_configs import IntelligibilityConfig, PretrainedVocoderConfig
-from larry.voice.config.preprocessing.voice_configs import WorldConfig
+from larry.voice.config.preprocessing.voice_configs import ExcitationConfig, WorldConfig
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -67,6 +67,7 @@ class SpeechGenerationVizConfig(Config):
 class VocoderVizConfig(SpeechGenerationVizConfig):
     step_sweep: list[int] = dataclasses.field(default_factory=lambda: [4, 8, 16, 32])
     world: WorldConfig = dataclasses.field(default_factory=WorldConfig)
+    excitation: ExcitationConfig = dataclasses.field(default_factory=ExcitationConfig)
 
 
 @dataclasses.dataclass(kw_only=True)

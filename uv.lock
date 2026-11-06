@@ -1142,7 +1142,6 @@ dependencies = [
     { name = "matplotlib" },
     { name = "pandas" },
     { name = "pdfplumber" },
-    { name = "pesq" },
     { name = "pillow" },
     { name = "pyarrow-stubs" },
     { name = "pyworld" },
@@ -1184,7 +1183,6 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "pandas", specifier = ">=3.0.6" },
     { name = "pdfplumber", specifier = ">=0.11.10" },
-    { name = "pesq", specifier = ">=0.0.4" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pyarrow-stubs", specifier = ">=20.0.0.20260819" },
     { name = "pyworld", git = "https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder?rev=f31ad88d543fdaebbda2d0c9a5e4d4f991ae0b6c" },
@@ -2136,12 +2134,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/05/56/6f450312ba05a27d7
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/9a/07d658e1e7fad860f1c541ab941348125dbdab773be3a0afaf32361866c7/pdfplumber-0.11.10-py3-none-any.whl", hash = "sha256:7741ea81bf165b474b153e6789d10d18e06b6ddcf3ec84289c3ef2fed6802580", size = 60047, upload-time = "2026-06-15T03:31:29.702Z" },
 ]
-
-[[package]]
-name = "pesq"
-version = "0.0.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/22/e6/f8bdcef3238ac10fb3ce37d150e9b03a152d971febd681f088c6e5e17d8e/pesq-0.0.4.tar.gz", hash = "sha256:b724b28f73fb638522982bd68e8c3c0957e2f45210639a460233b17aa7fc890b", size = 38702, upload-time = "2022-05-17T14:15:26.301Z" }
 
 [[package]]
 name = "pillow"

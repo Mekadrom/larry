@@ -1,0 +1,3 @@
+trainer:
+  criterion:
+    mel_weight: 0.1

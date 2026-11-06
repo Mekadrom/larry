@@ -47,6 +47,19 @@ class WorldConfig(SampleRateConfig):
 
 
 @dataclasses.dataclass(kw_only=True)
+class ExcitationConfig(SampleRateConfig):
+    hop_length: int = 160
+    lpc_window: int = 512
+    lpc_order: int = 18
+    lpc_regularization: float = 1e-4
+    residual_trim: int = 32
+    cepstrum_window: int = 1024
+    f0_floor: float = 60.0
+    f0_ceil: float = 400.0
+    min_peak: float = 1e-3
+
+
+@dataclasses.dataclass(kw_only=True)
 class TranscriptConfig(Config):
     """Configures a transcript parser."""
 

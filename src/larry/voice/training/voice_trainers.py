@@ -487,5 +487,6 @@ class VocoderTrainer(VoiceTrainer[LarryVocoder, VocoderTrainerConfig, SpeechSour
             sway_coefficient=viz.sway_coefficient,
             seed=viz.seed,
             world=viz.world,
+            excitation=viz.excitation,
             intelligibility=self.make_intelligibility_probe(viz.intelligibility, WaveformCollator()),
         )

@@ -12,10 +12,10 @@ from larry.common.model.masks import make_non_pad_mask
 from larry.common.training.viz_callbacks import pick_rows
 from larry.text.tokenizer.text_tokenizer import TextTokenizer
 from larry.voice.config.model.voice_model_configs import SpeechEncoderDecoderModelConfig
-from larry.voice.config.preprocessing.voice_configs import WorldConfig
+from larry.voice.config.preprocessing.voice_configs import ExcitationConfig, WorldConfig
 from larry.voice.data.dataloading.voice_dataloading import WaveformCollator
-from larry.voice.evaluation.speech_metrics import pesq_wb
 from larry.voice.evaluation.vocoding import MelVocoder
+from larry.voice.features.excitation import ExcitationAnalyzer
 from larry.voice.features.world import WorldAnalyzer
 from larry.voice.model.speech_decoder import SpeechDecoderGeneration, SpeechDecoderModel
 from larry.voice.model.speech_encoder import SpeechEncoderModel, SpeechEncoderPreBottleneck
@@ -451,6 +451,7 @@ class VocoderVizCallback(VoiceVizCallback):
             sway_coefficient: float | None = -1.0,
             seed: int = 0,
             world: WorldConfig | None = None,
+            excitation: ExcitationConfig | None = None,
             intelligibility: IntelligibilityProbe | None = None,
     ) -> None:
         super().__init__(trainer, viz_steps)
@@ -460,6 +461,7 @@ class VocoderVizCallback(VoiceVizCallback):
         self.sway_coefficient = sway_coefficient
         self.seed = seed
         self.world = WorldAnalyzer(world or WorldConfig())
+        self.excitation = ExcitationAnalyzer(excitation or ExcitationConfig())
         self.dataset = trainer.eval_loader.dataset
         self.rows = pick_rows(self.dataset.offsets, examples_per_source)
         self.reference_logged = False
@@ -514,24 +516,18 @@ class VocoderVizCallback(VoiceVizCallback):
             self.trainer.metrics.add_figure(
                 f"{tag}/comparison", self.comparison_figure(real_mel, fake_mel, frame_seconds), step
             )
-            scalars = self._scalars(real, fake, real_mel, fake_mel) | self.audio_scalars(real, fake, sample_rate)
+            scalars = self._scalars(real, fake, real_mel, fake_mel) | self.audio_scalars(real, fake)
             for name, value in scalars.items():
                 self.trainer.metrics.add_scalar(f"{tag}/{name}", value, step)
                 totals.setdefault(name, []).append(value)
+                if name in ExcitationAnalyzer.METRICS:
+                    totals.setdefault(f"{name}/{self.source_name(item)}", []).append(value)
 
         for name, values in totals.items():
             self.trainer.metrics.add_scalar(f"viz/{name}", sum(values) / len(values), step)
 
         for n, value in sweep_mel_l1.items():
             self.trainer.metrics.add_scalar(f"viz/mel_l1_by_steps/{n}", value, step)
-
-        for n, swept in sweep.items():
-            pesqs = [
-                score for i in range(len(items))
-                if (score := self.pesq(waveforms[i], swept, i, sample_rate)) is not None
-            ]
-            if pesqs:
-                self.trainer.metrics.add_scalar(f"viz/pesq_wb_by_steps/{n}", sum(pesqs) / len(pesqs), step)
 
         self.reference_logged = True
         self.log_intelligibility(scores, step)
@@ -551,18 +547,12 @@ class VocoderVizCallback(VoiceVizCallback):
             fixed=lambda batch: {"original": unpad(batch["waveforms"], batch["waveform_lengths"])},
         )
 
-    @staticmethod
-    def pesq(real: torch.Tensor, generated: LarryVocoderGeneration, i: int, sample_rate: int) -> float | None:
-        n = int(generated.waveform_lengths[i])
-        return pesq_wb(real[:n].float().cpu(), generated.waveforms[i, :n].float().cpu(), sample_rate)
-
-    def audio_scalars(self, real: torch.Tensor, fake: torch.Tensor, sample_rate: int) -> dict[str, float]:
-        scalars = self.world.compare(self.world.analyze(real), self.world.analyze(fake))
-        score = pesq_wb(real, fake, sample_rate)
-        if score is not None:
-            scalars["pesq_wb"] = score
-
-        return scalars
+    def audio_scalars(self, real: torch.Tensor, fake: torch.Tensor) -> dict[str, float]:
+        real_world = self.world.analyze(real)
+        scalars = self.world.compare(real_world, self.world.analyze(fake))
+        return scalars | self.excitation.compare(
+            real.numpy(), fake.numpy(), real_world.voiced, self.world.config.hop_length
+        )
 
     @staticmethod
     def _mel_l1(

@@ -3,7 +3,6 @@ import pytest
 import torch
 
 from larry.voice.config.preprocessing.voice_configs import WorldConfig
-from larry.voice.evaluation.speech_metrics import pesq_wb
 from larry.voice.features.world import WorldAnalyzer, WorldFeatures
 
 
@@ -60,12 +59,3 @@ def test_normalized_log_f0_is_speaker_invariant() -> None:
     assert np.allclose(low, high, atol=1e-5)
     assert low[0] == low[4] == 0
     assert low[f0 > 0].mean() == pytest.approx(0.0, abs=1e-5)
-
-
-def test_pesq_wb_ranks_degradation_and_skips_silence() -> None:
-    clean = torch.from_numpy(_voice(140.0, seconds=2.0))
-    noisy = clean + 0.05 * torch.randn_like(clean)
-
-    assert pesq_wb(clean, clean, 16_000) > 4.0
-    assert pesq_wb(clean, noisy, 16_000) < pesq_wb(clean, clean, 16_000)
-    assert pesq_wb(torch.zeros(32_000), torch.zeros(32_000), 16_000) is None

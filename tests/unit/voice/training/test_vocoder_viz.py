@@ -2,6 +2,7 @@ import contextlib
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 import torch
 from datasets import Dataset
 
@@ -9,6 +10,7 @@ from larry.voice.config.data.voice_data_configs import SpeechSourceConfig
 from larry.voice.config.model.voice_model_configs import LarryVocoderConfig
 from larry.voice.data.dataloading.indexed_speech_dataset import IndexedSpeechDataset
 from larry.voice.data.dataloading.voice_dataloading import WaveformCollator
+from larry.voice.features.world import WorldFeatures
 from larry.voice.model.vocoder import LarryVocoder
 from larry.voice.training.voice_trainers import VocoderTrainer
 from larry.voice.training.voice_viz_callbacks import VocoderVizCallback
@@ -109,7 +111,7 @@ def test_viz_restores_training_mode() -> None:
     assert callback.trainer.model.training
 
 
-def test_viz_logs_pesq_and_world_metrics_with_averages() -> None:
+def test_viz_logs_world_metrics_with_averages() -> None:
     callback, metrics = _callback()
 
     callback.viz(10)
@@ -117,7 +119,7 @@ def test_viz_logs_pesq_and_world_metrics_with_averages() -> None:
     assert {"viz/0/a/vuv_error", "viz/0/a/aperiodicity_l1", "viz/vuv_error", "viz/aperiodicity_l1"} <= set(
         metrics.scalars
     )
-    assert any(tag.startswith("viz/pesq_wb_by_steps/") for tag in metrics.scalars) == ("viz/pesq_wb" in metrics.scalars)
+    assert not any("pesq" in tag for tag in metrics.scalars)
 
 
 def test_viz_scores_regenerated_audio_against_the_originals_transcribed_once() -> None:
@@ -134,3 +136,24 @@ def test_viz_scores_regenerated_audio_against_the_originals_transcribed_once() -
         metrics.scalars
     )
     assert callback.trainer.model.training
+
+
+def test_viz_logs_excitation_metrics_per_clip_overall_and_per_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    callback, metrics = _callback()
+    analyze = callback.world.analyze
+
+    def all_voiced(waveform: torch.Tensor) -> WorldFeatures:
+        features = analyze(waveform)
+        features.f0[:] = 200.0
+        return features
+
+    monkeypatch.setattr(callback.world, "analyze", all_voiced)
+
+    callback.viz(10)
+
+    for name in ("pulse_sharpness_real", "pulse_sharpness_gap", "cpp_generated", "cpp_gap"):
+        assert {f"viz/0/a/{name}", f"viz/{name}", f"viz/{name}/a", f"viz/{name}/b"} <= set(metrics.scalars)
+
+    assert metrics.scalars["viz/cpp_gap/a"] == pytest.approx(
+        metrics.scalars["viz/cpp_generated/a"] - metrics.scalars["viz/cpp_real/a"]
+    )
